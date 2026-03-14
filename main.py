@@ -84,11 +84,18 @@ def detect_motion_objects(frame, prev_frame):
     
     return valid_contours[:5]
 
-def draw_heat_boxes(frame, contours, min_area=100):
-    """Draw bounding boxes around hot spots."""
+def draw_heat_boxes(frame, contours, min_area=100, max_boxes=None):
+    """Draw bounding boxes around hot spots, limited to max_boxes."""
     output = frame.copy()
     
-    for contour in contours:
+    # Sort contours by area (largest first)
+    sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    
+    # Limit number of boxes if specified
+    if max_boxes is not None:
+        sorted_contours = sorted_contours[:max_boxes]
+    
+    for contour in sorted_contours:
         area = cv2.contourArea(contour)
         if area > min_area:
             x, y, w, h = cv2.boundingRect(contour)
@@ -306,6 +313,7 @@ def main():
     yolo_skip_frames = False
     frame_count = 0
     yolo_result_frame = None
+    heat_seeker_max_boxes = 5
     threshold_value = 127
     optical_flow_threshold = 100
     isotherm_min = 100
@@ -377,8 +385,8 @@ def main():
         # Apply Heat-Seeker mode if enabled
         elif heat_seeker_mode:
             contours = detect_hot_spots(frame)
-            display_frame = draw_heat_boxes(display_frame, contours)
-            mode_text = "Heat-Seeker: ON"
+            display_frame = draw_heat_boxes(display_frame, contours, max_boxes=heat_seeker_max_boxes)
+            mode_text = f"Heat-Seeker: ON (Max boxes: {heat_seeker_max_boxes})"
         
         # Apply Heat-Cluster mode if enabled
         elif heat_cluster_mode:
@@ -599,6 +607,14 @@ def main():
             elif key == 0:  # Up arrow - increase max
                 isotherm_max = min(255, isotherm_max + 5)
                 print(f"Isotherm range: {isotherm_min}-{isotherm_max}")
+        elif heat_seeker_mode and key != 255:
+            # Arrow keys for Heat-Seeker box limit
+            if key == 2:  # Left arrow - decrease max boxes
+                heat_seeker_max_boxes = max(1, heat_seeker_max_boxes - 1)
+                print(f"Heat-Seeker max boxes: {heat_seeker_max_boxes}")
+            elif key == 3:  # Right arrow - increase max boxes
+                heat_seeker_max_boxes = min(15, heat_seeker_max_boxes + 1)
+                print(f"Heat-Seeker max boxes: {heat_seeker_max_boxes}")
         
         prev_frame = frame.copy()
     
