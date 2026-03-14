@@ -195,11 +195,24 @@ orb_ref_gray = None  # Reference frame for stabilization
 orb_ref_kps = None
 orb_ref_des = None
 orb_frame_count = 0  # Counter to refresh reference frame periodically
+orb_matched_kps = []  # Store matched keypoints for visualization
+
+# Phase Correlation globals for super stabilization
+phase_prev_gray = None
+phase_shift_buffer = []
+phase_buffer_size = 5
+phase_strength = 1.0
+phase_ref_gray = None  # Reference frame for phase correlation
+phase_frame_count = 0  # Counter to refresh reference frame
+
+# Super-resolution globals
+superres_frame_buffer = []
+superres_buffer_size = 5
 
 def stabilize_frame_orb(frame, strength=1.0):
     """Stabilize frame using ORB feature tracking + RANSAC with reference frame approach."""
     global orb_prev_gray, orb_prev_kps, orb_prev_des, orb_smoothed_matrix, orb_smooth_factor, orb_matrix_buffer, orb_buffer_size
-    global orb_ref_gray, orb_ref_kps, orb_ref_des, orb_frame_count
+    global orb_ref_gray, orb_ref_kps, orb_ref_des, orb_frame_count, orb_matched_kps
     
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     kps, des = orb_detector.detectAndCompute(gray, None)
@@ -208,6 +221,7 @@ def stabilize_frame_orb(frame, strength=1.0):
     if orb_ref_gray is None or des is None:
         orb_ref_gray, orb_ref_kps, orb_ref_des = gray, kps, des
         orb_prev_gray, orb_prev_kps, orb_prev_des = gray, kps, des
+        orb_matched_kps = []
         return frame
     
     # Refresh reference frame every 30 frames to prevent drift
@@ -223,11 +237,15 @@ def stabilize_frame_orb(frame, strength=1.0):
         matches = sorted(matches, key=lambda x: x.distance)[:200]
         
         if len(matches) < 4:
+            orb_matched_kps = []
             return frame
         
         # Extract coordinates
         pts1 = np.float32([orb_ref_kps[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
         pts2 = np.float32([kps[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        
+        # Store matched keypoints for visualization
+        orb_matched_kps = [tuple(map(int, pt[0])) for pt in pts2]
         
         # Find rigid transformation (translation + rotation) with RANSAC
         matrix, _ = cv2.estimateAffinePartial2D(pts2, pts1, method=cv2.RANSAC, ransacReprojThreshold=10.0)
@@ -256,6 +274,94 @@ def stabilize_frame_orb(frame, strength=1.0):
         
         return frame
     except:
+        orb_matched_kps = []
+        return frame
+
+def stabilize_frame_phase_correlation(frame):
+    """Super stabilization using phase correlation with reference frame and windowing."""
+    global phase_prev_gray, phase_shift_buffer, phase_buffer_size, phase_strength
+    global phase_ref_gray, phase_frame_count
+    
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY).astype(np.float32)
+    
+    # Initialize reference frame on first call
+    if phase_ref_gray is None:
+        phase_ref_gray = gray
+        phase_prev_gray = gray
+        return frame
+    
+    # Refresh reference frame every 60 frames to prevent drift
+    phase_frame_count += 1
+    if phase_frame_count > 60:
+        phase_ref_gray = gray
+        phase_frame_count = 0
+    
+    try:
+        # Apply Hann window to reduce edge artifacts in phase correlation
+        h, w = gray.shape
+        window = np.outer(np.hanning(h), np.hanning(w))
+        windowed_ref = phase_ref_gray * window
+        windowed_gray = gray * window
+        
+        # Calculate sub-pixel shift using phase correlation against reference
+        shift, response = cv2.phaseCorrelate(windowed_ref, windowed_gray)
+        dx, dy = shift
+        
+        # Only apply if confidence is high (response > 0.1)
+        if response < 0.1:
+            return frame
+        
+        # Add shift to buffer for smoothing
+        phase_shift_buffer.append((dx, dy))
+        if len(phase_shift_buffer) > phase_buffer_size:
+            phase_shift_buffer.pop(0)
+        
+        # Average shifts in buffer
+        avg_dx = np.mean([s[0] for s in phase_shift_buffer])
+        avg_dy = np.mean([s[1] for s in phase_shift_buffer])
+        
+        # Apply strength factor (negate to reverse the motion)
+        avg_dx = -avg_dx * phase_strength
+        avg_dy = -avg_dy * phase_strength
+        
+        # Clamp to reasonable values to prevent extreme warping
+        avg_dx = np.clip(avg_dx, -50, 50)
+        avg_dy = np.clip(avg_dy, -50, 50)
+        
+        # Apply the sub-pixel shift to stabilize
+        matrix = np.float32([[1, 0, avg_dx], [0, 1, avg_dy]])
+        stabilized = cv2.warpAffine(frame, matrix, (frame.shape[1], frame.shape[0]))
+        
+        phase_prev_gray = gray
+        return stabilized
+    except Exception as e:
+        phase_prev_gray = gray
+        return frame
+
+def apply_super_resolution(frame):
+    """Apply temporal super-resolution using multi-frame reconstruction."""
+    global superres_frame_buffer, superres_buffer_size
+    
+    try:
+        # Add frame to buffer
+        superres_frame_buffer.append(frame.copy())
+        
+        # Keep buffer size limited
+        if len(superres_frame_buffer) > superres_buffer_size:
+            superres_frame_buffer.pop(0)
+        
+        # Only process if we have enough frames
+        if len(superres_frame_buffer) < 3:
+            return frame
+        
+        # Average all frames in buffer for temporal smoothing
+        avg_frame = np.mean(superres_frame_buffer, axis=0).astype(np.uint8)
+        
+        # Upscale the averaged frame
+        upscaled = cv2.resize(avg_frame, None, fx=2, fy=2, interpolation=cv2.INTER_LANCZOS4)
+        
+        return upscaled
+    except Exception as e:
         return frame
 
 def stabilize_frame(frame, prev_frame):
@@ -396,14 +502,32 @@ def isotherm_highlight(frame, min_threshold=100, max_threshold=200, use_black=Fa
     
     return output
 def main():
-    global yolo_model, orb_buffer_size
+    global yolo_model, orb_buffer_size, phase_strength, phase_buffer_size
     
-    # Try to open the thermal camera (usually device 0, adjust if needed)
-    cap = cv2.VideoCapture(0)
+    # Find available cameras
+    def find_available_cameras(max_devices=10):
+        available = []
+        for i in range(max_devices):
+            cap_test = cv2.VideoCapture(i)
+            if cap_test.isOpened():
+                available.append(i)
+                cap_test.release()
+        return available
+    
+    available_cameras = find_available_cameras()
+    if not available_cameras:
+        print("Error: No cameras found.")
+        sys.exit(1)
+    
+    print(f"Available cameras: {available_cameras}")
+    current_camera_idx = 0
+    cap = cv2.VideoCapture(available_cameras[current_camera_idx])
     
     if not cap.isOpened():
         print("Error: Could not open camera. Check USB connection.")
         sys.exit(1)
+    
+    print(f"Using camera device: {available_cameras[current_camera_idx]}")
     
     # Set camera properties for better performance
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -412,6 +536,7 @@ def main():
     heat_cluster_mode = False
     motion_mode = False
     upscale_mode = False
+    superres_mode = False
     palette_mode = False
     denoise_mode = False
     normalize_mode = False
@@ -420,7 +545,10 @@ def main():
     stabilize_use_orb = True
     stabilize_strength = 1.0
     stabilize_smooth = 0.7
+    stabilize_show_points = False
+    stabilize_super = False
     threshold_mode = False
+    show_text = True
     yolo_mode = False
     optical_flow_mode = False
     optical_flow_masked_mode = False
@@ -444,6 +572,7 @@ def main():
     print("Press 'c' to toggle Heat-Cluster mode")
     print("Press 'm' to toggle Motion Detection mode")
     print("Press 'u' to toggle Upscale mode")
+    print("Press 'shift+u' to toggle Super-Resolution mode (temporal multi-frame)")
     print("Press 'p' to toggle Palette mode")
     print("Press 'd' to toggle Denoise mode")
     print("Press 'o' to toggle Normalize mode")
@@ -470,7 +599,27 @@ def main():
     print("Press ']' to increase temporal smoothing (in Stabilization mode)")
     print("Press '{' to decrease frame buffer size (in Stabilization mode)")
     print("Press '}' to increase frame buffer size (in Stabilization mode)")
+    print("Press 'v' to toggle stabilization point visualization (in Stabilization mode)")
+    print("Press 'x' to toggle Super Stabilization (phase correlation micro-jitter removal)")
+    print("Press 'z' to increase Super Stabilization strength (in Super Stabilization mode)")
+    print("Press 'shift+z' to decrease Super Stabilization strength (in Super Stabilization mode)")
+    print("Press 'a' to increase Super Stabilization buffer size (in Super Stabilization mode)")
+    print("Press 'shift+a' to decrease Super Stabilization buffer size (in Super Stabilization mode)")
+    print("Press 'w' to toggle text display on/off")
+    print("Press 'tab' to cycle to next camera device")
     print("Press 'q' to quit")
+    
+    # Get frame dimensions and create 1.5x canvas
+    ret, first_frame = cap.read()
+    if not ret:
+        print("Error: Could not read first frame")
+        sys.exit(1)
+    
+    frame_height, frame_width = first_frame.shape[:2]
+    canvas_width = int(frame_width * 1.5)
+    canvas_height = int(frame_height * 1.5)
+    offset_x = (canvas_width - frame_width) // 2
+    offset_y = (canvas_height - frame_height) // 2
     
     while True:
         ret, frame = cap.read()
@@ -498,9 +647,17 @@ def main():
                 import sys
                 sys.modules['__main__'].orb_smooth_factor = stabilize_smooth
                 display_frame = stabilize_frame_orb(display_frame, strength=stabilize_strength)
+                
+                # Draw stabilization points if enabled
+                if stabilize_show_points:
+                    for pt in orb_matched_kps:
+                        cv2.circle(display_frame, pt, 3, (0, 255, 255), -1)
             else:
                 display_frame = stabilize_frame(display_frame, prev_frame)
         
+        # Apply Super Stabilization (phase correlation) if enabled
+        if stabilize_super:
+            display_frame = stabilize_frame_phase_correlation(display_frame)
         # Apply Denoise mode if enabled
         if denoise_mode:
             display_frame, accumulated_frame = denoise_frame(display_frame, accumulated_frame)
@@ -574,37 +731,89 @@ def main():
         if upscale_mode:
             display_frame = upscale_frame(display_frame, scale=2)
         
+        # Apply Super-Resolution if enabled (temporal multi-frame)
+        if superres_mode:
+            display_frame = apply_super_resolution(display_frame)
+        
+        # Build text lines for display
+        text_lines = [mode_text]
+        
         # Add denoise indicator
         if denoise_mode:
-            mode_text += " | Denoise: ON"
+            text_lines.append("Denoise: ON")
         
         # Add normalize indicator
         if normalize_mode:
-            mode_text += " | Normalize: ON"
+            text_lines.append("Normalize: ON")
         
         # Add enhance indicator
         if enhance_mode:
-            mode_text += " | Enhance: ON"
+            text_lines.append("Enhance: ON")
         
         # Add stabilize indicator
         if stabilize_mode:
-            mode_text += f" | Stabilize: ON (Strength: {stabilize_strength:.1f}, Smooth: {stabilize_smooth:.2f}, Buffer: {orb_buffer_size})"
+            text_lines.append(f"Stabilize: ON (Strength: {stabilize_strength:.1f}, Smooth: {stabilize_smooth:.2f}, Buffer: {orb_buffer_size})")
         
-        # Add upscale indicator
+        # Add super stabilization indicator
+        if stabilize_super:
+            text_lines.append(f"Super Stabilization: ON (Strength: {phase_strength:.1f}, Buffer: {phase_buffer_size})")
+        
         if upscale_mode:
-            mode_text += " | Upscale: ON"
+            text_lines.append("Upscale: ON")
         
-        # Add mode indicator
-        cv2.putText(display_frame, mode_text, (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        if superres_mode:
+            text_lines.append("Super-Resolution: ON")
+        
+        # Render text lines if enabled
+        if show_text:
+            y_offset = 30
+            for line in text_lines:
+                cv2.putText(display_frame, line, (10, y_offset), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                y_offset += 20
+        
+        # Create canvas and place frame in center
+        current_h, current_w = display_frame.shape[:2]
+        
+        # If upscaled, use larger canvas to accommodate
+        if current_h != frame_height or current_w != frame_width:
+            upscale_canvas_width = int(current_w * 1.5)
+            upscale_canvas_height = int(current_h * 1.5)
+            upscale_offset_x = (upscale_canvas_width - current_w) // 2
+            upscale_offset_y = (upscale_canvas_height - current_h) // 2
+            canvas = np.zeros((upscale_canvas_height, upscale_canvas_width, 3), dtype=np.uint8)
+            canvas[upscale_offset_y:upscale_offset_y+current_h, upscale_offset_x:upscale_offset_x+current_w] = display_frame
+        else:
+            canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
+            canvas[offset_y:offset_y+frame_height, offset_x:offset_x+frame_width] = display_frame
         
         # Display the frame
-        cv2.imshow("Thermal Camera Feed", display_frame)
+        # Use WINDOW_NORMAL to allow window resizing
+        cv2.namedWindow("Thermal Camera Feed", cv2.WINDOW_NORMAL)
+        cv2.imshow("Thermal Camera Feed", canvas)
         
         # Handle key presses
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             break
+        elif key == 9:  # Tab key
+            current_camera_idx = (current_camera_idx + 1) % len(available_cameras)
+            cap.release()
+            cap = cv2.VideoCapture(available_cameras[current_camera_idx])
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            # Read first frame to get new dimensions
+            ret, temp_frame = cap.read()
+            if ret:
+                frame_height, frame_width = temp_frame.shape[:2]
+                canvas_width = int(frame_width * 1.5)
+                canvas_height = int(frame_height * 1.5)
+                offset_x = (canvas_width - frame_width) // 2
+                offset_y = (canvas_height - frame_height) // 2
+            print(f"Switched to camera device: {available_cameras[current_camera_idx]}")
+        elif key == ord('w'):
+            show_text = not show_text
+            status = "ON" if show_text else "OFF"
+            print(f"Text display: {status}")
         elif key == ord('h'):
             heat_seeker_mode = not heat_seeker_mode
             heat_cluster_mode = False
@@ -627,6 +836,10 @@ def main():
             upscale_mode = not upscale_mode
             status = "ON" if upscale_mode else "OFF"
             print(f"Upscale mode: {status}")
+        elif key == ord('U'):
+            superres_mode = not superres_mode
+            status = "ON" if superres_mode else "OFF"
+            print(f"Super-Resolution mode: {status}")
         elif key == ord('p'):
             palette_mode = not palette_mode
             heat_seeker_mode = False
@@ -676,6 +889,26 @@ def main():
         elif key == ord('}') and stabilize_mode:
             orb_buffer_size = min(20, orb_buffer_size + 1)
             print(f"Frame buffer size: {orb_buffer_size}")
+        elif key == ord('v') and stabilize_mode:
+            stabilize_show_points = not stabilize_show_points
+            status = "ON" if stabilize_show_points else "OFF"
+            print(f"Stabilization point visualization: {status}")
+        elif key == ord('x'):
+            stabilize_super = not stabilize_super
+            status = "ON" if stabilize_super else "OFF"
+            print(f"Super Stabilization (phase correlation): {status}")
+        elif key == ord('z') and stabilize_super:
+            phase_strength = min(3.0, phase_strength + 0.1)
+            print(f"Super Stabilization strength: {phase_strength:.1f}")
+        elif key == ord('Z') and stabilize_super:
+            phase_strength = max(0.1, phase_strength - 0.1)
+            print(f"Super Stabilization strength: {phase_strength:.1f}")
+        elif key == ord('a') and stabilize_super:
+            phase_buffer_size = min(20, phase_buffer_size + 1)
+            print(f"Super Stabilization buffer size: {phase_buffer_size}")
+        elif key == ord('A') and stabilize_super:
+            phase_buffer_size = max(1, phase_buffer_size - 1)
+            print(f"Super Stabilization buffer size: {phase_buffer_size}")
         elif key == ord('t'):
             threshold_mode = not threshold_mode
             heat_seeker_mode = False
