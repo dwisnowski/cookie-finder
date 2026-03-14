@@ -7,6 +7,8 @@ A real-time USB thermal camera viewer using OpenCV with advanced thermal analysi
 
 [Quick start and Spec sheet](https://cdn-files.myshopline.com/file/store/1729084058744/TNV30i-Quick-Start-Guide.pdf)
 
+[Pixfra firmware downloads](https://www.pixfra.com/pips2-0)
+
 MILESEEY TNV30i Night Vision Thermal Scope, 512×384 Super-Resolution 50Hz 20mK 1600-Yard Thermal Imaging Camera
 
 **Hardware:** Zhejiang Pixfra thermal camera  
