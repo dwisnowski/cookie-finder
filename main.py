@@ -84,9 +84,10 @@ def detect_motion_objects(frame, prev_frame):
     
     return valid_contours[:5]
 
-def draw_heat_boxes(frame, contours, min_area=100, max_boxes=None):
-    """Draw bounding boxes around hot spots, limited to max_boxes."""
+def draw_heat_boxes(frame, contours, min_area=100, max_boxes=None, min_brightness=0):
+    """Draw bounding boxes around hot spots, limited to max_boxes and min brightness."""
     output = frame.copy()
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     
     # Sort contours by area (largest first)
     sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
@@ -95,13 +96,21 @@ def draw_heat_boxes(frame, contours, min_area=100, max_boxes=None):
     if max_boxes is not None:
         sorted_contours = sorted_contours[:max_boxes]
     
+    boxes_drawn = 0
     for contour in sorted_contours:
         area = cv2.contourArea(contour)
         if area > min_area:
             x, y, w, h = cv2.boundingRect(contour)
-            cv2.rectangle(output, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            
+            # Check if box contains pixels above min_brightness threshold
+            roi = gray[y:y+h, x:x+w]
+            max_brightness = np.max(roi)
+            
+            if max_brightness >= min_brightness:
+                cv2.rectangle(output, (x, y), (x + w, y + h), (0, 255, 0), 2)
+                boxes_drawn += 1
     
-    return output
+    return output, boxes_drawn
 
 def draw_cluster_boxes(frame, contours):
     """Draw bounding boxes around heat clusters with labels."""
@@ -314,6 +323,7 @@ def main():
     frame_count = 0
     yolo_result_frame = None
     heat_seeker_max_boxes = 5
+    heat_seeker_min_brightness = 50
     threshold_value = 127
     optical_flow_threshold = 100
     isotherm_min = 100
@@ -385,8 +395,8 @@ def main():
         # Apply Heat-Seeker mode if enabled
         elif heat_seeker_mode:
             contours = detect_hot_spots(frame)
-            display_frame = draw_heat_boxes(display_frame, contours, max_boxes=heat_seeker_max_boxes)
-            mode_text = f"Heat-Seeker: ON (Max boxes: {heat_seeker_max_boxes})"
+            display_frame, boxes_drawn = draw_heat_boxes(display_frame, contours, max_boxes=heat_seeker_max_boxes, min_brightness=heat_seeker_min_brightness)
+            mode_text = f"Heat-Seeker: ON (Max: {heat_seeker_max_boxes}, Min brightness: {heat_seeker_min_brightness}, Drawn: {boxes_drawn})"
         
         # Apply Heat-Cluster mode if enabled
         elif heat_cluster_mode:
@@ -608,13 +618,19 @@ def main():
                 isotherm_max = min(255, isotherm_max + 5)
                 print(f"Isotherm range: {isotherm_min}-{isotherm_max}")
         elif heat_seeker_mode and key != 255:
-            # Arrow keys for Heat-Seeker box limit
+            # Arrow keys for Heat-Seeker box limit and brightness threshold
             if key == 2:  # Left arrow - decrease max boxes
                 heat_seeker_max_boxes = max(1, heat_seeker_max_boxes - 1)
                 print(f"Heat-Seeker max boxes: {heat_seeker_max_boxes}")
             elif key == 3:  # Right arrow - increase max boxes
                 heat_seeker_max_boxes = min(15, heat_seeker_max_boxes + 1)
                 print(f"Heat-Seeker max boxes: {heat_seeker_max_boxes}")
+            elif key == 1:  # Down arrow - decrease min brightness
+                heat_seeker_min_brightness = max(0, heat_seeker_min_brightness - 5)
+                print(f"Heat-Seeker min brightness: {heat_seeker_min_brightness}")
+            elif key == 0:  # Up arrow - increase min brightness
+                heat_seeker_min_brightness = min(255, heat_seeker_min_brightness + 5)
+                print(f"Heat-Seeker min brightness: {heat_seeker_min_brightness}")
         
         prev_frame = frame.copy()
     
