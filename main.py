@@ -226,24 +226,31 @@ def calculate_optical_flow_masked(frame, prev_frame, threshold=100):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
     
-    # Create mask for pixels above threshold
+    # 1. Low-res flow calculation (Step 1 for speed on Intel)
+    # Reducing the scale here significantly improves FPS
+    small_gray = cv2.resize(gray, (0, 0), fx=0.5, fy=0.5)
+    small_prev = cv2.resize(prev_gray, (0, 0), fx=0.5, fy=0.5)
+    
+    flow = cv2.calcOpticalFlowFarneback(small_prev, small_gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+    
+    # 2. Visualization
+    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+    hsv = np.zeros((small_gray.shape[0], small_gray.shape[1], 3), dtype=np.uint8)
+    hsv[..., 0] = ang * 180 / np.pi / 2
+    hsv[..., 1] = 255
+    hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    
+    flow_bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    
+    # 3. Resize back and mask
+    flow_final = cv2.resize(flow_bgr, (frame.shape[1], frame.shape[0]))
     mask = gray > threshold
     
-    # Calculate dense optical flow using Farneback algorithm
-    flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+    # Only show flow where it's 'hot'
+    result = frame.copy()
+    result[mask] = cv2.addWeighted(frame[mask], 0.5, flow_final[mask], 0.5, 0)
     
-    # Create visualization
-    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
-    hsv = np.zeros_like(frame)
-    hsv[..., 0] = ang * 180 / np.pi / 2
-    hsv[..., 1] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
-    hsv[..., 2] = 255
-    
-    # Apply mask - only show flow where heat is above threshold
-    hsv[~mask] = 0
-    
-    flow_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-    return flow_frame
+    return result
 
 def isotherm_highlight(frame, min_threshold=100, max_threshold=200, use_black=False):
     """Highlight specific heat range (isotherm) in red or black, rest in grayscale."""
