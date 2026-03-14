@@ -46,6 +46,8 @@ Press `q` to quit.
 - **d** - Denoise mode (temporal frame averaging)
 - **o** - Normalize mode (stretch 0-255 range)
 - **e** - Enhance Details (CLAHE contrast enhancement)
+- **s** - Stabilization mode (ORB+RANSAC feature tracking)
+- **Shift+S** - Toggle stabilization method (ORB+RANSAC vs ECC)
 - **u** - Upscale mode (2x resolution with Lanczos interpolation)
 
 ### Heat-Seeker Mode Controls
@@ -65,6 +67,12 @@ Press `q` to quit.
 ### Optical Flow Masked Mode Controls
 - **=** - Increase threshold value (0-255)
 - **-** - Decrease threshold value (0-255)
+
+### Stabilization Mode Controls
+- **=** - Increase stabilization strength (0.0-1.0)
+- **-** - Decrease stabilization strength (0.0-1.0)
+- **[** - Decrease temporal smoothing (0.0-0.99, lower = less smoothing)
+- **]** - Increase temporal smoothing (0.0-0.99, higher = more smoothing over frames)
 
 ### Isotherm Highlight Mode Controls
 - **Left Arrow** - Decrease min threshold
@@ -135,6 +143,17 @@ Stretches the entire 0-255 brightness range to maximize contrast.
 
 ### Enhance Details (CLAHE)
 Applies Contrast Limited Adaptive Histogram Equalization to pull out subtle thermal textures and details.
+
+### Stabilization
+Uses ORB feature tracking with RANSAC outlier rejection to align frames and reduce camera shake. Finds high-contrast corner points (like edges of hot objects) and uses them as anchors. Supports both ORB+RANSAC (default, more robust) and ECC methods. Works well even with low contrast thermal images and handles rotation.
+
+**Methods:**
+- **ORB+RANSAC** (default): Feature-based tracking, robust to moving objects, supports rotation
+- **ECC**: Pixel-perfect alignment, faster but less robust to thermal blob changes
+
+**Strength Control:** Adjust stabilization strength from 0.0 (no stabilization) to 1.0 (full stabilization) to balance between stability and natural motion.
+
+**Temporal Smoothing:** Use `[` and `]` to adjust smoothing factor (0.0-0.99). Higher values smooth motion over more frames, reducing jitter from hand shake. Default 0.7 provides good balance. Increase to 0.9+ for very smooth video with hand movements.
 
 ### Upscale
 Upscales the 512x390 feed to 1024x780 using Lanczos interpolation for smoother visuals.

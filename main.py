@@ -181,6 +181,108 @@ def enhance_details(frame):
     enhanced_gray = clahe.apply(gray)
     return cv2.cvtColor(enhanced_gray, cv2.COLOR_GRAY2BGR)
 
+# Global ORB stabilizer state
+orb_detector = cv2.ORB_create(nfeatures=2000)
+orb_prev_gray = None
+orb_prev_kps = None
+orb_prev_des = None
+orb_stabilization_strength = 1.0
+orb_smoothed_matrix = np.eye(2, 3, dtype=np.float32)
+orb_smooth_factor = 0.7
+orb_matrix_buffer = []  # Buffer to store transformation matrices
+orb_buffer_size = 1  # Number of frames to average (1 = no buffering)
+orb_ref_gray = None  # Reference frame for stabilization
+orb_ref_kps = None
+orb_ref_des = None
+orb_frame_count = 0  # Counter to refresh reference frame periodically
+
+def stabilize_frame_orb(frame, strength=1.0):
+    """Stabilize frame using ORB feature tracking + RANSAC with reference frame approach."""
+    global orb_prev_gray, orb_prev_kps, orb_prev_des, orb_smoothed_matrix, orb_smooth_factor, orb_matrix_buffer, orb_buffer_size
+    global orb_ref_gray, orb_ref_kps, orb_ref_des, orb_frame_count
+    
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    kps, des = orb_detector.detectAndCompute(gray, None)
+    
+    # Initialize reference frame on first call
+    if orb_ref_gray is None or des is None:
+        orb_ref_gray, orb_ref_kps, orb_ref_des = gray, kps, des
+        orb_prev_gray, orb_prev_kps, orb_prev_des = gray, kps, des
+        return frame
+    
+    # Refresh reference frame every 30 frames to prevent drift
+    orb_frame_count += 1
+    if orb_frame_count > 30:
+        orb_ref_gray, orb_ref_kps, orb_ref_des = gray, kps, des
+        orb_frame_count = 0
+    
+    try:
+        # Match features against reference frame
+        bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        matches = bf.match(orb_ref_des, des)
+        matches = sorted(matches, key=lambda x: x.distance)[:200]
+        
+        if len(matches) < 4:
+            return frame
+        
+        # Extract coordinates
+        pts1 = np.float32([orb_ref_kps[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+        pts2 = np.float32([kps[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        
+        # Find rigid transformation (translation + rotation) with RANSAC
+        matrix, _ = cv2.estimateAffinePartial2D(pts2, pts1, method=cv2.RANSAC, ransacReprojThreshold=10.0)
+        
+        if matrix is not None:
+            # Add matrix to buffer
+            orb_matrix_buffer.append(matrix.copy())
+            
+            # Keep buffer size limited
+            if len(orb_matrix_buffer) > orb_buffer_size:
+                orb_matrix_buffer.pop(0)
+            
+            # Average all matrices in buffer
+            avg_matrix = np.mean(orb_matrix_buffer, axis=0)
+            
+            # Temporal smoothing: blend averaged matrix with previous smoothed matrix
+            orb_smoothed_matrix = orb_smooth_factor * orb_smoothed_matrix + (1 - orb_smooth_factor) * avg_matrix
+            
+            # Apply strength factor to the smoothed transformation
+            identity = np.eye(2, 3, dtype=np.float32)
+            blended_matrix = identity + (orb_smoothed_matrix - identity) * strength
+            
+            # Warp current frame to align with reference
+            stabilized = cv2.warpAffine(frame, blended_matrix, (frame.shape[1], frame.shape[0]))
+            return stabilized
+        
+        return frame
+    except:
+        return frame
+
+def stabilize_frame(frame, prev_frame):
+    """Stabilize frame using ECC (Enhanced Correlation Coefficient)."""
+    if prev_frame is None:
+        return frame
+    
+    try:
+        # Convert to grayscale
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        
+        # Define motion model (translation only is fastest)
+        warp_mode = cv2.MOTION_TRANSLATION
+        warp_matrix = np.eye(2, 3, dtype=np.float32)
+        
+        # Find transformation (limit iterations for 50 FPS speed)
+        criteria = (cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 10, 0.01)
+        _, warp_matrix = cv2.findTransformECC(prev_gray, gray, warp_matrix, warp_mode, criteria)
+        
+        # Apply transformation to current frame
+        stabilized = cv2.warpAffine(frame, warp_matrix, (frame.shape[1], frame.shape[0]),
+                                    flags=cv2.INTER_LINEAR + cv2.WARP_INVERSE_MAP)
+        return stabilized
+    except:
+        return frame  # Fallback if alignment fails
+
 def threshold_frame(frame, threshold_value=127):
     """Apply thresholding to isolate interest items based on brightness."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -294,7 +396,7 @@ def isotherm_highlight(frame, min_threshold=100, max_threshold=200, use_black=Fa
     
     return output
 def main():
-    global yolo_model
+    global yolo_model, orb_buffer_size
     
     # Try to open the thermal camera (usually device 0, adjust if needed)
     cap = cv2.VideoCapture(0)
@@ -314,6 +416,10 @@ def main():
     denoise_mode = False
     normalize_mode = False
     enhance_mode = False
+    stabilize_mode = False
+    stabilize_use_orb = True
+    stabilize_strength = 1.0
+    stabilize_smooth = 0.7
     threshold_mode = False
     yolo_mode = False
     optical_flow_mode = False
@@ -356,6 +462,14 @@ def main():
     print("  Up arrow: increase max threshold")
     print("Press 'b' to toggle black/red mask (in Isotherm mode)")
     print("Press 'n' to cycle to next palette (in Palette mode)")
+    print("Press 's' to toggle Stabilization mode")
+    print("Press 'shift+s' to switch stabilization method (ORB/ECC)")
+    print("Press '=' to increase stabilization strength (in Stabilization mode)")
+    print("Press '-' to decrease stabilization strength (in Stabilization mode)")
+    print("Press '[' to decrease temporal smoothing (in Stabilization mode)")
+    print("Press ']' to increase temporal smoothing (in Stabilization mode)")
+    print("Press '{' to decrease frame buffer size (in Stabilization mode)")
+    print("Press '}' to increase frame buffer size (in Stabilization mode)")
     print("Press 'q' to quit")
     
     while True:
@@ -376,6 +490,16 @@ def main():
         # Apply Enhance Details if enabled
         if enhance_mode:
             display_frame = enhance_details(display_frame)
+        
+        # Apply Stabilization if enabled
+        if stabilize_mode:
+            if stabilize_use_orb:
+                # Update global smooth factor
+                import sys
+                sys.modules['__main__'].orb_smooth_factor = stabilize_smooth
+                display_frame = stabilize_frame_orb(display_frame, strength=stabilize_strength)
+            else:
+                display_frame = stabilize_frame(display_frame, prev_frame)
         
         # Apply Denoise mode if enabled
         if denoise_mode:
@@ -462,6 +586,10 @@ def main():
         if enhance_mode:
             mode_text += " | Enhance: ON"
         
+        # Add stabilize indicator
+        if stabilize_mode:
+            mode_text += f" | Stabilize: ON (Strength: {stabilize_strength:.1f}, Smooth: {stabilize_smooth:.2f}, Buffer: {orb_buffer_size})"
+        
         # Add upscale indicator
         if upscale_mode:
             mode_text += " | Upscale: ON"
@@ -522,6 +650,32 @@ def main():
             enhance_mode = not enhance_mode
             status = "ON" if enhance_mode else "OFF"
             print(f"Enhance Details (CLAHE) mode: {status}")
+        elif key == ord('s'):
+            stabilize_mode = not stabilize_mode
+            status = "ON" if stabilize_mode else "OFF"
+            print(f"Stabilization mode: {status}")
+        elif key == ord('S'):
+            stabilize_use_orb = not stabilize_use_orb
+            method = "ORB+RANSAC" if stabilize_use_orb else "ECC"
+            print(f"Stabilization method: {method}")
+        elif key == ord('=') and stabilize_mode:
+            stabilize_strength = min(1.0, stabilize_strength + 0.1)
+            print(f"Stabilization strength: {stabilize_strength:.1f}")
+        elif key == ord('-') and stabilize_mode:
+            stabilize_strength = max(0.0, stabilize_strength - 0.1)
+            print(f"Stabilization strength: {stabilize_strength:.1f}")
+        elif key == ord('[') and stabilize_mode:
+            stabilize_smooth = max(0.0, stabilize_smooth - 0.05)
+            print(f"Stabilization smoothing: {stabilize_smooth:.2f}")
+        elif key == ord(']') and stabilize_mode:
+            stabilize_smooth = min(0.99, stabilize_smooth + 0.05)
+            print(f"Stabilization smoothing: {stabilize_smooth:.2f}")
+        elif key == ord('{') and stabilize_mode:
+            orb_buffer_size = max(1, orb_buffer_size - 1)
+            print(f"Frame buffer size: {orb_buffer_size}")
+        elif key == ord('}') and stabilize_mode:
+            orb_buffer_size = min(20, orb_buffer_size + 1)
+            print(f"Frame buffer size: {orb_buffer_size}")
         elif key == ord('t'):
             threshold_mode = not threshold_mode
             heat_seeker_mode = False
