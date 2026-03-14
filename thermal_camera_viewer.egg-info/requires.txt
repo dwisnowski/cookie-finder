@@ -2,4 +2,4 @@ torch<2.3.0
 torchvision<0.18.0
 ultralytics
 opencv-python
-numpy>=1.21.0
+numpy<2
