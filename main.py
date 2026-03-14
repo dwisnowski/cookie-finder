@@ -209,6 +209,11 @@ phase_frame_count = 0  # Counter to refresh reference frame
 superres_frame_buffer = []
 superres_buffer_size = 5
 
+# Button system globals
+buttons = {}
+button_height = 25
+button_width = 80
+
 def stabilize_frame_orb(frame, strength=1.0):
     """Stabilize frame using ORB feature tracking + RANSAC with reference frame approach."""
     global orb_prev_gray, orb_prev_kps, orb_prev_des, orb_smoothed_matrix, orb_smooth_factor, orb_matrix_buffer, orb_buffer_size
@@ -337,6 +342,83 @@ def stabilize_frame_phase_correlation(frame):
     except Exception as e:
         phase_prev_gray = gray
         return frame
+
+def draw_buttons(canvas, offset_x, offset_y, frame_width, frame_height, canvas_width, canvas_height, mode_states):
+    """Draw clickable buttons on canvas around the thermal image."""
+    global buttons
+    buttons = {}
+    
+    button_w = 70
+    button_h = 20
+    button_color = (100, 100, 100)
+    active_color = (0, 255, 0)
+    text_color = (255, 255, 255)
+    
+    # Top row buttons (left side)
+    button_list = [
+        ("H", "heat_seeker_mode"),
+        ("C", "heat_cluster_mode"),
+        ("M", "motion_mode"),
+        ("U", "upscale_mode"),
+        ("P", "palette_mode"),
+    ]
+    
+    x = 10
+    y = 10
+    for label, key in button_list:
+        is_active = mode_states.get(key, False)
+        color = active_color if is_active else button_color
+        cv2.rectangle(canvas, (x, y), (x + button_w, y + button_h), color, -1)
+        cv2.putText(canvas, label, (x + 5, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, text_color, 1)
+        buttons[label] = (x, y, x + button_w, y + button_h, key)
+        x += button_w + 5
+    
+    # Second row buttons
+    button_list2 = [
+        ("D", "denoise_mode"),
+        ("O", "normalize_mode"),
+        ("E", "enhance_mode"),
+        ("S", "stabilize_mode"),
+        ("X", "stabilize_super"),
+    ]
+    
+    x = 10
+    y = 35
+    for label, key in button_list2:
+        is_active = mode_states.get(key, False)
+        color = active_color if is_active else button_color
+        cv2.rectangle(canvas, (x, y), (x + button_w, y + button_h), color, -1)
+        cv2.putText(canvas, label, (x + 5, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, text_color, 1)
+        buttons[label] = (x, y, x + button_w, y + button_h, key)
+        x += button_w + 5
+    
+    # Right side buttons
+    button_list3 = [
+        ("T", "threshold_mode"),
+        ("Y", "yolo_mode"),
+        ("F", "optical_flow_mode"),
+        ("I", "isotherm_mode"),
+        ("W", "show_text"),
+    ]
+    
+    x = canvas_width - (button_w + 5) * len(button_list3) - 10
+    y = 10
+    for label, key in button_list3:
+        is_active = mode_states.get(key, False)
+        color = active_color if is_active else button_color
+        cv2.rectangle(canvas, (x, y), (x + button_w, y + button_h), color, -1)
+        cv2.putText(canvas, label, (x + 5, y + 15), cv2.FONT_HERSHEY_SIMPLEX, 0.4, text_color, 1)
+        buttons[label] = (x, y, x + button_w, y + button_h, key)
+        x += button_w + 5
+
+def mouse_callback(event, x, y, flags, param):
+    """Handle mouse clicks on buttons."""
+    if event == cv2.EVENT_LBUTTONDOWN:
+        for label, (x1, y1, x2, y2, key) in buttons.items():
+            if x1 <= x <= x2 and y1 <= y <= y2:
+                # Simulate key press by adding to queue
+                if 'key_queue' in param:
+                    param['key_queue'].append(ord(key[0].upper() if len(key) > 0 else 'a'))
 
 def apply_super_resolution(frame):
     """Apply temporal super-resolution using multi-frame reconstruction."""
@@ -787,9 +869,30 @@ def main():
             canvas = np.zeros((canvas_height, canvas_width, 3), dtype=np.uint8)
             canvas[offset_y:offset_y+frame_height, offset_x:offset_x+frame_width] = display_frame
         
+        # Draw buttons on canvas
+        mode_states = {
+            'heat_seeker_mode': heat_seeker_mode,
+            'heat_cluster_mode': heat_cluster_mode,
+            'motion_mode': motion_mode,
+            'upscale_mode': upscale_mode,
+            'palette_mode': palette_mode,
+            'denoise_mode': denoise_mode,
+            'normalize_mode': normalize_mode,
+            'enhance_mode': enhance_mode,
+            'stabilize_mode': stabilize_mode,
+            'stabilize_super': stabilize_super,
+            'threshold_mode': threshold_mode,
+            'yolo_mode': yolo_mode,
+            'optical_flow_mode': optical_flow_mode,
+            'isotherm_mode': isotherm_mode,
+            'show_text': show_text,
+        }
+        draw_buttons(canvas, offset_x, offset_y, frame_width, frame_height, canvas_width, canvas_height, mode_states)
+        
         # Display the frame
         # Use WINDOW_NORMAL to allow window resizing
         cv2.namedWindow("Thermal Camera Feed", cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback("Thermal Camera Feed", mouse_callback, {'key_queue': []})
         cv2.imshow("Thermal Camera Feed", canvas)
         
         # Handle key presses
