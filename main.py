@@ -302,6 +302,8 @@ def main():
     optical_flow_mode = False
     optical_flow_masked_mode = False
     isotherm_mode = False
+    yolo_skip_frames = False
+    frame_count = 0
     threshold_value = 127
     optical_flow_threshold = 100
     isotherm_min = 100
@@ -322,6 +324,7 @@ def main():
     print("Press 'e' to toggle Enhance Details (CLAHE) mode")
     print("Press 't' to toggle Threshold mode")
     print("Press 'y' to toggle YOLO AI Detection mode")
+    print("Press 'shift+y' to toggle YOLO skip-frame optimization")
     print("Press 'f' to toggle Optical Flow mode")
     print("Press 'shift+f' to toggle Masked Optical Flow mode")
     print("Press 'i' to toggle Isotherm Highlight mode")
@@ -342,6 +345,7 @@ def main():
             print("Error: Failed to read frame")
             break
         
+        frame_count += 1
         display_frame = frame.copy()
         mode_text = ""
         
@@ -393,8 +397,16 @@ def main():
         # Apply YOLO AI Detection if enabled
         if yolo_mode:
             if yolo_model is not None:
-                display_frame = detect_with_yolo(display_frame, yolo_model)
-                mode_text = "YOLO AI Detection: ON"
+                # Skip-frame optimization for Intel Macs
+                if yolo_skip_frames:
+                    if frame_count % 3 == 0:  # Run AI every 3rd frame (~15-20 FPS)
+                        display_frame = detect_with_yolo(display_frame, yolo_model)
+                        mode_text = "YOLO AI Detection: ON (Skip-Frame)"
+                    else:
+                        mode_text = "YOLO AI Detection: ON (Skip-Frame)"
+                else:
+                    display_frame = detect_with_yolo(display_frame, yolo_model)
+                    mode_text = "YOLO AI Detection: ON"
         
         # Apply Optical Flow if enabled
         if optical_flow_mode:
@@ -512,6 +524,10 @@ def main():
                 print(f"YOLO AI Detection mode: {status}")
             else:
                 print("YOLO model not available")
+        elif key == ord('Y'):
+            yolo_skip_frames = not yolo_skip_frames
+            status = "ON" if yolo_skip_frames else "OFF"
+            print(f"YOLO skip-frame optimization: {status}")
         elif key == ord('f'):
             optical_flow_mode = not optical_flow_mode
             heat_seeker_mode = False
@@ -618,3 +634,7 @@ def detect_with_yolo(frame, model):
     except Exception as e:
         print(f"Error in YOLO detection: {e}")
         return frame
+
+
+if __name__ == "__main__":
+    main()
