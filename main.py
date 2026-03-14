@@ -188,12 +188,13 @@ def init_yolo_model():
         return None
 
 def detect_with_yolo(frame, model):
-    """Run YOLO detection on frame."""
+    """Run YOLO detection on frame with Intel optimization."""
     if model is None:
         return frame
     
     try:
-        results = model.track(frame, persist=True, stream=True, verbose=False)
+        # Use imgsz=320 for Intel speed (~70% faster than default 640)
+        results = model.track(frame, persist=True, stream=True, verbose=False, imgsz=320, device='cpu')
         annotated_frame = frame.copy()
         
         for r in results:
@@ -304,6 +305,7 @@ def main():
     isotherm_mode = False
     yolo_skip_frames = False
     frame_count = 0
+    yolo_result_frame = None
     threshold_value = 127
     optical_flow_threshold = 100
     isotherm_min = 100
@@ -399,11 +401,13 @@ def main():
             if yolo_model is not None:
                 # Skip-frame optimization for Intel Macs
                 if yolo_skip_frames:
-                    if frame_count % 3 == 0:  # Run AI every 3rd frame (~15-20 FPS)
-                        display_frame = detect_with_yolo(display_frame, yolo_model)
-                        mode_text = "YOLO AI Detection: ON (Skip-Frame)"
-                    else:
-                        mode_text = "YOLO AI Detection: ON (Skip-Frame)"
+                    if frame_count % 4 == 0:  # Run AI every 4th frame (~12-15 FPS)
+                        yolo_result_frame = detect_with_yolo(display_frame, yolo_model)
+                    
+                    # Use persistent rendering - show last result or raw frame
+                    if yolo_result_frame is not None:
+                        display_frame = yolo_result_frame
+                    mode_text = "YOLO AI Detection: ON (Skip-Frame)"
                 else:
                     display_frame = detect_with_yolo(display_frame, yolo_model)
                     mode_text = "YOLO AI Detection: ON"
@@ -619,12 +623,13 @@ def init_yolo_model():
         return None
 
 def detect_with_yolo(frame, model):
-    """Run YOLO detection on frame."""
+    """Run YOLO detection on frame with Intel optimization."""
     if model is None:
         return frame
     
     try:
-        results = model.track(frame, persist=True, stream=True, verbose=False)
+        # Use imgsz=320 for Intel speed (~70% faster than default 640)
+        results = model.track(frame, persist=True, stream=True, verbose=False, imgsz=320, device='cpu')
         annotated_frame = frame.copy()
         
         for r in results:
