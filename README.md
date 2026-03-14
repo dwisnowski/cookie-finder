@@ -14,6 +14,29 @@ MILESEEY TNV30i Night Vision Thermal Scope, 512×384 Super-Resolution 50Hz 20mK 
 **Output:** Processed video (YUV/RGB), not raw 16-bit temperature data  
 **Supported Pixel Formats:** uyvy422, yuyv422, nv12, 0rgb, bgr0
 
+============================================================
+Device: PixFra THERMAL USB
+Vendor ID: 0x2e03, Product ID: 0x2507
+============================================================
+
+Configuration 1:
+  Interface 0: Class 14 (Video (UVC))
+  Interface 1: Class 14 (Video (UVC))
+      Endpoint 0x81: IN (Bulk), Max Packet: 512
+  Interface 2: Class 2 (Communications)
+      Endpoint 0x83: IN (Interrupt), Max Packet: 8
+  Interface 3: Class 10 (CDC Data)
+      Endpoint 0x2: OUT (Bulk), Max Packet: 512
+      Endpoint 0x85: IN (Bulk), Max Packet: 512
+
+Searching for all video devices (Class 14)...
+
+
+============================================================
+✗ No vendor-specific interfaces found.
+  Camera is likely only exposing standard 8-bit UVC video.
+============================================================
+
 ## Setup
 
 ```bash

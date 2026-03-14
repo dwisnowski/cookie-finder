@@ -9,6 +9,8 @@ dependencies = [
     "ultralytics",
     "opencv-python",
     "numpy<2",
+    "pyusb",
+    "pyserial",
 ]
 
 [tool.setuptools]

@@ -8,3 +8,5 @@ Requires-Dist: torchvision<0.18.0
 Requires-Dist: ultralytics
 Requires-Dist: opencv-python
 Requires-Dist: numpy<2
+Requires-Dist: pyusb
+Requires-Dist: pyserial
