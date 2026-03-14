@@ -5,6 +5,8 @@ A real-time USB thermal camera viewer using OpenCV with advanced thermal analysi
 ## Camera Profile
 [purchase link](https://www.amazon.com/Monocular-TNV30i-Super-Resolution-1600-Yard-Detection/dp/B0FZKDKW87?ref_=ast_sto_dp)
 
+[Quick start and Spec sheet](https://cdn-files.myshopline.com/file/store/1729084058744/TNV30i-Quick-Start-Guide.pdf)
+
 MILESEEY TNV30i Night Vision Thermal Scope, 512×384 Super-Resolution 50Hz 20mK 1600-Yard Thermal Imaging Camera
 
 **Hardware:** Zhejiang Pixfra thermal camera  
