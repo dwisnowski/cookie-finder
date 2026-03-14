@@ -158,6 +158,13 @@ def normalize_frame(frame):
     normalized = cv2.normalize(frame, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
     return normalized
 
+def enhance_details(frame):
+    """Apply CLAHE to pull out subtle thermal textures."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    enhanced_gray = clahe.apply(gray)
+    return cv2.cvtColor(enhanced_gray, cv2.COLOR_GRAY2BGR)
+
 def threshold_frame(frame, threshold_value=127):
     """Apply thresholding to isolate interest items based on brightness."""
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -289,6 +296,7 @@ def main():
     palette_mode = False
     denoise_mode = False
     normalize_mode = False
+    enhance_mode = False
     threshold_mode = False
     yolo_mode = False
     optical_flow_mode = False
@@ -311,6 +319,7 @@ def main():
     print("Press 'p' to toggle Palette mode")
     print("Press 'd' to toggle Denoise mode")
     print("Press 'o' to toggle Normalize mode")
+    print("Press 'e' to toggle Enhance Details (CLAHE) mode")
     print("Press 't' to toggle Threshold mode")
     print("Press 'y' to toggle YOLO AI Detection mode")
     print("Press 'f' to toggle Optical Flow mode")
@@ -339,6 +348,10 @@ def main():
         # Apply Normalization if enabled
         if normalize_mode:
             display_frame = normalize_frame(display_frame)
+        
+        # Apply Enhance Details if enabled
+        if enhance_mode:
+            display_frame = enhance_details(display_frame)
         
         # Apply Denoise mode if enabled
         if denoise_mode:
@@ -411,6 +424,10 @@ def main():
         if normalize_mode:
             mode_text += " | Normalize: ON"
         
+        # Add enhance indicator
+        if enhance_mode:
+            mode_text += " | Enhance: ON"
+        
         # Add upscale indicator
         if upscale_mode:
             mode_text += " | Upscale: ON"
@@ -467,6 +484,10 @@ def main():
             normalize_mode = not normalize_mode
             status = "ON" if normalize_mode else "OFF"
             print(f"Normalize mode: {status}")
+        elif key == ord('e'):
+            enhance_mode = not enhance_mode
+            status = "ON" if enhance_mode else "OFF"
+            print(f"Enhance Details (CLAHE) mode: {status}")
         elif key == ord('t'):
             threshold_mode = not threshold_mode
             heat_seeker_mode = False
