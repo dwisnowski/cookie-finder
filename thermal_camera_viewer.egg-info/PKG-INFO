@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: thermal-camera-viewer
+Version: 0.1.0
+Summary: USB thermal camera viewer using OpenCV
+Requires-Python: >=3.8
+Requires-Dist: torch<2.3.0
+Requires-Dist: torchvision<0.18.0
+Requires-Dist: ultralytics
+Requires-Dist: opencv-python
+Requires-Dist: numpy>=1.21.0

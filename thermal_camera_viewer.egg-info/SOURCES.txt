@@ -1,0 +1,9 @@
+README.md
+main.py
+pyproject.toml
+uvc_controls.py
+thermal_camera_viewer.egg-info/PKG-INFO
+thermal_camera_viewer.egg-info/SOURCES.txt
+thermal_camera_viewer.egg-info/dependency_links.txt
+thermal_camera_viewer.egg-info/requires.txt
+thermal_camera_viewer.egg-info/top_level.txt
