@@ -197,6 +197,71 @@ def detect_with_yolo(frame, model):
         print(f"Error in YOLO detection: {e}")
         return frame
 
+def calculate_optical_flow(frame, prev_frame):
+    """Calculate optical flow to visualize heat velocity."""
+    if prev_frame is None:
+        return frame
+    
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+    
+    # Calculate dense optical flow using Farneback algorithm
+    flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+    
+    # Create visualization
+    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+    hsv = np.zeros_like(frame)
+    hsv[..., 0] = ang * 180 / np.pi / 2
+    hsv[..., 1] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    hsv[..., 2] = 255
+    
+    flow_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    return flow_frame
+
+def calculate_optical_flow_masked(frame, prev_frame, threshold=100):
+    """Calculate optical flow only where heat signature exceeds threshold."""
+    if prev_frame is None:
+        return frame
+    
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+    
+    # Create mask for pixels above threshold
+    mask = gray > threshold
+    
+    # Calculate dense optical flow using Farneback algorithm
+    flow = cv2.calcOpticalFlowFarneback(prev_gray, gray, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+    
+    # Create visualization
+    mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
+    hsv = np.zeros_like(frame)
+    hsv[..., 0] = ang * 180 / np.pi / 2
+    hsv[..., 1] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+    hsv[..., 2] = 255
+    
+    # Apply mask - only show flow where heat is above threshold
+    hsv[~mask] = 0
+    
+    flow_frame = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    return flow_frame
+
+def isotherm_highlight(frame, min_threshold=100, max_threshold=200, use_black=False):
+    """Highlight specific heat range (isotherm) in red or black, rest in grayscale."""
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    
+    # Create mask for pixels within the threshold range
+    mask = (gray >= min_threshold) & (gray <= max_threshold)
+    
+    # Create output frame (grayscale)
+    output = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+    
+    # Highlight masked region in red or black
+    if use_black:
+        output[mask] = [0, 0, 0]  # Black in BGR
+    else:
+        output[mask] = [0, 0, 255]  # Red in BGR
+    
+    return output
 def main():
     global yolo_model
     
@@ -219,7 +284,14 @@ def main():
     normalize_mode = False
     threshold_mode = False
     yolo_mode = False
+    optical_flow_mode = False
+    optical_flow_masked_mode = False
+    isotherm_mode = False
     threshold_value = 127
+    optical_flow_threshold = 100
+    isotherm_min = 100
+    isotherm_max = 200
+    isotherm_use_black = False
     palette_idx = 0
     prev_frame = None
     accumulated_frame = None
@@ -234,7 +306,16 @@ def main():
     print("Press 'o' to toggle Normalize mode")
     print("Press 't' to toggle Threshold mode")
     print("Press 'y' to toggle YOLO AI Detection mode")
-    print("Press '=' to increase threshold, '-' to decrease (in Threshold mode)")
+    print("Press 'f' to toggle Optical Flow mode")
+    print("Press 'shift+f' to toggle Masked Optical Flow mode")
+    print("Press 'i' to toggle Isotherm Highlight mode")
+    print("Press '=' to increase threshold, '-' to decrease (in Threshold/Optical Flow modes)")
+    print("Press arrow keys to adjust isotherm range (in Isotherm mode):")
+    print("  Left arrow: decrease min threshold")
+    print("  Right arrow: increase min threshold")
+    print("  Down arrow: decrease max threshold")
+    print("  Up arrow: increase max threshold")
+    print("Press 'b' to toggle black/red mask (in Isotherm mode)")
     print("Press 'n' to cycle to next palette (in Palette mode)")
     print("Press 'q' to quit")
     
@@ -286,7 +367,7 @@ def main():
             mode_text = "Motion Detection: ON"
         
         # If all off
-        if not heat_seeker_mode and not heat_cluster_mode and not motion_mode and not palette_mode and not threshold_mode and not yolo_mode:
+        if not heat_seeker_mode and not heat_cluster_mode and not motion_mode and not palette_mode and not threshold_mode and not yolo_mode and not optical_flow_mode and not optical_flow_masked_mode and not isotherm_mode:
             mode_text = "Normal View"
         
         # Apply YOLO AI Detection if enabled
@@ -294,6 +375,22 @@ def main():
             if yolo_model is not None:
                 display_frame = detect_with_yolo(display_frame, yolo_model)
                 mode_text = "YOLO AI Detection: ON"
+        
+        # Apply Optical Flow if enabled
+        if optical_flow_mode:
+            display_frame = calculate_optical_flow(display_frame, prev_frame)
+            mode_text = "Optical Flow: ON"
+        
+        # Apply Masked Optical Flow if enabled
+        if optical_flow_masked_mode:
+            display_frame = calculate_optical_flow_masked(display_frame, prev_frame, optical_flow_threshold)
+            mode_text = f"Optical Flow (Masked, threshold={optical_flow_threshold}): ON"
+        
+        # Apply Isotherm Highlight if enabled
+        if isotherm_mode:
+            display_frame = isotherm_highlight(display_frame, isotherm_min, isotherm_max, isotherm_use_black)
+            mask_color = "Black" if isotherm_use_black else "Red"
+            mode_text = f"Isotherm ({mask_color}): {isotherm_min}-{isotherm_max}"
         
         # Apply Upscale if enabled (works with all modes)
         if upscale_mode:
@@ -382,16 +479,78 @@ def main():
                 motion_mode = False
                 palette_mode = False
                 threshold_mode = False
+                optical_flow_mode = False
                 status = "ON" if yolo_mode else "OFF"
                 print(f"YOLO AI Detection mode: {status}")
             else:
                 print("YOLO model not available")
-        elif key == ord('=') and threshold_mode:
-            threshold_value = min(255, threshold_value + 5)
-            print(f"Threshold value: {threshold_value}")
-        elif key == ord('-') and threshold_mode:
-            threshold_value = max(0, threshold_value - 5)
-            print(f"Threshold value: {threshold_value}")
+        elif key == ord('f'):
+            optical_flow_mode = not optical_flow_mode
+            heat_seeker_mode = False
+            heat_cluster_mode = False
+            motion_mode = False
+            palette_mode = False
+            threshold_mode = False
+            yolo_mode = False
+            optical_flow_masked_mode = False
+            status = "ON" if optical_flow_mode else "OFF"
+            print(f"Optical Flow mode: {status}")
+        elif key == ord('F'):
+            optical_flow_masked_mode = not optical_flow_masked_mode
+            heat_seeker_mode = False
+            heat_cluster_mode = False
+            motion_mode = False
+            palette_mode = False
+            threshold_mode = False
+            yolo_mode = False
+            optical_flow_mode = False
+            isotherm_mode = False
+            status = "ON" if optical_flow_masked_mode else "OFF"
+            print(f"Masked Optical Flow mode: {status}")
+        elif key == ord('i'):
+            isotherm_mode = not isotherm_mode
+            heat_seeker_mode = False
+            heat_cluster_mode = False
+            motion_mode = False
+            palette_mode = False
+            threshold_mode = False
+            yolo_mode = False
+            optical_flow_mode = False
+            optical_flow_masked_mode = False
+            status = "ON" if isotherm_mode else "OFF"
+            print(f"Isotherm Highlight mode: {status}")
+        elif key == ord('b') and isotherm_mode:
+            isotherm_use_black = not isotherm_use_black
+            mask_color = "Black" if isotherm_use_black else "Red"
+            print(f"Isotherm mask color: {mask_color}")
+        elif key == ord('=') and (threshold_mode or optical_flow_masked_mode):
+            if optical_flow_masked_mode:
+                optical_flow_threshold = min(255, optical_flow_threshold + 5)
+                print(f"Optical Flow threshold: {optical_flow_threshold}")
+            else:
+                threshold_value = min(255, threshold_value + 5)
+                print(f"Threshold value: {threshold_value}")
+        elif key == ord('-') and (threshold_mode or optical_flow_masked_mode):
+            if optical_flow_masked_mode:
+                optical_flow_threshold = max(0, optical_flow_threshold - 5)
+                print(f"Optical Flow threshold: {optical_flow_threshold}")
+            else:
+                threshold_value = max(0, threshold_value - 5)
+                print(f"Threshold value: {threshold_value}")
+        elif isotherm_mode and key != 255:
+            # Arrow keys in OpenCV
+            if key == 2:  # Left arrow - decrease min
+                isotherm_min = max(0, isotherm_min - 5)
+                print(f"Isotherm range: {isotherm_min}-{isotherm_max}")
+            elif key == 3:  # Right arrow - increase min
+                isotherm_min = min(isotherm_max, isotherm_min + 5)
+                print(f"Isotherm range: {isotherm_min}-{isotherm_max}")
+            elif key == 1:  # Down arrow - decrease max
+                isotherm_max = max(isotherm_min, isotherm_max - 5)
+                print(f"Isotherm range: {isotherm_min}-{isotherm_max}")
+            elif key == 0:  # Up arrow - increase max
+                isotherm_max = min(255, isotherm_max + 5)
+                print(f"Isotherm range: {isotherm_min}-{isotherm_max}")
         
         prev_frame = frame.copy()
     
