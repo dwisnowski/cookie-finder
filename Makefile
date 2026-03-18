@@ -3,6 +3,9 @@
 install:
 	uv sync
 
+install-yolo:
+	uv sync --extra yolo
+
 install-ffmpeg:
 	brew install ffmpeg
 

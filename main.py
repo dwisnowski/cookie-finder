@@ -568,7 +568,7 @@ def init_yolo_model():
         print("YOLOv8 Nano model loaded successfully")
         return model
     except ImportError:
-        print("Error: ultralytics not installed. Run: make install")
+        print("Error: ultralytics not installed. Run: make install-yolo")
         return None
     except Exception as e:
         print(f"Error loading YOLO model: {e}")
@@ -1244,7 +1244,7 @@ def init_yolo_model():
         print("YOLOv8 Nano model loaded successfully")
         return model
     except ImportError:
-        print("Error: ultralytics not installed. Run: make install")
+        print("Error: ultralytics not installed. Run: make install-yolo")
         return None
     except Exception as e:
         print(f"Error loading YOLO model: {e}")
