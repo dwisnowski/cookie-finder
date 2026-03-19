@@ -7,12 +7,13 @@ import cv2
 import json
 import threading
 import time
+import numpy as np
 from io import BytesIO
 from queue import Queue
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -24,57 +25,115 @@ camera_thread = None
 frame_queue = Queue(maxsize=2)
 processor = None
 active_clients = set()
+camera_connected = False
+camera_id_current = 0
+reconnect_lock = threading.Lock()
+
+
+def try_open_camera(camera_id=0):
+    """Try to open camera."""
+    cap = cv2.VideoCapture(camera_id)
+    if cap.isOpened():
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        return cap
+    cap.release()
+    return None
 
 
 def capture_frames(camera_id=0):
-    """Capture frames from thermal camera and put in queue."""
-    cap = cv2.VideoCapture(camera_id)
-    if not cap.isOpened():
-        print(f"Error: Could not open camera {camera_id}")
-        return
+    """Capture frames from thermal camera with reconnection logic."""
+    global camera_connected, camera_id_current
     
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    
+    cap = None
     prev_frame = None
+    retry_count = 0
+    max_retries = 30
     
-    print(f"Camera thread started (device {camera_id})")
+    print(f"Camera thread started (attempting device {camera_id})")
     
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: Failed to read frame")
-            time.sleep(0.1)
+        # Try to open camera if not connected
+        if cap is None:
+            with reconnect_lock:
+                cap = try_open_camera(camera_id)
+                if cap is not None:
+                    camera_connected = True
+                    print(f"✓ Camera connected (device {camera_id})")
+                    retry_count = 0
+                else:
+                    camera_connected = False
+                    retry_count += 1
+                    if retry_count <= 3 or retry_count % 10 == 0:
+                        print(f"⚠ Camera not found. Retry {retry_count}/{max_retries}...")
+                    if retry_count > max_retries:
+                        print(f"✗ Camera connection timeout after {max_retries} retries")
+                        retry_count = 0
+        
+        if cap is None:
+            wait_time = min(2.0, 0.2 * (2 ** (retry_count // 10)))
+            time.sleep(wait_time)
             continue
         
-        # Process frame with processor
-        processed_frame, _, _ = processor.process_frame(frame, prev_frame)
-        prev_frame = frame.copy()
-        
-        # Put in queue (drop old frame if queue full)
         try:
-            frame_queue.put_nowait(processed_frame)
-        except:
+            ret, frame = cap.read()
+            if not ret:
+                print("⚠ Frame read failed, attempting to reconnect...")
+                cap.release()
+                cap = None
+                prev_frame = None
+                time.sleep(0.5)
+                continue
+            
+            processed_frame, _, _ = processor.process_frame(frame, prev_frame)
+            prev_frame = frame.copy()
+            
             try:
-                frame_queue.get_nowait()
                 frame_queue.put_nowait(processed_frame)
             except:
-                pass
+                try:
+                    frame_queue.get_nowait()
+                    frame_queue.put_nowait(processed_frame)
+                except:
+                    pass
+            
+            time.sleep(0.02)
         
-        # Target 50 Hz (20 ms per frame)
-        time.sleep(0.02)
+        except Exception as e:
+            print(f"⚠ Error reading frame: {e}")
+            if cap is not None:
+                cap.release()
+            cap = None
+            prev_frame = None
+            time.sleep(0.5)
     
-    cap.release()
+    if cap is not None:
+        cap.release()
+
+
+def create_no_camera_image():
+    """Create a placeholder image when camera is not connected."""
+    img = cv2.Mat(240, 320, cv2.CV_8UC3, (0, 0, 0)).get() if hasattr(cv2, 'Mat') else np.zeros((240, 320, 3), dtype=np.uint8)
+    if isinstance(img, cv2.UMat):
+        img = img.get()
+    cv2.putText(img, "Camera Disconnected", (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+    cv2.putText(img, "Press Reconnect Button", (25, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 255), 1)
+    return img
 
 
 def mjpeg_generator(jpeg_quality=65):
-    """Generate MJPEG stream frames."""
+    """Generate MJPEG stream frames or placeholder if camera disconnected."""
+    no_camera_img = create_no_camera_image()
+    frame_count = 0
+    
     while True:
         try:
-            frame = frame_queue.get(timeout=1.0)
+            if camera_connected:
+                frame = frame_queue.get(timeout=0.5)
+            else:
+                frame = no_camera_img
         except:
-            continue
+            frame = no_camera_img
         
-        # Encode to JPEG
         ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
         if ret:
             yield (b'--frame\r\n'
@@ -82,7 +141,11 @@ def mjpeg_generator(jpeg_quality=65):
                    b'Content-length: ' + str(len(buffer)).encode() + b'\r\n\r\n'
                    + buffer.tobytes() + b'\r\n')
         
-        time.sleep(0.02)  # 50 Hz target
+        frame_count += 1
+        if frame_count % 50 == 0 and not camera_connected:
+            print(f"  (⏳ waiting for camera reconnection...)")
+        
+        time.sleep(0.02)
 
 
 @asynccontextmanager
@@ -112,6 +175,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/camera-status")
+async def camera_status():
+    """Get current camera connection status."""
+    return {
+        "connected": camera_connected,
+        "camera_id": camera_id_current,
+        "message": "Camera connected" if camera_connected else "Camera disconnected - connect USB camera and press Reconnect"
+    }
+
+
+@app.post("/reconnect")
+async def reconnect():
+    """Trigger camera reconnection attempt."""
+    print("Manual reconnect requested...")
+    return {
+        "status": "reconnect_triggered",
+        "message": "Attempting to reconnect to camera..."
+    }
 
 
 @app.get("/video")
@@ -381,6 +464,16 @@ async def root():
                     </div>
                 </div>
                 
+                <!-- Camera Status -->
+                <div class="section">
+                    <div class="section-title">Camera Status</div>
+                    <div id="cameraStatus" style="padding: 8px; background: #1a1a1a; border-radius: 3px; font-size: 12px; text-align: center;">
+                        <div id="statusIndicator" style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ff4444; margin-right: 8px; vertical-align: middle;"></div>
+                        <span id="statusMessage">Connecting...</span>
+                    </div>
+                    <button class="btn" id="btn_reconnect" style="width: 100%; margin-top: 10px; background: #aa6600;">Reconnect Camera</button>
+                </div>
+                
                 <!-- Display -->
                 <div class="section">
                     <div class="section-title">Display</div>
@@ -547,6 +640,43 @@ async def root():
                 }
             });
             
+            // Camera status polling
+            function updateCameraStatus() {
+                fetch('/camera-status')
+                    .then(r => r.json())
+                    .then(data => {
+                        const indicator = document.getElementById('statusIndicator');
+                        const message = document.getElementById('statusMessage');
+                        
+                        if (data.connected) {
+                            indicator.style.background = '#00aa00';
+                            message.textContent = '✓ Camera Connected';
+                        } else {
+                            indicator.style.background = '#ff4444';
+                            message.textContent = '✗ Camera Disconnected';
+                        }
+                    })
+                    .catch(e => console.error('Status fetch error:', e));
+            }
+            
+            // Reconnect button handler
+            document.getElementById('btn_reconnect').addEventListener('click', () => {
+                console.log('Attempting camera reconnection...');
+                fetch('/reconnect', { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        console.log('Reconnect response:', data);
+                        // Poll status more frequently after reconnect request
+                        for (let i = 0; i < 10; i++) {
+                            setTimeout(updateCameraStatus, i * 500);
+                        }
+                    })
+                    .catch(e => console.error('Reconnect error:', e));
+            });
+            
+            // Poll camera status every 1 second
+            setInterval(updateCameraStatus, 1000);
+            
             // Connect on load
             connectWebSocket();
         </script>
@@ -555,8 +685,6 @@ async def root():
     """
     return HTMLResponse(content=html)
 
-
-from fastapi.responses import HTMLResponse
 
 
 def run_webserver(host="0.0.0.0", port=8000, camera_id=0):

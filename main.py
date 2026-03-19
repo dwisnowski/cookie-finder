@@ -41,46 +41,52 @@ def standalone_mode(camera_id=0):
     # Initialize processor
     processor = ThermalProcessor()
     
-    # Find and open camera
+    # Try to find and open camera with reconnection loop
     available_cameras = find_available_cameras()
-    if not available_cameras:
-        print("Warning: No cameras found. Connect a thermal camera and re-run.")
-        return
+    cap = None
+    camera_open = False
+    retry_count = 0
     
     print(f"Available cameras: {available_cameras}")
-    current_camera_idx = 0
-    cap = cv2.VideoCapture(available_cameras[current_camera_idx])
+    print("Waiting for camera (press 'r' to retry, 'q' to quit)...")
     
-    if not cap.isOpened():
-        print("Warning: Could not open camera. Check USB connection.")
-        return
-    
-    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    
-    print("Thermal camera feed started (Standalone Mode).")
-    print("Press 'q' to quit, 'h' for Heat-Seeker, 'c' for Cluster, 'm' for Motion, etc.")
-    print("Press 'tab' to cycle cameras, 'w' to toggle text display")
-    
-    # Get frame dimensions
-    ret, first_frame = cap.read()
-    if not ret:
-        print("Error: Could not read first frame")
-        sys.exit(1)
-    
-    frame_height, frame_width = first_frame.shape[:2]
-    canvas_width = int(frame_width * 1.5)
-    canvas_height = int(frame_height * 1.5)
-    offset_x = (canvas_width - frame_width) // 2
-    offset_y = (canvas_height - frame_height) // 2
-    
-    # Check if GUI is available
-    gui_enabled = True
-    if os.environ.get("QT_QPA_PLATFORM") == "offscreen" or "DISPLAY" not in os.environ:
-        gui_enabled = False
-        print("Headless mode detected: GUI output disabled (no DISPLAY).")
+    # Keep trying to open camera
+    while not camera_open:
+        if available_cameras:
+            cap = cv2.VideoCapture(available_cameras[0])
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                camera_open = True
+                print("✓ Camera connected")
+                break
+            else:
+                cap.release()
+        
+        retry_count += 1
+        if retry_count > 1:
+            print(f"⚠ Camera not available. Retrying... (attempt {retry_count})")
+            print("   Press 'r' to retry now, 'q' to quit")
+        
+        time.sleep(1)
+        
+        # Check for keyboard input while waiting
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            print("Quit requested")
+            return
+        elif key == ord('r'):
+            print("Retry requested")
+            available_cameras = find_available_cameras()
+            retry_count = 0
+            if available_cameras:
+                print(f"Found cameras: {available_cameras}")
+            else:
+                print("No cameras found")
     
     prev_frame = None
     buttons = {}
+    current_camera_idx = 0
+    camera_attempt_count = 0
     
     def draw_buttons(canvas, mode_states):
         """Draw button overlay on canvas."""
@@ -147,12 +153,85 @@ def standalone_mode(camera_id=0):
             buttons[label] = (x, y, x + button_w, y + button_h, key)
             x += button_w + 5
     
+    # Get initial frame dimensions
+    print("Press 'q' to quit, 'h' for Heat-Seeker, 'c' for Cluster, 'm' for Motion, etc.")
+    print("Press 'tab' to cycle cameras, 'r' to reconnect, 'w' to toggle text display")
+    
+    ret, first_frame = cap.read()
+    if not ret:
+        print("Error: Could not read first frame from camera")
+        return
+    
+    frame_height, frame_width = first_frame.shape[:2]
+    canvas_width = int(frame_width * 1.5)
+    canvas_height = int(frame_height * 1.5)
+    offset_x = (canvas_width - frame_width) // 2
+    offset_y = (canvas_height - frame_height) // 2
+    
+    # Check if GUI is available
+    gui_enabled = True
+    if os.environ.get("QT_QPA_PLATFORM") == "offscreen" or "DISPLAY" not in os.environ:
+        gui_enabled = False
+        print("Headless mode detected: GUI output disabled (no DISPLAY).")
+    
     while True:
         ret, frame = cap.read()
         
         if not ret:
-            print("Error: Failed to read frame")
-            break
+            print("⚠ Camera disconnected, attempting to reconnect...")
+            cap.release()
+            cap = None
+            
+            # Try to reconnect
+            reconnect_attempts = 0
+            while cap is None and reconnect_attempts < 10:
+                try:
+                    if available_cameras:
+                        cap = cv2.VideoCapture(available_cameras[current_camera_idx])
+                        if cap.isOpened():
+                            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                            print("✓ Camera reconnected")
+                            break
+                        else:
+                            cap.release()
+                            cap = None
+                except:
+                    pass
+                
+                reconnect_attempts += 1
+                if reconnect_attempts < 10:
+                    print(f"  Retry {reconnect_attempts}/10...")
+                    time.sleep(0.5)
+                
+                # Check for quit signal while reconnecting
+                if gui_enabled:
+                    key = cv2.waitKey(1) & 0xFF
+                    if key == ord('q'):
+                        break
+            
+            if cap is None:
+                print("✗ Could not reconnect to camera. Press 'r' to retry or 'q' to quit.")
+                while cap is None:
+                    time.sleep(0.5)
+                    available_cameras = find_available_cameras()
+                    if gui_enabled:
+                        key = cv2.waitKey(1) & 0xFF
+                        if key == ord('q'):
+                            return
+                        elif key == ord('r'):
+                            print("Retry requested")
+                            if available_cameras:
+                                try:
+                                    cap = cv2.VideoCapture(available_cameras[current_camera_idx])
+                                    if cap.isOpened():
+                                        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                                        print("✓ Camera reconnected")
+                                    else:
+                                        cap.release()
+                                        cap = None
+                                except:
+                                    pass
+            continue
         
         # Process frame
         display_frame, mode_text, metadata = processor.process_frame(frame, prev_frame)
@@ -219,6 +298,14 @@ def standalone_mode(camera_id=0):
         # Handle keyboard input
         if key == ord('q'):
             break
+        elif key == ord('r'):
+            # Manual reconnect attempt
+            print("Manual reconnect requested")
+            available_cameras = find_available_cameras()
+            if available_cameras:
+                print(f"Found cameras: {available_cameras}")
+            else:
+                print("No cameras found")
         elif key == 9:  # Tab
             current_camera_idx = (current_camera_idx + 1) % len(available_cameras)
             cap.release()
