@@ -202,17 +202,18 @@ def mjpeg_generator(jpeg_quality=65):
         time.sleep(0.02)
 
 
-@asynccontextmanager
-async def create_lifespan(camera_id_to_use):
-    """FastAPI startup/shutdown context manager factory."""
+def create_app(camera_id=0):
+    """Create and configure the FastAPI application."""
+    
+    @asynccontextmanager
     async def lifespan(app: FastAPI):
         global camera_thread, processor
         
         # Startup
         print(f"Initializing processor...")
         processor = ThermalProcessor()
-        print(f"Starting camera thread (device /dev/video{camera_id_to_use})...")
-        camera_thread = threading.Thread(target=capture_frames, args=(camera_id_to_use,), daemon=True)
+        print(f"Starting camera thread (device /dev/video{camera_id})...")
+        camera_thread = threading.Thread(target=capture_frames, args=(camera_id,), daemon=True)
         camera_thread.start()
         print("✓ Web server started")
         
@@ -221,12 +222,6 @@ async def create_lifespan(camera_id_to_use):
         # Shutdown
         print("Web server shutting down")
     
-    return lifespan
-
-
-def create_app(camera_id=0):
-    """Create and configure the FastAPI application."""
-    lifespan = create_lifespan(camera_id)
     app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
     
     # Add CORS middleware to allow cross-origin requests
