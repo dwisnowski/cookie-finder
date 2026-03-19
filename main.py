@@ -30,13 +30,20 @@ from web_server import run_webserver
 
 
 def find_available_cameras(max_devices=10):
-    """Find all available camera devices."""
+    """Find all available camera devices by testing which ones actually work."""
     available = []
     for i in range(max_devices):
-        cap_test = cv2.VideoCapture(i)
-        if cap_test.isOpened():
-            available.append(i)
-            cap_test.release()
+        try:
+            cap = cv2.VideoCapture(i)
+            if cap.isOpened():
+                # Try to read a frame to verify it's a real camera
+                ret, frame = cap.read()
+                if ret and frame is not None and frame.size > 0:
+                    available.append(i)
+                    print(f"  ✓ /dev/video{i}: {frame.shape} {frame.dtype}")
+                cap.release()
+        except:
+            pass
     return available
 
 
@@ -47,15 +54,17 @@ def standalone_mode(camera_id=0):
     processor = ThermalProcessor()
     
     # Try to find and open camera with reconnection loop
+    print("Detecting available cameras...")
     available_cameras = find_available_cameras()
     cap = None
     camera_open = False
     retry_count = 0
     
     if available_cameras:
-        print(f"Available cameras: {available_cameras}")
+        print(f"✓ Found working camera(s): {available_cameras}")
+        print(f"  Using camera device {available_cameras[0]}")
     else:
-        print("No cameras found yet. Waiting for camera to be connected...")
+        print("⚠ No working cameras detected. Waiting for camera to be connected...")
     
     print("Waiting for camera (press 'r' to retry, 'q' to quit)...")
     

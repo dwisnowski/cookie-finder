@@ -36,12 +36,22 @@ reconnect_lock = threading.Lock()
 
 
 def try_open_camera(camera_id=0):
-    """Try to open camera."""
-    cap = cv2.VideoCapture(camera_id)
-    if cap.isOpened():
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        return cap
-    cap.release()
+    """Try to open camera and verify it actually works."""
+    try:
+        cap = cv2.VideoCapture(camera_id)
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            # Verify by reading a frame
+            ret, frame = cap.read()
+            if ret and frame is not None and frame.size > 0:
+                return cap
+            else:
+                # Device opens but doesn't produce frames
+                cap.release()
+                return None
+        cap.release()
+    except:
+        pass
     return None
 
 
@@ -53,6 +63,18 @@ def capture_frames(camera_id=0):
     prev_frame = None
     retry_count = 0
     last_log_retry = 0
+    
+    print(f"Camera thread: Detecting cameras...")
+    # Quick scan to find working cameras
+    working_cameras = []
+    for test_id in range(5):
+        test_cap = try_open_camera(test_id)
+        if test_cap is not None:
+            working_cameras.append(test_id)
+            test_cap.release()
+    
+    if working_cameras:
+        print(f"  ✓ Found working cameras: {working_cameras}")
     
     print(f"Camera thread started (attempting device {camera_id})")
     

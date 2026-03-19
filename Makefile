@@ -1,4 +1,4 @@
-.PHONY: run run-standalone run-web run-web-custom install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu
+.PHONY: run run-standalone run-web run-web-custom install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
 
 install:
 	uv sync
@@ -30,6 +30,18 @@ run-web-custom:
 	host=$${host:-0.0.0.0}; \
 	echo "Starting Thermal Camera Viewer (WebServer mode on http://$$host:$$port)..."; \
 	uv run main.py --web --port $$port --host $$host
+
+find-camera:
+	@echo "Detecting available camera devices..."
+	@echo "Checking /dev/video devices:"
+	@ls -la /dev/video* 2>/dev/null || echo "No /dev/video devices found"
+	@echo ""
+	@echo "Camera details:"
+	@v4l2-ctl --list-devices 2>/dev/null || echo "v4l2-ctl not available"
+	@echo ""
+	@echo "Testing which device actually provides frames..."
+	@python3 -c "import cv2, sys; devices = [(i, cv2.VideoCapture(i)) for i in range(10)]; [print(f'  /dev/video{i}: OK - {cv2.VideoCapture(i).get(3):.0f}x{cv2.VideoCapture(i).get(4):.0f}') for i, cap in devices if cap.isOpened() and cap.read()[0]]" 2>/dev/null || echo "Testing with uv run..."
+	@uv run -c "import cv2; devices = [i for i in range(10) if cv2.VideoCapture(i).isOpened() and cv2.VideoCapture(i).read()[0]]; print('Found thermal camera on /dev/video' + str(devices[0]) if devices else 'No working camera found')"
 
 list-devices:
 	uv run uvc_controls.py list-devices
