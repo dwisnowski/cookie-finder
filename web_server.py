@@ -507,6 +507,18 @@ def create_app(camera_id=0):
                     </div>
                 </div>
                 
+                <!-- Color Palette -->
+                <div class="section">
+                    <div class="section-title">Color Palette</div>
+                    <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                        <button class="btn" id="btn_palette_prev" style="flex: 1; font-size: 11px;">← Prev</button>
+                        <button class="btn" id="btn_palette_next" style="flex: 1; font-size: 11px;">Next →</button>
+                    </div>
+                    <div id="currentPaletteInfo" style="font-size: 11px; color: #aaa; text-align: center; padding: 8px; background: #1a1a1a; border-radius: 3px;">
+                        <span id="currentPaletteName">Ironbow</span>
+                    </div>
+                </div>
+                
                 <!-- Camera Control -->
                 <div class="section">
                     <div class="section-title">Camera Feed</div>
@@ -563,10 +575,21 @@ def create_app(camera_id=0):
                 'isotherm_max': 'slider_isotherm_max'
             };
             
+            const palettes = [
+                'Ironbow',
+                'Rainbow',
+                'Lava',
+                'Ocean',
+                'Magma',
+                'WhiteHot',
+                'BlackHot'
+            ];
+            
             let ws = null;
             let state = {};
             let availableCameras = [];
             let currentCamera = null;
+            let currentPaletteIdx = 0;
             
             function updateCameraSelector() {
                 fetch('/available-cameras')
@@ -665,6 +688,13 @@ def create_app(camera_id=0):
                     document.getElementById('val_isotherm_max').textContent = state.isotherm_max;
                 }
                 
+                // Update palette display
+                if (state.palette_idx !== undefined) {
+                    currentPaletteIdx = state.palette_idx;
+                    const paletteName = palettes[currentPaletteIdx] || 'Unknown';
+                    document.getElementById('currentPaletteName').textContent = paletteName;
+                }
+                
                 // Update camera selector highlighting
                 const buttons_list = document.querySelectorAll('#cameraSelector button');
                 buttons_list.forEach(btn => {
@@ -750,14 +780,59 @@ def create_app(camera_id=0):
                 }
             });
             
+            // Palette cycling handlers
+            document.getElementById('btn_palette_prev').addEventListener('click', () => {
+                const newIdx = (currentPaletteIdx - 1 + palettes.length) % palettes.length;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        action: 'set_param',
+                        param: 'palette_idx',
+                        value: newIdx
+                    }));
+                }
+            });
+            
+            document.getElementById('btn_palette_next').addEventListener('click', () => {
+                const newIdx = (currentPaletteIdx + 1) % palettes.length;
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({
+                        action: 'set_param',
+                        param: 'palette_idx',
+                        value: newIdx
+                    }));
+                }
+            });
+            
             // Keyboard shortcuts
             document.addEventListener('keydown', (e) => {
                 const key = e.key.toLowerCase();
+                
+                // Mode toggle shortcuts
                 if (buttons[key] && ws && ws.readyState === WebSocket.OPEN) {
                     ws.send(JSON.stringify({
                         action: 'toggle_mode',
                         mode: buttons[key]
                     }));
+                }
+                
+                // Palette cycling with [ and ]
+                if (key === '[' && ws && ws.readyState === WebSocket.OPEN) {
+                    const newIdx = (currentPaletteIdx - 1 + palettes.length) % palettes.length;
+                    ws.send(JSON.stringify({
+                        action: 'set_param',
+                        param: 'palette_idx',
+                        value: newIdx
+                    }));
+                    e.preventDefault();
+                }
+                if (key === ']' && ws && ws.readyState === WebSocket.OPEN) {
+                    const newIdx = (currentPaletteIdx + 1) % palettes.length;
+                    ws.send(JSON.stringify({
+                        action: 'set_param',
+                        param: 'palette_idx',
+                        value: newIdx
+                    }));
+                    e.preventDefault();
                 }
             });
             
