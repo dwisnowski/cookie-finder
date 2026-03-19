@@ -15,6 +15,7 @@ echo '/usr/sbin/iw dev wlan0 set power_save off' | sudo tee -a /etc/rc.local
 # 3. Install uv (Python)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.cargo/env
+source $HOME/.local/bin/env
 
 # 4. Configure SSH
 ssh-keygen -t ed25519 -C "dwisnows@gmail.com"
@@ -24,12 +25,10 @@ cat ~/.ssh/id_ed25519.pub
 sudo reboot
 
 # 6. Clone + install
-git clone git@github.com:dwisnowski/cookie-finder.git
-cd cookie-finder
+git clone git@github.com:dwisnowski/cookie-finder.git && cd cookie-finder
 make install
 
 # 7. Run
-make install
 make run
 ```
 
