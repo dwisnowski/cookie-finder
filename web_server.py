@@ -33,6 +33,9 @@ active_clients = set()
 camera_connected = False
 camera_id_current = 0
 reconnect_lock = threading.Lock()
+available_cameras = []  # List of working camera devices
+camera_switch_event = threading.Event()  # Signal to switch cameras
+camera_switch_id = 0  # Target camera ID to switch to
 
 
 def try_open_camera(camera_id=0):
@@ -57,43 +60,64 @@ def try_open_camera(camera_id=0):
 
 def capture_frames(camera_id=0):
     """Capture frames from thermal camera with reconnection logic."""
-    global camera_connected, camera_id_current
+    global camera_connected, camera_id_current, available_cameras, camera_switch_event, camera_switch_id
     
     cap = None
     prev_frame = None
     retry_count = 0
     last_log_retry = 0
     
-    print(f"Camera thread: Detecting cameras...")
+    print(f"Camera thread: Detecting working cameras...")
     # Quick scan to find working cameras
     working_cameras = []
     for test_id in range(5):
         test_cap = try_open_camera(test_id)
         if test_cap is not None:
             working_cameras.append(test_id)
+            print(f"  ✓ /dev/video{test_id} is working")
             test_cap.release()
     
-    if working_cameras:
-        print(f"  ✓ Found working cameras: {working_cameras}")
+    available_cameras = working_cameras
     
-    print(f"Camera thread started (attempting device {camera_id})")
+    if not working_cameras:
+        print(f"  ✗ No working cameras detected")
+        print(f"Camera thread started (waiting for device {camera_id})")
+    else:
+        print(f"  ✓ Found working cameras: {working_cameras}")
+        # If the requested camera isn't in the working list, use the first working one
+        if camera_id not in working_cameras:
+            print(f"Requested /dev/video{camera_id} not in working list, using /dev/video{working_cameras[0]}")
+            camera_id = working_cameras[0]
+        print(f"Camera thread started (attempting device {camera_id})")
     
     while True:
+        # Check if user requested camera switch
+        if camera_switch_event.is_set():
+            print(f"Switching cameras: /dev/video{camera_id} → /dev/video{camera_switch_id}")
+            camera_id = camera_switch_id
+            if cap is not None:
+                cap.release()
+            cap = None
+            prev_frame = None
+            camera_switch_event.clear()
+        
         # Try to open camera if not connected
         if cap is None:
             with reconnect_lock:
                 cap = try_open_camera(camera_id)
                 if cap is not None:
                     camera_connected = True
+                    camera_id_current = camera_id
                     print(f"✓ Camera connected (device {camera_id})")
                     retry_count = 0
                     last_log_retry = 0
                 else:
                     camera_connected = False
+                    camera_id_current = camera_id
                     retry_count += 1
                     # Only log every 5 retries to reduce noise
                     if retry_count == 1 or retry_count % 5 == 0:
-                        print(f"⚠ Waiting for camera... (attempt {retry_count})")
+                        print(f"⚠ Waiting for camera /dev/video{camera_id}... (attempt {retry_count})")
         
         if cap is None:
             # Adaptive backoff: 0.5s for first 5, then 1s, then 2s max
@@ -179,136 +203,130 @@ def mjpeg_generator(jpeg_quality=65):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    """FastAPI startup/shutdown context manager."""
-    global camera_thread, processor
-    
-    # Startup
-    processor = ThermalProcessor()
-    camera_thread = threading.Thread(target=capture_frames, args=(0,), daemon=True)
-    camera_thread.start()
-    print("Web server started")
-    
-    yield
-    
-    # Shutdown
-    print("Web server shutting down")
-
-
-app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
-
-# Add CORS middleware to allow cross-origin requests
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.get("/camera-status")
-async def camera_status():
-    """Get current camera connection status."""
-    return {
-        "connected": camera_connected,
-        "camera_id": camera_id_current,
-        "message": "Camera connected" if camera_connected else "Camera disconnected - connect USB camera and press Reconnect"
-    }
-
-
-@app.post("/reconnect")
-async def reconnect():
-    """Trigger camera reconnection attempt."""
-    print("Manual reconnect requested...")
-    return {
-        "status": "reconnect_triggered",
-        "message": "Attempting to reconnect to camera..."
-    }
-
-
-@app.get("/video")
-async def video_feed():
-    """MJPEG video streaming endpoint."""
-    return StreamingResponse(
-        mjpeg_generator(jpeg_quality=65),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
-
-
-@app.get("/state")
-async def get_state():
-    """Get current processor state (all modes and parameters)."""
-    if processor is None:
-        return {"error": "Processor not initialized"}
-    return processor.get_state()
-
-
-@app.websocket("/control")
-async def websocket_control(websocket: WebSocket):
-    """WebSocket endpoint for real-time control and state updates."""
-    await websocket.accept()
-    active_clients.add(websocket)
-    
-    try:
-        # Send initial state
-        await websocket.send_json({
-            "type": "state",
-            "data": processor.get_state()
-        })
+async def create_lifespan(camera_id_to_use):
+    """FastAPI startup/shutdown context manager factory."""
+    async def lifespan(app: FastAPI):
+        global camera_thread, processor
         
-        while True:
-            data = await websocket.receive_text()
-            command = json.loads(data)
-            
-            action = command.get("action")
-            
-            if action == "toggle_mode":
-                mode = command.get("mode")
-                current = getattr(processor, mode, False)
-                processor.set_mode(mode, not current)
-                
-                # Broadcast state to all clients
-                state = processor.get_state()
-                for client in active_clients:
-                    try:
-                        await client.send_json({
-                            "type": "state",
-                            "data": state
-                        })
-                    except:
-                        pass
-            
-            elif action == "set_param":
-                param = command.get("param")
-                value = command.get("value")
-                processor.set_parameter(param, value)
-                
-                # Broadcast state to all clients
-                state = processor.get_state()
-                for client in active_clients:
-                    try:
-                        await client.send_json({
-                            "type": "state",
-                            "data": state
-                        })
-                    except:
-                        pass
-            
-            elif action == "get_state":
-                await websocket.send_json({
-                    "type": "state",
-                    "data": processor.get_state()
-                })
+        # Startup
+        print(f"Initializing processor...")
+        processor = ThermalProcessor()
+        print(f"Starting camera thread (device /dev/video{camera_id_to_use})...")
+        camera_thread = threading.Thread(target=capture_frames, args=(camera_id_to_use,), daemon=True)
+        camera_thread.start()
+        print("✓ Web server started")
+        
+        yield
+        
+        # Shutdown
+        print("Web server shutting down")
     
-    except WebSocketDisconnect:
-        active_clients.discard(websocket)
+    return lifespan
 
 
-@app.get("/")
-async def root():
-    """Serve HTML UI."""
-    html = """
+def create_app(camera_id=0):
+    """Create and configure the FastAPI application."""
+    lifespan = create_lifespan(camera_id)
+    app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
+    
+    # Add CORS middleware to allow cross-origin requests
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    
+    # Add all the routes
+    @app.get("/camera-status")
+    async def camera_status():
+        return {
+            "connected": camera_connected,
+            "camera_id": camera_id_current,
+            "message": "Camera connected" if camera_connected else "Camera disconnected"
+        }
+    
+    @app.post("/reconnect")
+    async def reconnect():
+        print("Manual reconnect requested...")
+        return {"status": "reconnect_triggered", "message": "Attempting to reconnect..."}
+    
+    @app.post("/switch-camera/{new_camera_id}")
+    async def switch_camera(new_camera_id: int):
+        global camera_switch_id, camera_switch_event
+        if new_camera_id not in available_cameras:
+            return {"status": "error", "message": f"Camera /dev/video{new_camera_id} not available"}
+        camera_switch_id = new_camera_id
+        camera_switch_event.set()
+        print(f"Camera switch requested: /dev/video{new_camera_id}")
+        return {"status": "switching", "message": f"Switching to /dev/video{new_camera_id}..."}
+    
+    @app.get("/available-cameras")
+    async def get_available_cameras():
+        return {
+            "available": available_cameras,
+            "current": camera_id_current
+        }
+    
+    @app.get("/video")
+    async def video_feed():
+        return StreamingResponse(
+            mjpeg_generator(jpeg_quality=65),
+            media_type="multipart/x-mixed-replace; boundary=frame"
+        )
+    
+    @app.get("/state")
+    async def get_state():
+        if processor is None:
+            return {"error": "Processor not initialized"}
+        return processor.get_state()
+    
+    @app.websocket("/control")
+    async def websocket_control(websocket: WebSocket):
+        await websocket.accept()
+        active_clients.add(websocket)
+        
+        try:
+            await websocket.send_json({"type": "state", "data": processor.get_state()})
+            
+            while True:
+                data = await websocket.receive_text()
+                command = json.loads(data)
+                action = command.get("action")
+                
+                if action == "toggle_mode":
+                    mode = command.get("mode")
+                    current = getattr(processor, mode, False)
+                    processor.set_mode(mode, not current)
+                    state = processor.get_state()
+                    for client in active_clients:
+                        try:
+                            await client.send_json({"type": "state", "data": state})
+                        except:
+                            pass
+                
+                elif action == "set_param":
+                    param = command.get("param")
+                    value = command.get("value")
+                    processor.set_parameter(param, value)
+                    state = processor.get_state()
+                    for client in active_clients:
+                        try:
+                            await client.send_json({"type": "state", "data": state})
+                        except:
+                            pass
+                
+                elif action == "get_state":
+                    await websocket.send_json({"type": "state", "data": processor.get_state()})
+        
+        except WebSocketDisconnect:
+            active_clients.discard(websocket)
+    
+    @app.get("/")
+    async def root():
+        """Serve HTML UI."""
+        html = """
     <!DOCTYPE html>
     <html>
     <head>
@@ -494,9 +512,20 @@ async def root():
                     </div>
                 </div>
                 
+                <!-- Camera Control -->
+                <div class="section">
+                    <div class="section-title">Camera Feed</div>
+                    <div id="cameraSelector" style="margin-bottom: 10px;">
+                        <!-- Camera buttons will be inserted here -->
+                    </div>
+                    <div id="currentCameraInfo" style="font-size: 11px; color: #aaa; margin-bottom: 8px;">
+                        Current: /dev/video<span id="currentCameraId">--</span>
+                    </div>
+                </div>
+                
                 <!-- Camera Status -->
                 <div class="section">
-                    <div class="section-title">Camera Status</div>
+                    <div class="section-title">Status</div>
                     <div id="cameraStatus" style="padding: 8px; background: #1a1a1a; border-radius: 3px; font-size: 12px; text-align: center;">
                         <div id="statusIndicator" style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ff4444; margin-right: 8px; vertical-align: middle;"></div>
                         <span id="statusMessage">Connecting...</span>
@@ -541,6 +570,47 @@ async def root():
             
             let ws = null;
             let state = {};
+            let availableCameras = [];
+            let currentCamera = null;
+            
+            function updateCameraSelector() {
+                fetch('/available-cameras')
+                    .then(r => r.json())
+                    .then(data => {
+                        availableCameras = data.available;
+                        currentCamera = data.current;
+                        
+                        // Update the selector
+                        const selector = document.getElementById('cameraSelector');
+                        selector.innerHTML = '';
+                        
+                        if (availableCameras.length === 0) {
+                            selector.innerHTML = '<p style="font-size: 11px; color: #aaa;">No cameras available</p>';
+                        } else {
+                            availableCameras.forEach(cameraId => {
+                                const btn = document.createElement('button');
+                                btn.className = 'btn';
+                                btn.style.width = '100%';
+                                btn.style.marginBottom = '5px';
+                                btn.textContent = `/dev/video${cameraId}`;
+                                
+                                if (cameraId === currentCamera) {
+                                    btn.classList.add('active');
+                                }
+                                
+                                btn.addEventListener('click', () => {
+                                    switchCamera(cameraId);
+                                });
+                                
+                                selector.appendChild(btn);
+                            });
+                        }
+                        
+                        // Update current camera display
+                        document.getElementById('currentCameraId').textContent = currentCamera !== null ? currentCamera : '--';
+                    })
+                    .catch(e => console.error('Failed to fetch cameras:', e));
+            }
             
             function connectWebSocket() {
                 const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
@@ -549,6 +619,7 @@ async def root():
                 ws.onopen = () => {
                     console.log('WebSocket connected');
                     document.getElementById('statusText').innerHTML = 'Connected';
+                    updateCameraSelector();
                 };
                 
                 ws.onmessage = (event) => {
@@ -599,11 +670,36 @@ async def root():
                     document.getElementById('val_isotherm_max').textContent = state.isotherm_max;
                 }
                 
+                // Update camera selector highlighting
+                const buttons_list = document.querySelectorAll('#cameraSelector button');
+                buttons_list.forEach(btn => {
+                    const btnId = parseInt(btn.textContent.match(/\d+/)[0]);
+                    if (btnId === currentCamera) {
+                        btn.classList.add('active');
+                    } else {
+                        btn.classList.remove('active');
+                    }
+                });
+                
                 // Update status
                 let statusLines = [];
                 if (state.palette_name) statusLines.push('Palette: ' + state.palette_name);
                 statusLines.push('Connected');
                 document.getElementById('statusText').innerHTML = statusLines.join('<br>');
+            }
+            
+            function switchCamera(newCameraId) {
+                console.log('Switching to camera /dev/video' + newCameraId);
+                fetch(`/switch-camera/${newCameraId}`, { method: 'POST' })
+                    .then(r => r.json())
+                    .then(data => {
+                        console.log('Switch response:', data);
+                        currentCamera = newCameraId;
+                        updateCameraSelector();
+                        // Highlight the newly selected camera
+                        setTimeout(updateUI, 100);
+                    })
+                    .catch(e => console.error('Switch error:', e));
             }
             
             // Button click handlers
@@ -706,6 +802,7 @@ async def root():
             
             // Poll camera status every 1 second
             setInterval(updateCameraStatus, 1000);
+            setInterval(updateCameraSelector, 3000);  // Update available cameras every 3 seconds
             
             // Connect on load
             connectWebSocket();
@@ -714,14 +811,18 @@ async def root():
     </html>
     """
     return HTMLResponse(content=html)
-
+    
+    return app
 
 
 def run_webserver(host="0.0.0.0", port=8000, camera_id=0):
-    """Launch FastAPI web server."""
+    """Launch FastAPI web server with specified camera."""
     import uvicorn
     
-    print(f"Starting thermal camera web server on {host}:{port}")
+    print(f"Creating FastAPI app (camera: /dev/video{camera_id})...")
+    app = create_app(camera_id)
+    
+    print(f"Starting web server on {host}:{port}")
     print(f"Open browser: http://{host}:{port}")
     
     uvicorn.run(app, host=host, port=port, log_level="info")

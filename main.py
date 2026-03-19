@@ -420,19 +420,33 @@ def main():
     parser.add_argument(
         '--camera',
         type=int,
-        default=0,
-        help='Camera device ID (default: 0)'
+        default=None,
+        help='Camera device ID (default: auto-detect)'
     )
     
     args = parser.parse_args()
     
+    # Auto-detect camera if not explicitly specified
+    camera_to_use = args.camera
+    if camera_to_use is None:
+        print("Auto-detecting thermal camera...")
+        available = find_available_cameras()
+        if available:
+            camera_to_use = available[0]
+            print(f"  ✓ Using camera: /dev/video{camera_to_use}")
+        else:
+            print("  ✗ No working camera found")
+            print("    Connect the USB thermal camera and try again")
+            print("    Or run: make find-camera")
+            sys.exit(1)
+    
     if args.web:
         print("Starting Thermal Camera Viewer in WebServer mode...")
         print(f"Open browser: http://localhost:{args.port}")
-        run_webserver(host=args.host, port=args.port, camera_id=args.camera)
+        run_webserver(host=args.host, port=args.port, camera_id=camera_to_use)
     else:
         print("Starting Thermal Camera Viewer in Standalone mode...")
-        standalone_mode(camera_id=args.camera)
+        standalone_mode(camera_id=camera_to_use)
 
 
 if __name__ == "__main__":
