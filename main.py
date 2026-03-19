@@ -1,3 +1,11 @@
+import os
+import time
+
+# If running headless (no X11 DISPLAY), force Qt to use offscreen rendering.
+# This avoids errors like "Could not load the Qt platform plugin 'xcb'" on headless systems.
+if "DISPLAY" not in os.environ:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
 import cv2
 import sys
 import numpy as np
@@ -679,18 +687,16 @@ def main():
     
     available_cameras = find_available_cameras()
     if not available_cameras:
-        print("Error: No cameras found.")
-        sys.exit(1)
-    
+        print("Warning: No cameras found. Connect a thermal camera and re-run.")
+        return
+
     print(f"Available cameras: {available_cameras}")
     current_camera_idx = 0
     cap = cv2.VideoCapture(available_cameras[current_camera_idx])
-    
+
     if not cap.isOpened():
-        print("Error: Could not open camera. Check USB connection.")
-        sys.exit(1)
-    
-    print(f"Using camera device: {available_cameras[current_camera_idx]}")
+        print("Warning: Could not open camera. Check USB connection.")
+        return
     
     # Set camera properties for better performance
     cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -785,7 +791,13 @@ def main():
     canvas_height = int(frame_height * 1.5)
     offset_x = (canvas_width - frame_width) // 2
     offset_y = (canvas_height - frame_height) // 2
-    
+
+    # Detect if we are running headless (no DISPLAY) and disable GUI output.
+    gui_enabled = True
+    if os.environ.get("QT_QPA_PLATFORM") == "offscreen" or "DISPLAY" not in os.environ:
+        gui_enabled = False
+        print("Headless mode detected: GUI output disabled (no DISPLAY).")
+
     while True:
         ret, frame = cap.read()
         
@@ -986,15 +998,28 @@ def main():
         }
         draw_buttons(canvas, offset_x, offset_y, frame_width, frame_height, canvas_width, canvas_height, mode_states)
         
-        # Display the frame
-        # Use WINDOW_NORMAL to allow window resizing
-        cv2.namedWindow("Thermal Camera Feed", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Thermal Camera Feed", canvas.shape[1], canvas.shape[0])
-        cv2.setMouseCallback("Thermal Camera Feed", mouse_callback, {'key_queue': []})
-        cv2.imshow("Thermal Camera Feed", canvas)
-        
+        # Display the frame (if a GUI is available)
+        key = 255
+        if gui_enabled:
+            try:
+                # Use WINDOW_NORMAL to allow window resizing
+                cv2.namedWindow("Thermal Camera Feed", cv2.WINDOW_NORMAL)
+                cv2.resizeWindow("Thermal Camera Feed", canvas.shape[1], canvas.shape[0])
+                cv2.setMouseCallback("Thermal Camera Feed", mouse_callback, {'key_queue': []})
+                cv2.imshow("Thermal Camera Feed", canvas)
+                key = cv2.waitKey(1) & 0xFF
+            except Exception as e:
+                print(f"GUI not available: {e}\nSwitching to headless mode.")
+                gui_enabled = False
+
+        if not gui_enabled:
+            # In headless mode, avoid busy loops and allow clean exit with Ctrl+C
+            if frame_count % 100 == 0:
+                print(f"[headless] processed {frame_count} frames")
+            time.sleep(0.01)
+            continue
+
         # Handle key presses
-        key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
             break
         elif key == 9:  # Tab key

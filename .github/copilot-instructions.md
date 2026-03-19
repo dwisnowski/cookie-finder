@@ -20,6 +20,22 @@ This project is designed to be lightweight, headless-friendly, and runnable on e
 ### Target Device
 - Orange Pi Zero 2W
 - OS: Armbian (Debian/Ubuntu-based)
+- version: Latest stable release (e.g., Armbian 23.08 or newer) Bookworm 
+- CPU: ARM Cortex-A53 (quad-core)
+- RAM: 1GB
+- Storage: microSD
+- Connectivity: WiFi
+- USB 2.0 ports
+- HDMI output (for debugging/visualization)
+- GPIO pins (future integration)
+- No GPU or hardware acceleration guarantees
+- Headless operation expected (SSH access, no X11)
+- Thermal camera connected via USB (UVC-compatible, e.g., Mileseey TNV30i)
+- Optional peripherals: pan/tilt gimbal, external WiFi antenna
+- Constraints: limited resources, no GUI, must handle device variability
+- Networking: accessed via SSH, IP may change, no cloud dependency
+- Development workflow: write/test on desktop, deploy/run headless on Orange Pi, use logs for debugging
+
 
 ### Peripherals
 - USB thermal camera (e.g., Mileseey TNV30i or similar UVC-compatible device)
@@ -55,6 +71,7 @@ This project is designed to be lightweight, headless-friendly, and runnable on e
 
 Prefer:
 - Python 3.x
+- uv (for Python environment management)
 - OpenCV (`cv2`)
 - NumPy
 

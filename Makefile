@@ -1,4 +1,4 @@
-.PHONY: run install clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe-usb probe-cdc probe-serial probe-resolution probe-xu
+.PHONY: run install clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu
 
 install:
 	uv sync
@@ -36,21 +36,25 @@ list-cameras:
 list-camera-formats:
 	ffmpeg -f avfoundation -video_size 512x390 -framerate 50 -i "0" -vframes 1 thermal_capture.tiff
 
-probe-usb:
+probe-install:
 	brew install libusb
-	uv run probe_usb.py
+
+probe-usb: probe-install
+	uv run probing_thermal_camera/probe_usb.py
 
 probe-cdc:
-	uv run probe_cdc.py
+	uv run probing_thermal_camera/probe_cdc.py
 
 probe-serial:
-	uv run probe_serial.py
+	uv run probing_thermal_camera/probe_serial.py
 
 probe-resolution:
-	uv run probe_resolution.py
+	uv run probing_thermal_camera/probe_resolution.py
 
 probe-xu:
-	uv run probe_uvc_xu.py
+	uv run probing_thermal_camera/probe_uvc_xu.py
+
+probe: probe-usb probe-cdc probe-serial probe-resolution probe-xu
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
