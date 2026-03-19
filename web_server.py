@@ -3,6 +3,7 @@ FastAPI web server for thermal camera with MJPEG streaming and WebSocket control
 Optimized for 50 Hz video streaming over WiFi on embedded systems (Orange Pi).
 """
 
+import os
 import cv2
 import json
 import threading
@@ -11,6 +12,10 @@ import numpy as np
 from io import BytesIO
 from queue import Queue
 from contextlib import asynccontextmanager
+
+# Suppress OpenCV warnings (camera not found messages)
+os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
+cv2.setLogLevel(0)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, HTMLResponse
@@ -47,7 +52,7 @@ def capture_frames(camera_id=0):
     cap = None
     prev_frame = None
     retry_count = 0
-    max_retries = 30
+    last_log_retry = 0
     
     print(f"Camera thread started (attempting device {camera_id})")
     
@@ -60,17 +65,22 @@ def capture_frames(camera_id=0):
                     camera_connected = True
                     print(f"✓ Camera connected (device {camera_id})")
                     retry_count = 0
+                    last_log_retry = 0
                 else:
                     camera_connected = False
                     retry_count += 1
-                    if retry_count <= 3 or retry_count % 10 == 0:
-                        print(f"⚠ Camera not found. Retry {retry_count}/{max_retries}...")
-                    if retry_count > max_retries:
-                        print(f"✗ Camera connection timeout after {max_retries} retries")
-                        retry_count = 0
+                    # Only log every 5 retries to reduce noise
+                    if retry_count == 1 or retry_count % 5 == 0:
+                        print(f"⚠ Waiting for camera... (attempt {retry_count})")
         
         if cap is None:
-            wait_time = min(2.0, 0.2 * (2 ** (retry_count // 10)))
+            # Adaptive backoff: 0.5s for first 5, then 1s, then 2s max
+            if retry_count <= 5:
+                wait_time = 0.5
+            elif retry_count <= 15:
+                wait_time = 1.0
+            else:
+                wait_time = 2.0
             time.sleep(wait_time)
             continue
         

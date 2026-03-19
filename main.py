@@ -13,11 +13,16 @@ import argparse
 import sys
 import threading
 
+# Suppress OpenCV warnings (camera not found messages)
+os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
+
 # If running headless (no X11 DISPLAY), force Qt to use offscreen rendering.
 if "DISPLAY" not in os.environ:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import cv2
+cv2.setLogLevel(0)
+
 import numpy as np
 
 from thermal_processor import ThermalProcessor, THERMAL_PALETTES
@@ -47,7 +52,11 @@ def standalone_mode(camera_id=0):
     camera_open = False
     retry_count = 0
     
-    print(f"Available cameras: {available_cameras}")
+    if available_cameras:
+        print(f"Available cameras: {available_cameras}")
+    else:
+        print("No cameras found yet. Waiting for camera to be connected...")
+    
     print("Waiting for camera (press 'r' to retry, 'q' to quit)...")
     
     # Keep trying to open camera
@@ -63,11 +72,17 @@ def standalone_mode(camera_id=0):
                 cap.release()
         
         retry_count += 1
-        if retry_count > 1:
-            print(f"⚠ Camera not available. Retrying... (attempt {retry_count})")
-            print("   Press 'r' to retry now, 'q' to quit")
+        # Only log every 10 retries to reduce noise
+        if retry_count % 10 == 1:
+            print(f"⚠ Waiting for camera... (attempt {retry_count})")
         
-        time.sleep(1)
+        # Adaptive backoff
+        if retry_count <= 5:
+            time.sleep(0.5)
+        elif retry_count <= 15:
+            time.sleep(1.0)
+        else:
+            time.sleep(2.0)
         
         # Check for keyboard input while waiting
         key = cv2.waitKey(1) & 0xFF
@@ -182,8 +197,9 @@ def standalone_mode(camera_id=0):
             cap.release()
             cap = None
             
-            # Try to reconnect
+            # Try to reconnect silently first
             reconnect_attempts = 0
+            reconnect_logged = False
             while cap is None and reconnect_attempts < 10:
                 try:
                     if available_cameras:
@@ -199,9 +215,14 @@ def standalone_mode(camera_id=0):
                     pass
                 
                 reconnect_attempts += 1
-                if reconnect_attempts < 10:
-                    print(f"  Retry {reconnect_attempts}/10...")
-                    time.sleep(0.5)
+                # Only log after 3 silent attempts
+                if reconnect_attempts == 3 and not reconnect_logged:
+                    print(f"⚠ Reconnecting to camera...")
+                    reconnect_logged = True
+                
+                # Quick retries first, then slower
+                wait_time = 0.2 if reconnect_attempts <= 3 else 0.5
+                time.sleep(wait_time)
                 
                 # Check for quit signal while reconnecting
                 if gui_enabled:
