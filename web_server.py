@@ -809,8 +809,8 @@ def create_app(camera_id=0):
         </script>
     </body>
     </html>
-    """
-    return HTMLResponse(content=html)
+        """
+        return HTMLResponse(content=html)
     
     return app
 
