@@ -122,9 +122,7 @@ def capture_frames(camera_id=0):
 
 def create_no_camera_image():
     """Create a placeholder image when camera is not connected."""
-    img = cv2.Mat(240, 320, cv2.CV_8UC3, (0, 0, 0)).get() if hasattr(cv2, 'Mat') else np.zeros((240, 320, 3), dtype=np.uint8)
-    if isinstance(img, cv2.UMat):
-        img = img.get()
+    img = np.zeros((240, 320, 3), dtype=np.uint8)
     cv2.putText(img, "Camera Disconnected", (40, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
     cv2.putText(img, "Press Reconnect Button", (25, 150), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (100, 100, 255), 1)
     return img
