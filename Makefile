@@ -1,4 +1,4 @@
-.PHONY: run install clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu
+.PHONY: run run-standalone run-web run-web-custom install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
 
 install:
 	uv sync
@@ -12,8 +12,34 @@ install-ffmpeg:
 install-libusb:
 	brew install libusb
 
-run:
+# Run modes
+run: run-standalone
+
+run-standalone:
+	@echo "Starting Thermal Camera Viewer (Standalone GUI mode)..."
 	uv run main.py
+
+run-web:
+	@echo "Starting Thermal Camera Viewer (WebServer mode on http://0.0.0.0:8000)..."
+	uv run main.py --web
+
+run-web-custom:
+	@read -p "Enter port (default 8000): " port; \
+	read -p "Enter host (default 0.0.0.0): " host; \
+	port=$${port:-8000}; \
+	host=$${host:-0.0.0.0}; \
+	echo "Starting Thermal Camera Viewer (WebServer mode on http://$$host:$$port)..."; \
+	uv run main.py --web --port $$port --host $$host
+
+find-camera:
+	@echo "Detecting available camera devices..."
+	@echo "Checking /dev/video devices:"
+	@ls -la /dev/video* 2>/dev/null || echo "No /dev/video devices found"
+	@echo ""
+	@echo "Camera details:"
+	@v4l2-ctl --list-devices 2>/dev/null || echo "v4l2-ctl not available"
+	@echo ""
+	@uv run find_working_camera.py
 
 list-devices:
 	uv run uvc_controls.py list-devices

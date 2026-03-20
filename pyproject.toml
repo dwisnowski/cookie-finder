@@ -1,13 +1,16 @@
 [project]
 name = "thermal-camera-viewer"
 version = "0.1.0"
-description = "USB thermal camera viewer using OpenCV"
+description = "USB thermal camera viewer using OpenCV (Standalone GUI + Web Server)"
 requires-python = ">=3.8"
 dependencies = [
     "opencv-python",
     "numpy<2",
     "pyusb",
     "pyserial",
+    "fastapi>=0.100.0",
+    "uvicorn[standard]>=0.23.0",
+    "websockets>=11.0",
 ]
 
 [project.optional-dependencies]
