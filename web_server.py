@@ -58,7 +58,7 @@ def try_open_camera(camera_id=0):
     return None
 
 
-def capture_frames(camera_id=0):
+def capture_frames(camera_id=None):
     """Capture frames from thermal camera with reconnection logic."""
     global camera_connected, camera_id_current, available_cameras, camera_switch_event, camera_switch_id
     
@@ -81,14 +81,33 @@ def capture_frames(camera_id=0):
     
     if not working_cameras:
         print(f"  ✗ No working cameras detected")
-        print(f"Camera thread started (waiting for device {camera_id})")
+        if camera_id is None:
+            print(f"Camera thread started (waiting for any device to appear)")
+        else:
+            print(f"Camera thread started (waiting for device {camera_id})")
     else:
         print(f"  ✓ Found working cameras: {working_cameras}")
         # If the requested camera isn't in the working list, use the first working one
-        if camera_id not in working_cameras:
+        if camera_id is None:
+            # Auto-select first working camera
+            camera_id = working_cameras[0]
+            print(f"Auto-selecting first working camera: /dev/video{camera_id}")
+        elif camera_id not in working_cameras:
             print(f"Requested /dev/video{camera_id} not in working list, using /dev/video{working_cameras[0]}")
             camera_id = working_cameras[0]
         print(f"Camera thread started (attempting device {camera_id})")
+    
+    # If no cameras found and none specified, wait for one to appear
+    if camera_id is None and not working_cameras:
+        while camera_id is None:
+            time.sleep(0.5)
+            for test_id in range(5):
+                test_cap = try_open_camera(test_id)
+                if test_cap is not None:
+                    camera_id = test_id
+                    print(f"✓ Detected camera at /dev/video{test_id}")
+                    test_cap.release()
+                    break
     
     while True:
         # Check if user requested camera switch
@@ -202,7 +221,7 @@ def mjpeg_generator(jpeg_quality=65):
         time.sleep(0.02)
 
 
-def create_app(camera_id=0):
+def create_app(camera_id=None):
     """Create and configure the FastAPI application."""
     
     @asynccontextmanager
@@ -212,7 +231,8 @@ def create_app(camera_id=0):
         # Startup
         print(f"Initializing processor...")
         processor = ThermalProcessor()
-        print(f"Starting camera thread (device /dev/video{camera_id})...")
+        camera_desc = f"/dev/video{camera_id}" if camera_id is not None else "auto-detect (none found)"
+        print(f"Starting camera thread (device {camera_desc})...")
         camera_thread = threading.Thread(target=capture_frames, args=(camera_id,), daemon=True)
         camera_thread.start()
         print("✓ Web server started")
@@ -1918,11 +1938,12 @@ def create_app(camera_id=0):
     return app
 
 
-def run_webserver(host="0.0.0.0", port=8000, camera_id=0):
+def run_webserver(host="0.0.0.0", port=8000, camera_id=None):
     """Launch FastAPI web server with specified camera."""
     import uvicorn
     
-    print(f"Creating FastAPI app (camera: /dev/video{camera_id})...")
+    camera_desc = f"/dev/video{camera_id}" if camera_id is not None else "auto-detect (none found)"
+    print(f"Creating FastAPI app (camera: {camera_desc})...")
     app = create_app(camera_id)
     
     print(f"Starting web server on {host}:{port}")
