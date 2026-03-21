@@ -436,9 +436,15 @@ def main():
             print(f"  ✓ Using camera: /dev/video{camera_to_use}")
         else:
             print("  ✗ No working camera found")
-            print("    Connect the USB thermal camera and try again")
-            print("    Or run: make find-camera")
-            sys.exit(1)
+            if args.web:
+                # Web mode: allow startup without camera
+                print("  Web mode: Starting without camera (UI will show status)")
+                camera_to_use = None
+            else:
+                # Standalone mode: require camera
+                print("    Connect the USB thermal camera and try again")
+                print("    Or run: make find-camera")
+                sys.exit(1)
     
     if args.web:
         print("Starting Thermal Camera Viewer in WebServer mode...")
