@@ -1,4 +1,4 @@
-.PHONY: run run-standalone run-web run-web-custom install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
+.PHONY: run run-standalone run-web run-web-custom test-gamepad install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
 
 install:
 	uv sync
@@ -13,7 +13,7 @@ install-libusb:
 	brew install libusb
 
 # Run modes
-run: run-standalone
+run: run-web
 
 run-standalone:
 	@echo "Starting Thermal Camera Viewer (Standalone GUI mode)..."

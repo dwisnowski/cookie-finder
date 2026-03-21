@@ -1,0 +1,20 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^python3 -m py_compile web_server\\.py && echo \"✅ Syntax valid\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^uv run main\\.py --web &$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^pkill -f \"uv run main\\.py\"; sleep 2; echo \"Cleaned\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^pkill -f \"uv run main\\.py\"; sleep 1; echo \"✅ Server stopped\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
