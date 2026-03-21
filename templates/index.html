@@ -1,0 +1,1070 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Thermal Camera Viewer</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        /* ===== CSS VARIABLES ===== */
+        :root {
+            /* Colors */
+            --bg-primary: #0f1419;
+            --bg-secondary: #1a202c;
+            --bg-tertiary: #2d3748;
+            --text-primary: #ffffff;
+            --text-secondary: #a0aec0;
+            --text-tertiary: #718096;
+            --accent: #00ff88;
+            --accent-shadow: #00ff8844;
+            --border-color: #2d3748;
+            --border-light: #3d4e5f;
+            
+            /* Gradients */
+            --gradient-dark: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+            --gradient-card: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
+            --gradient-button: linear-gradient(135deg, #2d3748 0%, #3d4e5f 100%);
+            --gradient-accent: linear-gradient(135deg, #00ff88 0%, #00dd66 100%);
+            
+            /* Spacing */
+            --spacing-xs: 4px;
+            --spacing-sm: 8px;
+            --spacing-md: 12px;
+            --spacing-lg: 16px;
+            --spacing-xl: 20px;
+            --spacing-2xl: 24px;
+            
+            /* Shadows */
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+            --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
+            --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.6);
+            
+            /* Transitions */
+            --transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
+            --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
+            
+            /* Border radius */
+            --radius-sm: 4px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-xl: 16px;
+            --radius-full: 9999px;
+        }
+        
+        /* ===== BASE STYLES ===== */
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--gradient-dark);
+            color: var(--text-primary);
+            margin: 0;
+            padding: var(--spacing-lg);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+        
+        h1 {
+            margin: 0 0 var(--spacing-lg) 0;
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: var(--gradient-accent);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        /* ===== LAYOUT ===== */
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 320px;
+            gap: var(--spacing-2xl);
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+                gap: var(--spacing-xl);
+            }
+        }
+        
+        /* ===== VIDEO SECTION ===== */
+        .video-section {
+            display: flex;
+            flex-direction: column;
+            gap: var(--spacing-lg);
+        }
+        
+        .video-stream {
+            width: 100%;
+            height: auto;
+            display: block;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-light);
+            background: #000;
+            box-shadow: 
+                0 0 40px rgba(0, 255, 136, 0.1),
+                var(--shadow-xl);
+            transition: box-shadow var(--transition-normal);
+        }
+        
+        .video-stream:hover {
+            box-shadow: 
+                0 0 50px rgba(0, 255, 136, 0.15),
+                var(--shadow-xl);
+        }
+        
+        .status {
+            padding: var(--spacing-md);
+            background: linear-gradient(135deg, rgba(26, 32, 44, 0.8) 0%, rgba(45, 55, 72, 0.8) 100%);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-md);
+            font-size: 12px;
+            color: var(--text-secondary);
+            backdrop-filter: blur(10px);
+        }
+        
+        /* ===== CONTROLS SIDEBAR ===== */
+        .controls {
+            background: linear-gradient(135deg, rgba(26, 32, 44, 0.9) 0%, rgba(45, 55, 72, 0.9) 100%);
+            border: 1px solid var(--border-light);
+            padding: var(--spacing-lg);
+            border-radius: var(--radius-lg);
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: var(--shadow-lg);
+            backdrop-filter: blur(20px);
+        }
+        
+        .controls::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .controls::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .controls::-webkit-scrollbar-thumb {
+            background: var(--accent);
+            border-radius: var(--radius-full);
+        }
+        
+        .section {
+            margin-bottom: var(--spacing-xl);
+            padding-bottom: var(--spacing-lg);
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .section-title {
+            font-weight: 700;
+            margin-bottom: var(--spacing-md);
+            padding-bottom: var(--spacing-sm);
+            border-bottom: 2px solid var(--accent);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--accent);
+            transition: color var(--transition-normal);
+        }
+        
+        /* ===== BUTTONS ===== */
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: var(--spacing-sm);
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .btn {
+            padding: var(--spacing-md) var(--spacing-sm);
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            background: var(--gradient-button);
+            color: var(--text-primary);
+            cursor: pointer;
+            border-radius: var(--radius-md);
+            transition: all var(--transition-normal);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            user-select: none;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 255, 136, 0.1);
+            transition: left var(--transition-normal);
+            z-index: -1;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 12px rgba(0, 255, 136, 0.15), var(--shadow-md);
+            border-color: rgba(0, 255, 136, 0.4);
+        }
+        
+        .btn:hover::before {
+            left: 0;
+        }
+        
+        .btn:active {
+            transform: translateY(0) scale(0.98);
+            box-shadow: 0 2px 4px rgba(0, 255, 136, 0.1);
+        }
+        
+        .btn.active {
+            background: var(--gradient-accent);
+            border-color: var(--accent);
+            color: #000;
+            font-weight: 700;
+            box-shadow: 0 0 20px var(--accent-shadow);
+        }
+        
+        .btn.active:hover {
+            box-shadow: 0 0 30px var(--accent-shadow), var(--shadow-lg);
+            transform: translateY(-2px);
+        }
+        
+        /* Motor D-Pad Buttons */
+        .btn-motor {
+            padding: var(--spacing-lg);
+            font-size: 18px;
+            font-weight: 700;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);
+            color: var(--accent);
+            cursor: pointer;
+            border-radius: var(--radius-md);
+            transition: all var(--transition-fast);
+            touch-action: manipulation;
+            user-select: none;
+            position: relative;
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+        
+        .btn-motor:hover {
+            background: linear-gradient(135deg, rgba(55, 75, 92, 0.9) 0%, rgba(40, 110, 68, 0.8) 100%);
+            border-color: var(--accent);
+            box-shadow: 0 4px 12px rgba(0, 255, 136, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transform: translateY(-2px);
+        }
+        
+        .btn-motor:active {
+            transform: scale(0.96);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
+        
+        /* Preset and Axis Buttons */
+        .btn-preset,
+        .btn-axis,
+        .btn-toggle {
+            padding: var(--spacing-sm) var(--spacing-md);
+            font-size: 10px;
+            font-weight: 600;
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            background: var(--gradient-button);
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            transition: all var(--transition-normal);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            user-select: none;
+        }
+        
+        .btn-preset:hover,
+        .btn-axis:hover,
+        .btn-toggle:hover {
+            background: linear-gradient(135deg, #3d4e5f 0%, #4d6e7f 100%);
+            border-color: rgba(0, 255, 136, 0.4);
+            transform: translateY(-1px);
+        }
+        
+        .btn-preset.active,
+        .btn-axis.active,
+        .btn-toggle.active {
+            background: var(--gradient-accent);
+            border-color: var(--accent);
+            color: #000;
+            font-weight: 700;
+            box-shadow: 0 0 12px var(--accent-shadow);
+        }
+        
+        /* ===== SLIDERS ===== */
+        .slider-group {
+            margin-bottom: var(--spacing-md);
+        }
+        
+        .slider-label {
+            font-size: 11px;
+            margin-bottom: var(--spacing-sm);
+            display: flex;
+            justify-content: space-between;
+            color: var(--text-secondary);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: var(--radius-full);
+            background: linear-gradient(to right, var(--border-color), var(--accent-shadow));
+            outline: none;
+            -webkit-appearance: none;
+            cursor: pointer;
+            transition: background var(--transition-normal);
+        }
+        
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--gradient-accent);
+            cursor: pointer;
+            box-shadow: 0 0 8px var(--accent-shadow);
+            border: 1px solid var(--accent);
+            transition: all var(--transition-normal);
+        }
+        
+        input[type="range"]::-webkit-slider-thumb:hover {
+            width: 18px;
+            height: 18px;
+            box-shadow: 0 0 16px var(--accent-shadow);
+        }
+        
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--gradient-accent);
+            cursor: pointer;
+            box-shadow: 0 0 8px var(--accent-shadow);
+            border: 1px solid var(--accent);
+            transition: all var(--transition-normal);
+        }
+        
+        input[type="range"]::-moz-range-thumb:hover {
+            width: 18px;
+            height: 18px;
+            box-shadow: 0 0 16px var(--accent-shadow);
+        }
+        
+        input[type="range"]:focus {
+            outline: none;
+        }
+        
+        /* ===== INFO & LABELS ===== */
+        .info {
+            font-size: 10px;
+            color: var(--text-tertiary);
+            margin-top: var(--spacing-sm);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        
+        /* ===== MODAL ===== */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(4px);
+            animation: fadeIn var(--transition-normal);
+        }
+        
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+            to {
+                opacity: 1;
+            }
+        }
+        
+        .modal-overlay.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, rgba(26, 32, 44, 0.95) 0%, rgba(45, 55, 72, 0.95) 100%);
+            border: 1px solid var(--border-light);
+            border-radius: var(--radius-xl);
+            padding: var(--spacing-2xl);
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+            color: var(--text-primary);
+            position: relative;
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(20px);
+            animation: slideUp var(--transition-normal);
+        }
+        
+        @keyframes slideUp {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+        
+        .modal-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .modal-content::-webkit-scrollbar-thumb {
+            background: var(--accent);
+            border-radius: var(--radius-full);
+        }
+        
+        .modal-header {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: var(--spacing-xl);
+            text-align: center;
+            border-bottom: 2px solid var(--accent);
+            padding-bottom: var(--spacing-lg);
+            letter-spacing: -0.5px;
+        }
+        
+        .modal-section {
+            margin-bottom: var(--spacing-xl);
+        }
+        
+        .modal-section-title {
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: var(--spacing-md);
+            padding-bottom: var(--spacing-sm);
+            border-bottom: 1px solid var(--border-color);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .shortcut-item {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: var(--spacing-lg);
+            margin-bottom: var(--spacing-sm);
+            padding: var(--spacing-md);
+            background: rgba(45, 55, 72, 0.5);
+            border-radius: var(--radius-sm);
+            font-size: 12px;
+            border: 1px solid var(--border-color);
+            transition: all var(--transition-normal);
+        }
+        
+        .shortcut-item:hover {
+            background: rgba(45, 55, 72, 0.8);
+            border-color: var(--border-light);
+        }
+        
+        .shortcut-key {
+            font-family: "Monaco", "Courier New", monospace;
+            font-weight: 700;
+            color: var(--accent);
+            text-align: right;
+            font-size: 11px;
+        }
+        
+        .shortcut-desc {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+        
+        .modal-close {
+            position: absolute;
+            top: var(--spacing-lg);
+            right: var(--spacing-lg);
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: var(--spacing-sm);
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: var(--radius-md);
+            transition: all var(--transition-normal);
+        }
+        
+        .modal-close:hover {
+            color: var(--accent);
+            background: rgba(0, 255, 136, 0.1);
+        }
+        
+        /* ===== GAMEPAD & STATUS ===== */
+        .gamepad-status {
+            background: rgba(45, 55, 72, 0.5);
+            padding: var(--spacing-md);
+            border-radius: var(--radius-md);
+            margin-bottom: var(--spacing-md);
+            font-size: 12px;
+            border: 1px solid var(--border-color);
+            transition: all var(--transition-normal);
+        }
+        
+        .gamepad-status:hover {
+            border-color: var(--border-light);
+            background: rgba(45, 55, 72, 0.7);
+        }
+        
+        .gamepad-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #ff4444;
+            margin-right: var(--spacing-sm);
+            vertical-align: middle;
+            transition: all var(--transition-normal);
+            box-shadow: 0 0 4px rgba(255, 68, 68, 0.5);
+        }
+        
+        .gamepad-indicator.connected {
+            background: var(--accent);
+            box-shadow: 0 0 12px var(--accent-shadow);
+            animation: pulse 2s infinity;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                box-shadow: 0 0 12px var(--accent-shadow);
+            }
+            50% {
+                box-shadow: 0 0 24px var(--accent-shadow);
+            }
+        }
+        
+        .gamepad-name {
+            color: var(--accent);
+            font-weight: 700;
+            margin: var(--spacing-sm) 0;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        
+        .gamepad-device-count {
+            color: var(--text-tertiary);
+            font-size: 9px;
+            margin-top: var(--spacing-sm);
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+        }
+        
+        /* ===== GAMEPAD BUTTON STATES ===== */
+        .gamepad-button {
+            transition: all var(--transition-fast);
+            color: var(--text-secondary);
+            font-weight: 600;
+            border: 1px solid var(--border-color);
+            padding: var(--spacing-md);
+            border-radius: var(--radius-sm);
+            background: rgba(45, 55, 72, 0.5);
+            cursor: default;
+            user-select: none;
+        }
+        
+        .gamepad-button.pressed {
+            background: var(--gradient-accent);
+            color: #000;
+            border-color: var(--accent);
+            box-shadow: 0 0 16px var(--accent-shadow);
+            transform: scale(1.05);
+            font-weight: 700;
+        }
+        
+        /* ===== CARDS & PANELS ===== */
+        .card-panel {
+            background: rgba(45, 55, 72, 0.5);
+            padding: var(--spacing-md);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+            transition: all var(--transition-normal);
+        }
+        
+        .card-panel:hover {
+            border-color: var(--border-light);
+            background: rgba(45, 55, 72, 0.7);
+            box-shadow: var(--shadow-md);
+        }
+        
+        /* ===== SVG INDICATOR ===== */
+        #panTiltIndicator {
+            border: 2px solid var(--border-light);
+            border-radius: 50%;
+            background: rgba(45, 55, 72, 0.5);
+            box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.3);
+            transition: box-shadow var(--transition-normal);
+        }
+        
+        #panTiltIndicator:hover {
+            box-shadow: 
+                inset 0 0 16px rgba(0, 0, 0, 0.3),
+                0 0 12px var(--accent-shadow);
+        }
+        
+        #positionMarker {
+            filter: drop-shadow(0 0 4px var(--accent-shadow));
+        }
+        
+        /* ===== CAMERA STATUS & INDICATORS ===== */
+        #cameraStatus {
+            background: rgba(45, 55, 72, 0.8);
+            padding: var(--spacing-md);
+            border-radius: var(--radius-md);
+            font-size: 11px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: var(--spacing-sm);
+            font-weight: 600;
+            transition: all var(--transition-normal);
+        }
+        
+        #statusIndicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #ff4444;
+            box-shadow: 0 0 6px rgba(255, 68, 68, 0.5);
+            transition: all var(--transition-normal);
+        }
+        
+        #statusIndicator.connected {
+            background: var(--accent);
+            box-shadow: 0 0 12px var(--accent-shadow);
+            animation: pulse 2s infinite;
+        }
+        
+        /* ===== RESPONSIVE DESIGN ===== */
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+            
+            .controls {
+                max-height: none;
+            }
+            
+            .button-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            
+            .modal-content {
+                padding: var(--spacing-lg);
+                margin: var(--spacing-lg);
+                max-width: calc(100% - 2*var(--spacing-lg));
+            }
+            
+            h1 {
+                font-size: 24px;
+            }
+            
+            body {
+                padding: var(--spacing-md);
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Thermal Camera Viewer</h1>
+    
+    <div class="container">
+        <div class="video-section">
+            <img id="videoStream" src="/video" alt="Thermal camera feed" class="video-stream">
+            <div class="status">
+                <div id="statusText">Connecting...</div>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <!-- Detection Modes -->
+            <div class="section">
+                <div class="section-title">Detection Modes</div>
+                <div class="button-grid">
+                    <button class="btn" id="btn_h" title="Heat Seeker Mode">H: Heat Seeker</button>
+                    <button class="btn" id="btn_c" title="Heat Cluster Mode">C: Cluster</button>
+                    <button class="btn" id="btn_m" title="Motion Detection">M: Motion</button>
+                    <button class="btn" id="btn_p" title="Palette/Thermal Colors">P: Palette</button>
+                    <button class="btn" id="btn_t" title="Threshold">T: Threshold</button>
+                    <button class="btn" id="btn_y" title="YOLO AI">Y: YOLO</button>
+                    <button class="btn" id="btn_f" title="Optical Flow">F: Flow</button>
+                    <button class="btn" id="btn_i" title="Isotherm">I: Isotherm</button>
+                </div>
+            </div>
+            
+            <!-- Enhancements -->
+            <div class="section">
+                <div class="section-title">Enhancements</div>
+                <div class="button-grid">
+                    <button class="btn" id="btn_d" title="Denoise">D: Denoise</button>
+                    <button class="btn" id="btn_o" title="Normalize">O: Normalize</button>
+                    <button class="btn" id="btn_e" title="Enhance">E: Enhance</button>
+                    <button class="btn" id="btn_u" title="Upscale">U: Upscale</button>
+                </div>
+            </div>
+            
+            <!-- Stabilization -->
+            <div class="section">
+                <div class="section-title">Stabilization</div>
+                <div class="button-grid">
+                    <button class="btn" id="btn_s" title="Stabilize">S: Stabilize</button>
+                    <button class="btn" id="btn_x" title="Super Stab">X: Super Stab</button>
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">Strength: <span id="stab_strength">1.0</span></div>
+                    <input type="range" min="0" max="100" value="100" id="slider_stabilize_strength">
+                </div>
+            </div>
+            
+            <!-- Threshold / Parameters -->
+            <div class="section">
+                <div class="section-title">Parameters</div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">Threshold: <span id="val_threshold">127</span></div>
+                    <input type="range" min="0" max="255" value="127" id="slider_threshold_value">
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">Isotherm Min: <span id="val_isotherm_min">100</span></div>
+                    <input type="range" min="0" max="255" value="100" id="slider_isotherm_min">
+                </div>
+                
+                <div class="slider-group">
+                    <div class="slider-label">Isotherm Max: <span id="val_isotherm_max">200</span></div>
+                    <input type="range" min="0" max="255" value="200" id="slider_isotherm_max">
+                </div>
+            </div>
+            
+            <!-- Color Palette -->
+            <div class="section">
+                <div class="section-title">Color Palette</div>
+                <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                    <button class="btn" id="btn_palette_prev" style="flex: 1; font-size: 11px;">← Prev</button>
+                    <button class="btn" id="btn_palette_next" style="flex: 1; font-size: 11px;">Next →</button>
+                </div>
+                <div id="currentPaletteInfo" style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color); font-size: 11px; text-align: center; margin-top: var(--spacing-sm); color: var(--text-secondary); transition: all var(--transition-normal);">
+                    <span id="currentPaletteName">Ironbow</span>
+                </div>
+            </div>
+            
+            <!-- Motor Control -->
+            <div class="section">
+                <div class="section-title">Motor Control</div>
+                
+                <!-- Gamepad/Bluetooth Control Status -->
+                <div class="gamepad-status">
+                    <div>
+                        <span class="gamepad-indicator" id="gamepadIndicator"></span>
+                        <span id="gamepadStatusText">No Controller</span>
+                    </div>
+                    <div class="gamepad-name" id="gamepadNameDisplay">—</div>
+                    <div class="gamepad-device-count" id="gamepadDeviceCount">0 devices</div>
+                    <button class="btn" id="btn_cycle_gamepad" style="width: 100%; margin-top: 8px; font-size: 11px;">🎮 Cycle Device</button>
+                </div>
+                
+                <!-- Gamepad Presets -->
+                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
+                    <div style="color: var(--text-tertiary); margin-bottom: 6px; font-size: 11px; font-weight: bold;">Joystick Preset</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <button class="btn-preset" id="btn_preset_normal" style="font-size: 10px; padding: 8px;">Normal</button>
+                        <button class="btn-preset" id="btn_preset_vertical" style="font-size: 10px; padding: 8px;">Vertical</button>
+                    </div>
+                    <div id="currentPresetDisplay" style="margin-top: 6px; color: var(--accent); font-weight: bold; font-size: 11px;">Current: Normal</div>
+                </div>
+                
+                <!-- Gamepad Axis Configuration -->
+                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); font-size: 11px; border: 1px solid var(--border-color);">
+                    <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">Joystick Axis Mapping</div>
+                    <div style="margin-bottom: 8px;">
+                        <label style="display: block; color: var(--text-secondary); margin-bottom: 3px;">Pan (Horizontal)</label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <button class="btn-axis" id="btn_pan_axis_0" style="font-size: 10px; padding: 6px;">Left X</button>
+                            <button class="btn-axis" id="btn_pan_axis_1" style="font-size: 10px; padding: 6px;">Left Y</button>
+                            <button class="btn-axis" id="btn_pan_axis_2" style="font-size: 10px; padding: 6px;">Right X</button>
+                            <button class="btn-axis" id="btn_pan_axis_3" style="font-size: 10px; padding: 6px;">Right Y</button>
+                        </div>
+                        <button class="btn-toggle" id="btn_invert_pan" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">
+                            Invert Pan: OFF
+                        </button>
+                    </div>
+                    <div>
+                        <label style="display: block; color: var(--text-secondary); margin-bottom: 3px;">Tilt (Vertical)</label>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                            <button class="btn-axis" id="btn_tilt_axis_0" style="font-size: 10px; padding: 6px;">Left X</button>
+                            <button class="btn-axis" id="btn_tilt_axis_1" style="font-size: 10px; padding: 6px;">Left Y</button>
+                            <button class="btn-axis" id="btn_tilt_axis_2" style="font-size: 10px; padding: 6px;">Right X</button>
+                            <button class="btn-axis" id="btn_tilt_axis_3" style="font-size: 10px; padding: 6px;">Right Y</button>
+                        </div>
+                        <button class="btn-toggle" id="btn_invert_tilt" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">
+                            Invert Tilt: OFF
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- Gamepad Buttons Display -->
+                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
+                    <div style="color: var(--text-tertiary); margin-bottom: 8px; font-size: 11px; font-weight: bold;">Button Press Display</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px;">
+                        <div class="gamepad-button" id="gamepadButton0" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
+                            A
+                        </div>
+                        <div class="gamepad-button" id="gamepadButton1" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
+                            B
+                        </div>
+                        <div class="gamepad-button" id="gamepadButton2" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
+                            X
+                        </div>
+                        <div class="gamepad-button" id="gamepadButton3" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
+                            Y
+                        </div>
+                    </div>
+                </div>
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <svg id="panTiltIndicator" width="200" height="200" viewBox="0 0 200 200" style="border: 2px solid var(--border-light); border-radius: 50%; background: rgba(45, 55, 72, 0.5); box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.3); transition: box-shadow var(--transition-normal);">
+                        <!-- Outer circle (range limit) -->
+                        <circle cx="100" cy="100" r="95" fill="none" stroke="#333" stroke-width="1"/>
+                        <!-- Grid lines -->
+                        <line x1="100" y1="5" x2="100" y2="195" stroke="#222" stroke-width="1"/>
+                        <line x1="5" y1="100" x2="195" y2="100" stroke="#222" stroke-width="1"/>
+                        <!-- Pan range indicators (120° each side) -->
+                        <line x1="40" y1="100" x2="160" y2="100" stroke="#333" stroke-width="2" stroke-dasharray="3,3"/>
+                        <!-- Tilt range (60° each direction shown as arcs) -->
+                        <path d="M 100 40 A 60 60 0 0 0 100 160" fill="none" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+                        <!-- Current position marker -->
+                        <circle id="positionMarker" cx="100" cy="100" r="8" fill="var(--accent)" stroke="var(--accent)" stroke-width="2"/>
+                        <!-- Crosshair lines from position -->
+                        <line id="markerLineH" x1="100" y1="100" x2="100" y2="100" stroke="var(--accent)" stroke-width="1" opacity="0.5"/>
+                        <line id="markerLineV" x1="100" y1="100" x2="100" y2="100" stroke="var(--accent)" stroke-width="1" opacity="0.5"/>
+                    </svg>
+                </div>
+                
+                <!-- Pan/Tilt Angle Display -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; text-align: center;">
+                    <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
+                        <div style="color: var(--text-tertiary);">Pan</div>
+                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="panAngle">0°</div>
+                    </div>
+                    <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
+                        <div style="color: var(--text-tertiary);">Tilt</div>
+                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="tiltAngle">0°</div>
+                    </div>
+                </div>
+                
+                <!-- D-Pad -->
+                <div style="text-align: center; width: 100%;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 8px; align-items: center;">
+                        <div></div>
+                        <button class="btn-motor" id="btn_motor_up" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">↑</button>
+                        <div></div>
+                        
+                        <button class="btn-motor" id="btn_motor_left" style="padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">←</button>
+                        <button class="btn-motor" id="btn_motor_home" style="padding: 12px 0; font-size: 12px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">HOME</button>
+                        <button class="btn-motor" id="btn_motor_right" style="padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">→</button>
+                        
+                        <div></div>
+                        <button class="btn-motor" id="btn_motor_down" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">↓</button>
+                        <div></div>
+                    </div>
+                    <div style="font-size: 10px; color: var(--text-tertiary);">Pan / Tilt Control</div>
+                </div>
+            </div>
+            
+            <!-- Camera Control -->
+            <div class="section">
+                <div class="section-title">Camera Feed</div>
+                <div id="cameraSelector" style="margin-bottom: 10px;">
+                    <!-- Camera buttons will be inserted here -->
+                </div>
+                <div id="currentCameraInfo" style="font-size: 11px; color: var(--text-secondary); margin-bottom: 8px;">
+                    Current: /dev/video<span id="currentCameraId">--</span>
+                </div>
+            </div>
+            
+            <!-- Camera Status -->
+            <div class="section">
+                <div class="section-title">Status</div>
+                <div id="cameraStatus" style="background: rgba(45, 55, 72, 0.8); padding: var(--spacing-md); border-radius: var(--radius-md); font-size: 11px; text-align: center; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; gap: var(--spacing-sm); font-weight: 600; transition: all var(--transition-normal);">
+                    <div id="statusIndicator" style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ff4444; margin-right: 0px; vertical-align: middle; box-shadow: 0 0 6px rgba(255, 68, 68, 0.5); transition: all var(--transition-normal);"></div>
+                    <span id="statusMessage">Connecting...</span>
+                </div>
+                <button class="btn" id="btn_reconnect" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, rgba(170, 102, 0, 0.8) 0%, rgba(200, 120, 0, 0.6) 100%);">Reconnect Camera</button>
+            </div>
+            
+            <!-- Display -->
+            <div class="section">
+                <div class="section-title">Display</div>
+                <button class="btn" id="btn_w" style="width: 100%; margin-bottom: 8px;">W: Show Text</button>
+                <button class="btn" id="btn_help" style="width: 100%; background: linear-gradient(135deg, rgba(51, 51, 136, 0.8) 0%, rgba(60, 70, 156, 0.6) 100%);">?  Help</button>
+                <div class="info">FPS: 50 Hz MJPEG</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Help Overlay Modal -->
+    <div id="helpOverlay" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" id="closeHelpBtn">&times;</button>
+            <div class="modal-header">⌨️ Keyboard Shortcuts</div>
+            
+            <div class="modal-section">
+                <div class="modal-section-title">Detection Modes</div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">H</div>
+                    <div class="shortcut-desc">Heat Seeker Mode</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">C</div>
+                    <div class="shortcut-desc">Heat Cluster Mode</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">M</div>
+                    <div class="shortcut-desc">Motion Detection</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">P</div>
+                    <div class="shortcut-desc">Palette / Thermal Colors</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">T</div>
+                    <div class="shortcut-desc">Threshold Mode</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">Y</div>
+                    <div class="shortcut-desc">YOLO AI Detection</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">F</div>
+                    <div class="shortcut-desc">Optical Flow</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">I</div>
+                    <div class="shortcut-desc">Isotherm Mode</div>
+                </div>
+            </div>
+            
+            <div class="modal-section">
+                <div class="modal-section-title">Enhancements</div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">D</div>
+                    <div class="shortcut-desc">Denoise</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">O</div>
+                    <div class="shortcut-desc">Normalize</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">E</div>
+                    <div class="shortcut-desc">Enhance</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">U</div>
+                    <div class="shortcut-desc">Upscale</div>
+                </div>
+            </div>
+            
+            <div class="modal-section">
+                <div class="modal-section-title">Stabilization & Display</div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">S</div>
+                    <div class="shortcut-desc">Stabilize</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">X</div>
+                    <div class="shortcut-desc">Super Stabilize</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">W</div>
+                    <div class="shortcut-desc">Show Text Overlay</div>
+                </div>
+            </div>
+            
+            <div class="modal-section">
+                <div class="modal-section-title">Color Palette</div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">[</div>
+                    <div class="shortcut-desc">Previous Palette</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">]</div>
+                    <div class="shortcut-desc">Next Palette</div>
+                </div>
+            </div>
+            
+            <div class="modal-section">
+                <div class="modal-section-title">Motor / Pan-Tilt Control</div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">↑</div>
+                    <div class="shortcut-desc">Tilt Up (max +60°)</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">↓</div>
+                    <div class="shortcut-desc">Tilt Down (max -60°)</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">←</div>
+                    <div class="shortcut-desc">Pan Left (max -150°)</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">→</div>
+                    <div class="shortcut-desc">Pan Right (max +150°)</div>
+                </div>
+                <div class="shortcut-item">
+                    <div class="shortcut-key">HOME</div>
+                    <div class="shortcut-desc">Return to Center Position</div>
+                </div>
+                <div style="margin-top: 10px; padding: 10px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-md); font-size: 11px; color: var(--text-tertiary); border: 1px solid var(--border-color);">
+                    Visual crosshair indicator shows current pan/tilt position. Camera resets to center when powered on.
+                </div>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: var(--text-tertiary);">
+                <p>Press <strong>?</strong> or click "Help" to close this overlay</p>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', path='thermal-viewer.js') }}"></script>
+</body>
+</html>
