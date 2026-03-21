@@ -218,13 +218,7 @@
         }
         
         .status {
-            padding: var(--spacing-md);
-            background: linear-gradient(135deg, rgba(26, 32, 44, 0.8) 0%, rgba(45, 55, 72, 0.8) 100%);
-            border: 1px solid var(--border-light);
-            border-radius: var(--radius-md);
-            font-size: 12px;
-            color: var(--text-secondary);
-            backdrop-filter: blur(10px);
+            display: none;
         }
         
         .palette-panel {
@@ -242,6 +236,26 @@
         }
         
         .palette-panel.active {
+            opacity: 1;
+            height: auto;
+            pointer-events: auto;
+        }
+        
+        .parameters-panel {
+            padding: var(--spacing-lg);
+            background: rgba(45, 55, 72, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            max-width: 300px;
+            margin: 0 auto;
+            opacity: 0;
+            height: 0;
+            overflow: hidden;
+            transition: opacity var(--transition-normal), height var(--transition-normal), padding var(--transition-normal);
+            pointer-events: none;
+        }
+        
+        .parameters-panel.active {
             opacity: 1;
             height: auto;
             pointer-events: auto;
@@ -503,6 +517,33 @@
         
         /* ===== MODAL ===== */
         .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity var(--transition-normal);
+        }
+        
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        
+        #settingsOverlay.modal-overlay {
+            z-index: 998;
+        }
+        
+        #helpOverlay.modal-overlay {
+            z-index: 999;
+        }
             display: none;
             position: fixed;
             top: 0;
@@ -847,6 +888,9 @@
         <button class="header-help" id="btn_help" title="Help" aria-label="Help">
             <i class="bi bi-question-circle-fill"></i>
         </button>
+        <button class="header-help" id="btn_settings" title="Settings" aria-label="Settings" style="right: 50px;">
+            <i class="bi bi-gear-fill"></i>
+        </button>
     </div>
     
     <div class="main-content">
@@ -910,6 +954,21 @@
                     <span id="currentPaletteName">Ironbow</span>
                 </div>
             </div>
+            <!-- Parameters (shown when Isotherm mode is active) -->
+            <div class="parameters-panel" id="parametersPanel">
+                <div class="slider-group">
+                    <div class="slider-label">Threshold: <span id="val_threshold">127</span></div>
+                    <input type="range" min="0" max="255" value="127" id="slider_threshold_value">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">Isotherm Min: <span id="val_isotherm_min">100</span></div>
+                    <input type="range" min="0" max="255" value="100" id="slider_isotherm_min">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">Isotherm Max: <span id="val_isotherm_max">200</span></div>
+                    <input type="range" min="0" max="255" value="200" id="slider_isotherm_max">
+                </div>
+            </div>
         </div>
         
         <div class="controls">
@@ -953,68 +1012,9 @@
                 </div>
             </div>
             
-            <!-- Threshold / Parameters -->
-            <div class="section">
-                <div class="section-title">Parameters</div>
-                
-                <div class="slider-group">
-                    <div class="slider-label">Threshold: <span id="val_threshold">127</span></div>
-                    <input type="range" min="0" max="255" value="127" id="slider_threshold_value">
-                </div>
-                
-                <div class="slider-group">
-                    <div class="slider-label">Isotherm Min: <span id="val_isotherm_min">100</span></div>
-                    <input type="range" min="0" max="255" value="100" id="slider_isotherm_min">
-                </div>
-                
-                <div class="slider-group">
-                    <div class="slider-label">Isotherm Max: <span id="val_isotherm_max">200</span></div>
-                    <input type="range" min="0" max="255" value="200" id="slider_isotherm_max">
-                </div>
-            </div>
-            
             <!-- Motor Control -->
             <div class="section">
                 <div class="section-title">Motor Control</div>
-                
-                <!-- Gamepad Presets -->
-                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
-                    <div style="color: var(--text-tertiary); margin-bottom: 6px; font-size: 11px; font-weight: bold;">Joystick Preset</div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                        <button class="btn-preset" id="btn_preset_normal" style="font-size: 10px; padding: 8px;">Normal</button>
-                        <button class="btn-preset" id="btn_preset_vertical" style="font-size: 10px; padding: 8px;">Vertical</button>
-                    </div>
-                    <div id="currentPresetDisplay" style="margin-top: 6px; color: var(--accent); font-weight: bold; font-size: 11px;">Current: Normal</div>
-                </div>
-                
-                <!-- Gamepad Axis Configuration -->
-                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); font-size: 11px; border: 1px solid var(--border-color);">
-                    <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">Joystick Axis Mapping</div>
-                    <div style="margin-bottom: 8px;">
-                        <label style="display: block; color: var(--text-secondary); margin-bottom: 3px;">Pan (Horizontal)</label>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                            <button class="btn-axis" id="btn_pan_axis_0" style="font-size: 10px; padding: 6px;">Left X</button>
-                            <button class="btn-axis" id="btn_pan_axis_1" style="font-size: 10px; padding: 6px;">Left Y</button>
-                            <button class="btn-axis" id="btn_pan_axis_2" style="font-size: 10px; padding: 6px;">Right X</button>
-                            <button class="btn-axis" id="btn_pan_axis_3" style="font-size: 10px; padding: 6px;">Right Y</button>
-                        </div>
-                        <button class="btn-toggle" id="btn_invert_pan" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">
-                            Invert Pan: OFF
-                        </button>
-                    </div>
-                    <div>
-                        <label style="display: block; color: var(--text-secondary); margin-bottom: 3px;">Tilt (Vertical)</label>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
-                            <button class="btn-axis" id="btn_tilt_axis_0" style="font-size: 10px; padding: 6px;">Left X</button>
-                            <button class="btn-axis" id="btn_tilt_axis_1" style="font-size: 10px; padding: 6px;">Left Y</button>
-                            <button class="btn-axis" id="btn_tilt_axis_2" style="font-size: 10px; padding: 6px;">Right X</button>
-                            <button class="btn-axis" id="btn_tilt_axis_3" style="font-size: 10px; padding: 6px;">Right Y</button>
-                        </div>
-                        <button class="btn-toggle" id="btn_invert_tilt" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">
-                            Invert Tilt: OFF
-                        </button>
-                    </div>
-                </div>
                 
                 <!-- Gamepad Buttons Display -->
                 <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
@@ -1093,7 +1093,50 @@
         </div>
     </div>
     
-    <!-- Help Overlay Modal -->
+    <!-- Settings Modal -->
+    <div id="settingsOverlay" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" id="closeSettingsBtn">&times;</button>
+            <div class="modal-header">⚙️ Settings</div>
+            
+            <!-- Joystick Preset Section -->
+            <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
+                <div style="color: var(--text-tertiary); margin-bottom: 6px; font-size: 11px; font-weight: bold;">Joystick Preset</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                    <button class="btn-preset" id="btn_preset_normal" style="font-size: 10px; padding: 8px;">Normal</button>
+                    <button class="btn-preset" id="btn_preset_vertical" style="font-size: 10px; padding: 8px;">Vertical</button>
+                </div>
+                <div id="currentPresetDisplay" style="margin-top: 6px; color: var(--accent); font-weight: bold; font-size: 11px;">Current: Normal</div>
+            </div>
+            
+            <!-- Joystick Axis Mapping Section -->
+            <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); font-size: 11px; border: 1px solid var(--border-color);">
+                <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">Joystick Axis Mapping</div>
+                <div style="margin-bottom: 8px;">
+                    <label style="display: block; color: var(--text-secondary); margin-bottom: 3px;">Pan (Horizontal)</label>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <button class="btn-axis" id="btn_pan_axis_0" style="font-size: 10px; padding: 6px;">Left X</button>
+                        <button class="btn-axis" id="btn_pan_axis_1" style="font-size: 10px; padding: 6px;">Left Y</button>
+                        <button class="btn-axis" id="btn_pan_axis_2" style="font-size: 10px; padding: 6px;">Right X</button>
+                        <button class="btn-axis" id="btn_pan_axis_3" style="font-size: 10px; padding: 6px;">Right Y</button>
+                    </div>
+                    <button class="btn-toggle" id="btn_invert_pan" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">Invert Pan: OFF</button>
+                </div>
+                <div>
+                    <label style="display: block; color: var(--text-secondary); margin-bottom: 3px;">Tilt (Vertical)</label>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px;">
+                        <button class="btn-axis" id="btn_tilt_axis_0" style="font-size: 10px; padding: 6px;">Left X</button>
+                        <button class="btn-axis" id="btn_tilt_axis_1" style="font-size: 10px; padding: 6px;">Left Y</button>
+                        <button class="btn-axis" id="btn_tilt_axis_2" style="font-size: 10px; padding: 6px;">Right X</button>
+                        <button class="btn-axis" id="btn_tilt_axis_3" style="font-size: 10px; padding: 6px;">Right Y</button>
+                    </div>
+                    <button class="btn-toggle" id="btn_invert_tilt" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">Invert Tilt: OFF</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Help Modal -->
     <div id="helpOverlay" class="modal-overlay">
         <div class="modal-content">
             <button class="modal-close" id="closeHelpBtn">&times;</button>

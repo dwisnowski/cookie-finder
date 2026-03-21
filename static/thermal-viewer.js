@@ -397,6 +397,8 @@ function updateUI() {
     
     // Update palette panel visibility
     updatePalettePanelVisibility();
+    // Update parameters panel visibility
+    updateParametersPanelVisibility();
 }
 
 function updatePalettePanelVisibility() {
@@ -405,6 +407,15 @@ function updatePalettePanelVisibility() {
         palettePanel.classList.add('active');
     } else {
         palettePanel.classList.remove('active');
+    }
+}
+
+function updateParametersPanelVisibility() {
+    const parametersPanel = document.getElementById('parametersPanel');
+    if (state.isotherm_mode) {
+        parametersPanel.classList.add('active');
+    } else {
+        parametersPanel.classList.remove('active');
     }
 }
 
@@ -689,6 +700,28 @@ document.getElementById('btn_reconnect').addEventListener('click', () => {
             }
         })
         .catch(e => console.error('Reconnect error:', e));
+});
+
+// Settings modal
+const settingsOverlay = document.getElementById('settingsOverlay');
+const settingsBtn = document.getElementById('btn_settings');
+const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+
+function openSettings() {
+    settingsOverlay.classList.add('active');
+}
+
+function closeSettings() {
+    settingsOverlay.classList.remove('active');
+}
+
+settingsBtn.addEventListener('click', openSettings);
+closeSettingsBtn.addEventListener('click', closeSettings);
+
+settingsOverlay.addEventListener('click', (e) => {
+    if (e.target === settingsOverlay) {
+        closeSettings();
+    }
 });
 
 // Help modal
