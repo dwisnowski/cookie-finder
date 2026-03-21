@@ -312,6 +312,17 @@ def create_app(camera_id=0):
                         except:
                             pass
                 
+                elif action == "motor_command":
+                    motor_cmd = command.get("command")
+                    motor_state = command.get("state")
+                    # Log motor commands for debugging/integration
+                    if motor_state == "start":
+                        print(f"🎮 Motor: {motor_cmd} START")
+                    else:
+                        print(f"🎮 Motor: {motor_cmd} STOP")
+                    # Here you can add actual GPIO/PWM control for pan/tilt gimbal
+                    # Example: control_gimbal(motor_cmd, motor_state)
+                
                 elif action == "get_state":
                     await websocket.send_json({"type": "state", "data": processor.get_state()})
         
@@ -411,6 +422,30 @@ def create_app(camera_id=0):
                 border-color: #00cc00;
             }
             
+            .btn-motor {
+                padding: 20px;
+                font-size: 16px;
+                border: 1px solid #1e5a3a;
+                background: #1e5a3a;
+                color: #fff;
+                cursor: pointer;
+                border-radius: 4px;
+                transition: all 0.1s;
+                font-weight: bold;
+                touch-action: manipulation;
+                user-select: none;
+            }
+            
+            .btn-motor:hover {
+                background: #2a7a52;
+                border-color: #2a7a52;
+            }
+            
+            .btn-motor:active {
+                background: #0d3620;
+                transform: scale(0.95);
+            }
+            
             .slider-group {
                 margin-bottom: 10px;
             }
@@ -432,6 +467,100 @@ def create_app(camera_id=0):
                 font-size: 11px;
                 color: #aaa;
                 margin-top: 5px;
+            }
+            
+            .modal-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.7);
+                z-index: 1000;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .modal-overlay.active {
+                display: flex;
+            }
+            
+            .modal-content {
+                background: #2a2a2a;
+                border: 2px solid #444;
+                border-radius: 8px;
+                padding: 30px;
+                max-width: 600px;
+                max-height: 80vh;
+                overflow-y: auto;
+                color: #fff;
+                position: relative;
+            }
+            
+            .modal-header {
+                font-size: 24px;
+                font-weight: bold;
+                margin-bottom: 20px;
+                text-align: center;
+                border-bottom: 2px solid #444;
+                padding-bottom: 15px;
+            }
+            
+            .modal-section {
+                margin-bottom: 20px;
+            }
+            
+            .modal-section-title {
+                font-weight: bold;
+                color: #0f0;
+                margin-bottom: 10px;
+                padding-bottom: 5px;
+                border-bottom: 1px solid #333;
+            }
+            
+            .shortcut-item {
+                display: grid;
+                grid-template-columns: 120px 1fr;
+                gap: 15px;
+                margin-bottom: 8px;
+                padding: 8px;
+                background: #1a1a1a;
+                border-radius: 3px;
+                font-size: 13px;
+            }
+            
+            .shortcut-key {
+                font-family: monospace;
+                font-weight: bold;
+                color: #0f0;
+                text-align: right;
+            }
+            
+            .shortcut-desc {
+                color: #aaa;
+            }
+            
+            .modal-close {
+                position: absolute;
+                top: 15px;
+                right: 20px;
+                font-size: 32px;
+                font-weight: bold;
+                color: #aaa;
+                cursor: pointer;
+                background: none;
+                border: none;
+                padding: 0;
+                width: 40px;
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .modal-close:hover {
+                color: #fff;
             }
         </style>
     </head>
@@ -519,6 +648,28 @@ def create_app(camera_id=0):
                     </div>
                 </div>
                 
+                <!-- Motor Control -->
+                <div class="section">
+                    <div class="section-title">Motor Control</div>
+                    <div style="text-align: center; width: 100%;">
+                        <!-- D-Pad style layout -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 8px; align-items: center;">
+                            <div></div>
+                            <button class="btn-motor" id="btn_motor_up" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: #1e5a3a;">↑</button>
+                            <div></div>
+                            
+                            <button class="btn-motor" id="btn_motor_left" style="padding: 20px 0; font-size: 18px; background: #1e5a3a;">←</button>
+                            <button class="btn-motor" id="btn_motor_home" style="padding: 12px 0; font-size: 12px; background: #2a4d2a;">HOME</button>
+                            <button class="btn-motor" id="btn_motor_right" style="padding: 20px 0; font-size: 18px; background: #1e5a3a;">→</button>
+                            
+                            <div></div>
+                            <button class="btn-motor" id="btn_motor_down" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: #1e5a3a;">↓</button>
+                            <div></div>
+                        </div>
+                        <div style="font-size: 10px; color: #aaa;">Pan / Tilt Control</div>
+                    </div>
+                </div>
+                
                 <!-- Camera Control -->
                 <div class="section">
                     <div class="section-title">Camera Feed</div>
@@ -543,12 +694,128 @@ def create_app(camera_id=0):
                 <!-- Display -->
                 <div class="section">
                     <div class="section-title">Display</div>
-                    <button class="btn" id="btn_w" style="width: 100%;">W: Show Text</button>
+                    <button class="btn" id="btn_w" style="width: 100%; margin-bottom: 8px;">W: Show Text</button>
+                    <button class="btn" id="btn_help" style="width: 100%; background: #333388;">?  Help</button>
                     <div class="info">FPS: 50 Hz MJPEG</div>
                 </div>
             </div>
         </div>
         
+        <!-- Help Overlay Modal -->
+        <div id="helpOverlay" class="modal-overlay">
+            <div class="modal-content">
+                <button class="modal-close" id="closeHelpBtn">&times;</button>
+                <div class="modal-header">⌨️ Keyboard Shortcuts</div>
+                
+                <div class="modal-section">
+                    <div class="modal-section-title">Detection Modes</div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">H</div>
+                        <div class="shortcut-desc">Heat Seeker Mode</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">C</div>
+                        <div class="shortcut-desc">Heat Cluster Mode</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">M</div>
+                        <div class="shortcut-desc">Motion Detection</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">P</div>
+                        <div class="shortcut-desc">Palette / Thermal Colors</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">T</div>
+                        <div class="shortcut-desc">Threshold Mode</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">Y</div>
+                        <div class="shortcut-desc">YOLO AI Detection</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">F</div>
+                        <div class="shortcut-desc">Optical Flow</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">I</div>
+                        <div class="shortcut-desc">Isotherm Mode</div>
+                    </div>
+                </div>
+                
+                <div class="modal-section">
+                    <div class="modal-section-title">Enhancements</div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">D</div>
+                        <div class="shortcut-desc">Denoise</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">O</div>
+                        <div class="shortcut-desc">Normalize</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">E</div>
+                        <div class="shortcut-desc">Enhance</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">U</div>
+                        <div class="shortcut-desc">Upscale</div>
+                    </div>
+                </div>
+                
+                <div class="modal-section">
+                    <div class="modal-section-title">Stabilization & Display</div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">S</div>
+                        <div class="shortcut-desc">Stabilize</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">X</div>
+                        <div class="shortcut-desc">Super Stabilize</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">W</div>
+                        <div class="shortcut-desc">Show Text Overlay</div>
+                    </div>
+                </div>
+                
+                <div class="modal-section">
+                    <div class="modal-section-title">Color Palette</div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">[</div>
+                        <div class="shortcut-desc">Previous Palette</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">]</div>
+                        <div class="shortcut-desc">Next Palette</div>
+                    </div>
+                </div>
+                
+                <div class="modal-section">
+                    <div class="modal-section-title">Motor / Pan-Tilt Control</div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">↑</div>
+                        <div class="shortcut-desc">Tilt Up</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">↓</div>
+                        <div class="shortcut-desc">Tilt Down</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">←</div>
+                        <div class="shortcut-desc">Pan Left</div>
+                    </div>
+                    <div class="shortcut-item">
+                        <div class="shortcut-key">→</div>
+                        <div class="shortcut-desc">Pan Right</div>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px; font-size: 12px; color: #888;">
+                    <p>Press <strong>?</strong> or click "Help" to close this overlay</p>
+                </div>
+            </div>
+        </div>
         <script>
             const buttons = {
                 'h': 'heat_seeker_mode',
@@ -803,6 +1070,73 @@ def create_app(camera_id=0):
                 }
             });
             
+            // Motor control handlers
+            const motorCommands = {
+                'btn_motor_up': 'motor_up',
+                'btn_motor_down': 'motor_down',
+                'btn_motor_left': 'motor_left',
+                'btn_motor_right': 'motor_right',
+                'btn_motor_home': 'motor_home'
+            };
+            
+            for (const [btnId, command] of Object.entries(motorCommands)) {
+                const btn = document.getElementById(btnId);
+                if (btn) {
+                    btn.addEventListener('mousedown', () => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                action: 'motor_command',
+                                command: command,
+                                state: 'start'
+                            }));
+                        }
+                    });
+                    
+                    btn.addEventListener('mouseup', () => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                action: 'motor_command',
+                                command: command,
+                                state: 'stop'
+                            }));
+                        }
+                    });
+                    
+                    btn.addEventListener('mouseleave', () => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                action: 'motor_command',
+                                command: command,
+                                state: 'stop'
+                            }));
+                        }
+                    });
+                    
+                    // Touch support for mobile
+                    btn.addEventListener('touchstart', (e) => {
+                        e.preventDefault();
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                action: 'motor_command',
+                                command: command,
+                                state: 'start'
+                            }));
+                        }
+                    });
+                    
+                    btn.addEventListener('touchend', (e) => {
+                        e.preventDefault();
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                action: 'motor_command',
+                                command: command,
+                                state: 'stop'
+                            }));
+                        }
+                    });
+                }
+            }
+            
             // Keyboard shortcuts
             document.addEventListener('keydown', (e) => {
                 const key = e.key.toLowerCase();
@@ -832,6 +1166,53 @@ def create_app(camera_id=0):
                         param: 'palette_idx',
                         value: newIdx
                     }));
+                    e.preventDefault();
+                }
+                
+                // Arrow key motor control
+                if ((key === 'arrowup' || key === 'arrowdown' || key === 'arrowleft' || key === 'arrowright') && ws && ws.readyState === WebSocket.OPEN) {
+                    const motorMap = {
+                        'arrowup': 'motor_up',
+                        'arrowdown': 'motor_down',
+                        'arrowleft': 'motor_left',
+                        'arrowright': 'motor_right'
+                    };
+                    ws.send(JSON.stringify({
+                        action: 'motor_command',
+                        command: motorMap[key],
+                        state: 'start'
+                    }));
+                    e.preventDefault();
+                }
+            });
+            
+            document.addEventListener('keyup', (e) => {
+                const key = e.key.toLowerCase();
+                
+                // Arrow key motor stop
+                if ((key === 'arrowup' || key === 'arrowdown' || key === 'arrowleft' || key === 'arrowright') && ws && ws.readyState === WebSocket.OPEN) {
+                    const motorMap = {
+                        'arrowup': 'motor_up',
+                        'arrowdown': 'motor_down',
+                        'arrowleft': 'motor_left',
+                        'arrowright': 'motor_right'
+                    };
+                    ws.send(JSON.stringify({
+                        action: 'motor_command',
+                        command: motorMap[key],
+                        state: 'stop'
+                    }));
+                    e.preventDefault();
+                }
+                
+                // Help toggle with ?
+                if ((key === '?' || e.key === '?') || (e.shiftKey && key === '/')) {
+                    const isOpen = helpOverlay.classList.contains('active');
+                    if (isOpen) {
+                        closeHelp();
+                    } else {
+                        openHelp();
+                    }
                     e.preventDefault();
                 }
             });
@@ -868,6 +1249,29 @@ def create_app(camera_id=0):
                         }
                     })
                     .catch(e => console.error('Reconnect error:', e));
+            });
+            
+            // Help modal handlers
+            const helpOverlay = document.getElementById('helpOverlay');
+            const helpBtn = document.getElementById('btn_help');
+            const closeHelpBtn = document.getElementById('closeHelpBtn');
+            
+            function openHelp() {
+                helpOverlay.classList.add('active');
+            }
+            
+            function closeHelp() {
+                helpOverlay.classList.remove('active');
+            }
+            
+            helpBtn.addEventListener('click', openHelp);
+            closeHelpBtn.addEventListener('click', closeHelp);
+            
+            // Close help when clicking outside the modal
+            helpOverlay.addEventListener('click', (e) => {
+                if (e.target === helpOverlay) {
+                    closeHelp();
+                }
             });
             
             // Poll camera status every 1 second
