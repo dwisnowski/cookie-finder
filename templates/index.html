@@ -227,6 +227,26 @@
             backdrop-filter: blur(10px);
         }
         
+        .palette-panel {
+            padding: var(--spacing-lg);
+            background: rgba(45, 55, 72, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            max-width: 300px;
+            margin: 0 auto;
+            opacity: 0;
+            height: 0;
+            overflow: hidden;
+            transition: opacity var(--transition-normal), height var(--transition-normal), padding var(--transition-normal);
+            pointer-events: none;
+        }
+        
+        .palette-panel.active {
+            opacity: 1;
+            height: auto;
+            pointer-events: auto;
+        }
+        
         /* ===== CONTROLS SIDEBAR ===== */
         .controls {
             background: linear-gradient(135deg, rgba(26, 32, 44, 0.9) 0%, rgba(45, 55, 72, 0.9) 100%);
@@ -880,6 +900,16 @@
             <div class="status">
                 <div id="statusText">Connecting...</div>
             </div>
+            <!-- Palette Controls (shown when Palette mode is active) -->
+            <div class="palette-panel" id="palettePanel">
+                <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                    <button class="btn" id="btn_palette_prev" style="flex: 1; font-size: 11px;">← Prev</button>
+                    <button class="btn" id="btn_palette_next" style="flex: 1; font-size: 11px;">Next →</button>
+                </div>
+                <div id="currentPaletteInfo" style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color); font-size: 11px; text-align: center; color: var(--text-secondary); transition: all var(--transition-normal);">
+                    <span id="currentPaletteName">Ironbow</span>
+                </div>
+            </div>
         </div>
         
         <div class="controls">
@@ -940,18 +970,6 @@
                 <div class="slider-group">
                     <div class="slider-label">Isotherm Max: <span id="val_isotherm_max">200</span></div>
                     <input type="range" min="0" max="255" value="200" id="slider_isotherm_max">
-                </div>
-            </div>
-            
-            <!-- Color Palette -->
-            <div class="section">
-                <div class="section-title">Color Palette</div>
-                <div style="display: flex; gap: 5px; margin-bottom: 10px;">
-                    <button class="btn" id="btn_palette_prev" style="flex: 1; font-size: 11px;">← Prev</button>
-                    <button class="btn" id="btn_palette_next" style="flex: 1; font-size: 11px;">Next →</button>
-                </div>
-                <div id="currentPaletteInfo" style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color); font-size: 11px; text-align: center; margin-top: var(--spacing-sm); color: var(--text-secondary); transition: all var(--transition-normal);">
-                    <span id="currentPaletteName">Ironbow</span>
                 </div>
             </div>
             

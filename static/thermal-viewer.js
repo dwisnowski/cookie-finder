@@ -394,6 +394,18 @@ function updateUI() {
     if (state.palette_name) statusLines.push('Palette: ' + state.palette_name);
     statusLines.push('Connected');
     document.getElementById('statusText').innerHTML = statusLines.join('<br>');
+    
+    // Update palette panel visibility
+    updatePalettePanelVisibility();
+}
+
+function updatePalettePanelVisibility() {
+    const palettePanel = document.getElementById('palettePanel');
+    if (state.palette_mode) {
+        palettePanel.classList.add('active');
+    } else {
+        palettePanel.classList.remove('active');
+    }
 }
 
 function switchCamera(newCameraId) {
