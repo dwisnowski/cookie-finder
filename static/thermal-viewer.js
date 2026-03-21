@@ -399,6 +399,8 @@ function updateUI() {
     updatePalettePanelVisibility();
     // Update parameters panel visibility
     updateParametersPanelVisibility();
+    // Update status badges
+    updateStatusBadges();
 }
 
 function updatePalettePanelVisibility() {
@@ -418,6 +420,40 @@ function updateParametersPanelVisibility() {
         parametersPanel.classList.remove('active');
     }
 }
+
+function updateStatusBadges() {
+    // Update gamepad badge
+    const gamepadDot = document.getElementById('badge_gamepad_dot');
+    const gamepadText = document.getElementById('badge_gamepad_text');
+    if (connectedGamepads && connectedGamepads.length > 0) {
+        gamepadDot.classList.add('active');
+        const name = connectedGamepads[activeGamepadIndex]?.id || 'Connected';
+        gamepadText.textContent = name.substring(0, 20); // Truncate long names
+    } else {
+        gamepadDot.classList.remove('active');
+        gamepadText.textContent = '—';
+    }
+    
+    // Update camera badge
+    const cameraDot = document.getElementById('badge_camera_dot');
+    const cameraText = document.getElementById('badge_camera_text');
+    if (currentCamera !== null && currentCamera !== undefined) {
+        cameraDot.classList.add('active');
+        cameraText.textContent = `/dev/video${currentCamera}`;
+    } else {
+        cameraDot.classList.remove('active');
+        cameraText.textContent = '—';
+    }
+    
+    // FPS badge is updated by polling, so we'll just ensure the element exists
+    const fpsDot = document.getElementById('badge_fps_dot');
+    const fpsText = document.getElementById('badge_fps_text');
+    if (fpsDot && fpsText) {
+        fpsDot.classList.add('active');
+        fpsText.textContent = '50 Hz';
+    }
+}
+
 
 function switchCamera(newCameraId) {
     fetch(`/switch-camera/${newCameraId}`, { method: 'POST' })
@@ -690,18 +726,6 @@ function updateCameraStatus() {
         .catch(e => console.error('Status fetch error:', e));
 }
 
-// Reconnect button
-document.getElementById('btn_reconnect').addEventListener('click', () => {
-    fetch('/reconnect', { method: 'POST' })
-        .then(r => r.json())
-        .then(data => {
-            for (let i = 0; i < 10; i++) {
-                setTimeout(updateCameraStatus, i * 500);
-            }
-        })
-        .catch(e => console.error('Reconnect error:', e));
-});
-
 // Settings modal
 const settingsOverlay = document.getElementById('settingsOverlay');
 const settingsBtn = document.getElementById('btn_settings');
@@ -752,9 +776,25 @@ setInterval(updateCameraSelector, 3000);
 
 updatePanTiltIndicator();
 
-const cycleBtn = document.getElementById('btn_cycle_gamepad');
-if (cycleBtn) {
-    cycleBtn.addEventListener('click', cycleGamepad);
+// Cycle gamepad button in settings modal
+const cycleBtnSettings = document.getElementById('btn_cycle_gamepad_settings');
+if (cycleBtnSettings) {
+    cycleBtnSettings.addEventListener('click', cycleGamepad);
+}
+
+// Reconnect button in settings modal
+const reconnectBtnSettings = document.getElementById('btn_reconnect_settings');
+if (reconnectBtnSettings) {
+    reconnectBtnSettings.addEventListener('click', () => {
+        fetch('/reconnect', { method: 'POST' })
+            .then(r => r.json())
+            .then(data => {
+                for (let i = 0; i < 10; i++) {
+                    setTimeout(updateCameraStatus, i * 500);
+                }
+            })
+            .catch(e => console.error('Reconnect error:', e));
+    });
 }
 
 window.addEventListener('gamepadconnected', (e) => {

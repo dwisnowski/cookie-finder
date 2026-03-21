@@ -20,7 +20,7 @@
             --border-light: #3d4e5f;
             
             /* Gradients */
-            --gradient-dark: linear-gradient(135deg, #0f1419 0%, #1a202c 100%);
+            --gradient-dark: linear-gradient(135deg, rgb(40 40 40) 100%, #1b1b1b 100%);
             --gradient-card: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
             --gradient-button: linear-gradient(135deg, #2d3748 0%, #3d4e5f 100%);
             --gradient-accent: linear-gradient(135deg, #00ff88 0%, #00dd66 100%);
@@ -108,6 +108,42 @@
             background: rgba(0, 255, 136, 0.1);
             transform: scale(1.1);
             box-shadow: 0 0 12px var(--accent-shadow);
+        }
+        
+        .header-badges {
+            position: absolute;
+            top: var(--spacing-lg);
+            left: var(--spacing-lg);
+            display: flex;
+            gap: var(--spacing-sm);
+            flex-wrap: wrap;
+            max-width: 400px;
+        }
+        
+        .badge {
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-full);
+            padding: 4px 12px;
+            font-size: 11px;
+            color: var(--accent);
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .badge-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #ff4444;
+            transition: background var(--transition-normal);
+        }
+        
+        .badge-dot.active {
+            background: #00ff88;
+            box-shadow: 0 0 4px var(--accent);
         }
         
         h1 {
@@ -544,19 +580,6 @@
         #helpOverlay.modal-overlay {
             z-index: 999;
         }
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            z-index: 1000;
-            align-items: center;
-            justify-content: center;
-            backdrop-filter: blur(4px);
-            animation: fadeIn var(--transition-normal);
-        }
         
         @keyframes fadeIn {
             from {
@@ -884,6 +907,19 @@
 </head>
 <body>
     <div class="header">
+        <div class="header-badges">
+            <div class="badge" id="badge_gamepad">
+                <span class="badge-dot" id="badge_gamepad_dot"></span>
+                <span id="badge_gamepad_text">—</span>
+            </div>
+            <div class="badge" id="badge_camera">
+                <span class="badge-dot" id="badge_camera_dot"></span>
+                <span id="badge_camera_text">—</span>
+            </div>
+            <div class="badge" id="badge_fps">
+                <span>50 Hz</span>
+            </div>
+        </div>
         <h1>Thermal Camera Viewer</h1>
         <button class="header-help" id="btn_help" title="Help" aria-label="Help">
             <i class="bi bi-question-circle-fill"></i>
@@ -897,44 +933,59 @@
         <div class="container">
         <!-- Left Sidebar: Status & Gamepad Info -->
         <div class="sidebar-left">
-            <!-- Gamepad Status -->
+            <!-- Motor Control -->
             <div class="section">
-                <div class="section-title">🎮 Controller</div>
-                <div class="gamepad-status">
-                    <div>
-                        <span class="gamepad-indicator" id="gamepadIndicator"></span>
-                        <span id="gamepadStatusText">No Controller</span>
+                <div class="section-title">Motor Control</div>
+                
+                <!-- Gamepad Buttons Display -->
+                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
+                    <div style="color: var(--text-tertiary); margin-bottom: 8px; font-size: 11px; font-weight: bold;">Button Press Display</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px;">
+                        <div class="gamepad-button" id="gamepadButton0" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">A</div>
+                        <div class="gamepad-button" id="gamepadButton1" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">B</div>
+                        <div class="gamepad-button" id="gamepadButton2" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">X</div>
+                        <div class="gamepad-button" id="gamepadButton3" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">Y</div>
                     </div>
-                    <div class="gamepad-name" id="gamepadNameDisplay">—</div>
-                    <div class="gamepad-device-count" id="gamepadDeviceCount">0 devices</div>
-                    <button class="btn" id="btn_cycle_gamepad" style="width: 100%; margin-top: 8px; font-size: 11px;">🎮 Cycle Device</button>
                 </div>
-            </div>
-            
-            <!-- Camera Status -->
-            <div class="section">
-                <div class="section-title">📷 Camera</div>
-                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
-                    <div id="cameraSelector" style="margin-bottom: var(--spacing-md);">
-                        <!-- Camera buttons will be inserted here -->
-                    </div>
-                    <div id="currentCameraInfo" style="font-size: 11px; color: var(--text-secondary); margin-bottom: var(--spacing-md); text-align: center;">
-                        Current: /dev/video<span id="currentCameraId">--</span>
-                    </div>
-                    <div id="cameraStatus" style="background: rgba(45, 55, 72, 0.8); padding: var(--spacing-md); border-radius: var(--radius-md); font-size: 11px; text-align: center; border: 1px solid var(--border-color); display: flex; align-items: center; justify-content: center; gap: var(--spacing-sm); font-weight: 600; transition: all var(--transition-normal);">
-                        <div id="statusIndicator" style="display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #ff4444; margin-right: 0px; vertical-align: middle; box-shadow: 0 0 6px rgba(255, 68, 68, 0.5); transition: all var(--transition-normal);"></div>
-                        <span id="statusMessage">Connecting...</span>
-                    </div>
-                    <button class="btn" id="btn_reconnect" style="width: 100%; margin-top: var(--spacing-md); background: linear-gradient(135deg, rgba(170, 102, 0, 0.8) 0%, rgba(200, 120, 0, 0.6) 100%);">Reconnect</button>
+                <div style="text-align: center; margin-bottom: 15px;">
+                    <svg id="panTiltIndicator" width="200" height="200" viewBox="0 0 200 200" style="border: 2px solid var(--border-light); border-radius: 50%; background: rgba(45, 55, 72, 0.5); box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.3); transition: box-shadow var(--transition-normal);">
+                        <circle cx="100" cy="100" r="95" fill="none" stroke="#333" stroke-width="1"/>
+                        <line x1="100" y1="5" x2="100" y2="195" stroke="#222" stroke-width="1"/>
+                        <line x1="5" y1="100" x2="195" y2="100" stroke="#222" stroke-width="1"/>
+                        <line x1="40" y1="100" x2="160" y2="100" stroke="#333" stroke-width="2" stroke-dasharray="3,3"/>
+                        <path d="M 100 40 A 60 60 0 0 0 100 160" fill="none" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+                        <circle id="positionMarker" cx="100" cy="100" r="8" fill="var(--accent)" stroke="var(--accent)" stroke-width="2"/>
+                        <line id="markerLineH" x1="100" y1="100" x2="100" y2="100" stroke="var(--accent)" stroke-width="1" opacity="0.5"/>
+                        <line id="markerLineV" x1="100" y1="100" x2="100" y2="100" stroke="var(--accent)" stroke-width="1" opacity="0.5"/>
+                    </svg>
                 </div>
-            </div>
-            
-            <!-- FPS Info -->
-            <div class="section">
-                <div class="section-title">📊 Stream</div>
-                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color); text-align: center; font-size: 12px;">
-                    <div style="color: var(--text-tertiary); margin-bottom: 4px;">Frame Rate</div>
-                    <div style="color: var(--accent); font-weight: bold; font-size: 14px;">50 Hz MJPEG</div>
+                
+                <!-- Pan/Tilt Angle Display -->
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; text-align: center;">
+                    <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
+                        <div style="color: var(--text-tertiary);">Pan</div>
+                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="panAngle">0°</div>
+                    </div>
+                    <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
+                        <div style="color: var(--text-tertiary);">Tilt</div>
+                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="tiltAngle">0°</div>
+                    </div>
+                </div>
+                
+                <!-- D-Pad -->
+                <div style="text-align: center; width: 100%;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 8px; align-items: center;">
+                        <div></div>
+                        <button class="btn-motor" id="btn_motor_up" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">↑</button>
+                        <div></div>
+                        <button class="btn-motor" id="btn_motor_left" style="padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">←</button>
+                        <button class="btn-motor" id="btn_motor_home" style="padding: 12px 0; font-size: 12px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">HOME</button>
+                        <button class="btn-motor" id="btn_motor_right" style="padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">→</button>
+                        <div></div>
+                        <button class="btn-motor" id="btn_motor_down" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">↓</button>
+                        <div></div>
+                    </div>
+                    <div style="font-size: 10px; color: var(--text-tertiary);">Pan / Tilt Control</div>
                 </div>
             </div>
         </div>
@@ -1012,78 +1063,6 @@
                 </div>
             </div>
             
-            <!-- Motor Control -->
-            <div class="section">
-                <div class="section-title">Motor Control</div>
-                
-                <!-- Gamepad Buttons Display -->
-                <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
-                    <div style="color: var(--text-tertiary); margin-bottom: 8px; font-size: 11px; font-weight: bold;">Button Press Display</div>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px;">
-                        <div class="gamepad-button" id="gamepadButton0" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
-                            A
-                        </div>
-                        <div class="gamepad-button" id="gamepadButton1" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
-                            B
-                        </div>
-                        <div class="gamepad-button" id="gamepadButton2" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
-                            X
-                        </div>
-                        <div class="gamepad-button" id="gamepadButton3" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">
-                            Y
-                        </div>
-                    </div>
-                </div>
-                <div style="text-align: center; margin-bottom: 15px;">
-                    <svg id="panTiltIndicator" width="200" height="200" viewBox="0 0 200 200" style="border: 2px solid var(--border-light); border-radius: 50%; background: rgba(45, 55, 72, 0.5); box-shadow: inset 0 0 16px rgba(0, 0, 0, 0.3); transition: box-shadow var(--transition-normal);">
-                        <!-- Outer circle (range limit) -->
-                        <circle cx="100" cy="100" r="95" fill="none" stroke="#333" stroke-width="1"/>
-                        <!-- Grid lines -->
-                        <line x1="100" y1="5" x2="100" y2="195" stroke="#222" stroke-width="1"/>
-                        <line x1="5" y1="100" x2="195" y2="100" stroke="#222" stroke-width="1"/>
-                        <!-- Pan range indicators (120° each side) -->
-                        <line x1="40" y1="100" x2="160" y2="100" stroke="#333" stroke-width="2" stroke-dasharray="3,3"/>
-                        <!-- Tilt range (60° each direction shown as arcs) -->
-                        <path d="M 100 40 A 60 60 0 0 0 100 160" fill="none" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
-                        <!-- Current position marker -->
-                        <circle id="positionMarker" cx="100" cy="100" r="8" fill="var(--accent)" stroke="var(--accent)" stroke-width="2"/>
-                        <!-- Crosshair lines from position -->
-                        <line id="markerLineH" x1="100" y1="100" x2="100" y2="100" stroke="var(--accent)" stroke-width="1" opacity="0.5"/>
-                        <line id="markerLineV" x1="100" y1="100" x2="100" y2="100" stroke="var(--accent)" stroke-width="1" opacity="0.5"/>
-                    </svg>
-                </div>
-                
-                <!-- Pan/Tilt Angle Display -->
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; text-align: center;">
-                    <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
-                        <div style="color: var(--text-tertiary);">Pan</div>
-                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="panAngle">0°</div>
-                    </div>
-                    <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
-                        <div style="color: var(--text-tertiary);">Tilt</div>
-                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="tiltAngle">0°</div>
-                    </div>
-                </div>
-                
-                <!-- D-Pad -->
-                <div style="text-align: center; width: 100%;">
-                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; margin-bottom: 8px; align-items: center;">
-                        <div></div>
-                        <button class="btn-motor" id="btn_motor_up" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">↑</button>
-                        <div></div>
-                        
-                        <button class="btn-motor" id="btn_motor_left" style="padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">←</button>
-                        <button class="btn-motor" id="btn_motor_home" style="padding: 12px 0; font-size: 12px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">HOME</button>
-                        <button class="btn-motor" id="btn_motor_right" style="padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">→</button>
-                        
-                        <div></div>
-                        <button class="btn-motor" id="btn_motor_down" style="grid-column: 2; padding: 20px 0; font-size: 18px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">↓</button>
-                        <div></div>
-                    </div>
-                    <div style="font-size: 10px; color: var(--text-tertiary);">Pan / Tilt Control</div>
-                </div>
-            </div>
-            
             <!-- Display -->
             <div class="section">
                 <div class="section-title">Display</div>
@@ -1131,6 +1110,15 @@
                         <button class="btn-axis" id="btn_tilt_axis_3" style="font-size: 10px; padding: 6px;">Right Y</button>
                     </div>
                     <button class="btn-toggle" id="btn_invert_tilt" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">Invert Tilt: OFF</button>
+                </div>
+            </div>
+            
+            <!-- Device Controls Section -->
+            <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">Device Controls</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                    <button class="btn" id="btn_reconnect_settings" style="font-size: 11px; background: linear-gradient(135deg, rgba(170, 102, 0, 0.8) 0%, rgba(200, 120, 0, 0.6) 100%);">Reconnect</button>
+                    <button class="btn" id="btn_cycle_gamepad_settings" style="font-size: 11px;">🎮 Cycle Device</button>
                 </div>
             </div>
         </div>
