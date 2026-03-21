@@ -86,31 +86,36 @@ function updateCameraSelector() {
             currentCamera = data.current;
             
             const selector = document.getElementById('cameraSelector');
-            selector.innerHTML = '';
-            
-            if (availableCameras.length === 0) {
-                selector.innerHTML = '<p style="font-size: 11px; color: #aaa;">No cameras available</p>';
-            } else {
-                availableCameras.forEach(cameraId => {
-                    const btn = document.createElement('button');
-                    btn.className = 'btn';
-                    btn.style.width = '100%';
-                    btn.style.marginBottom = '5px';
-                    btn.textContent = `/dev/video${cameraId}`;
-                    
-                    if (cameraId === currentCamera) {
-                        btn.classList.add('active');
-                    }
-                    
-                    btn.addEventListener('click', () => {
-                        switchCamera(cameraId);
+            if (selector) {
+                selector.innerHTML = '';
+                
+                if (availableCameras.length === 0) {
+                    selector.innerHTML = '<p style="font-size: 11px; color: #aaa;">No cameras available</p>';
+                } else {
+                    availableCameras.forEach(cameraId => {
+                        const btn = document.createElement('button');
+                        btn.className = 'btn';
+                        btn.style.width = '100%';
+                        btn.style.marginBottom = '5px';
+                        btn.textContent = `/dev/video${cameraId}`;
+                        
+                        if (cameraId === currentCamera) {
+                            btn.classList.add('active');
+                        }
+                        
+                        btn.addEventListener('click', () => {
+                            switchCamera(cameraId);
+                        });
+                        
+                        selector.appendChild(btn);
                     });
-                    
-                    selector.appendChild(btn);
-                });
+                }
             }
             
-            document.getElementById('currentCameraId').textContent = currentCamera !== null ? currentCamera : '--';
+            const currentCameraIdEl = document.getElementById('currentCameraId');
+            if (currentCameraIdEl) {
+                currentCameraIdEl.textContent = currentCamera !== null ? currentCamera : '--';
+            }
         })
         .catch(e => console.error('Failed to fetch cameras:', e));
 }
@@ -132,37 +137,41 @@ function updatePanTiltIndicator() {
     document.getElementById('markerLineV').setAttribute('x2', x);
     document.getElementById('markerLineV').setAttribute('y2', y);
     
-    document.getElementById('panAngle').textContent = currentPan + '°';
-    document.getElementById('tiltAngle').textContent = currentTilt + '°';
+    const panAngleEl = document.getElementById('panAngle');
+    const tiltAngleEl = document.getElementById('tiltAngle');
+    if (panAngleEl) panAngleEl.textContent = currentPan + '°';
+    if (tiltAngleEl) tiltAngleEl.textContent = currentTilt + '°';
 }
 
 function updateGamepadStatus() {
     const gamepads = navigator.getGamepads?.() || [];
     connectedGamepads = Array.from(gamepads).filter(gp => gp !== null);
     
+    const countDisplay = document.getElementById('gamepadDeviceCount');
+    if (countDisplay) {
+        countDisplay.textContent = connectedGamepads.length + ' device' + (connectedGamepads.length !== 1 ? 's' : '');
+    }
+    
     const indicator = document.getElementById('gamepadIndicator');
     const statusText = document.getElementById('gamepadStatusText');
     const nameDisplay = document.getElementById('gamepadNameDisplay');
-    const countDisplay = document.getElementById('gamepadDeviceCount');
-    
-    countDisplay.textContent = connectedGamepads.length + ' device' + (connectedGamepads.length !== 1 ? 's' : '');
     
     if (activeGamepadIndex >= 0 && activeGamepadIndex < connectedGamepads.length) {
         const activeGpad = connectedGamepads[activeGamepadIndex];
-        indicator.classList.add('connected');
-        statusText.textContent = '✓ Connected';
-        nameDisplay.textContent = activeGpad.id;
+        if (indicator) indicator.classList.add('connected');
+        if (statusText) statusText.textContent = '✓ Connected';
+        if (nameDisplay) nameDisplay.textContent = activeGpad.id;
     } else if (connectedGamepads.length > 0) {
         activeGamepadIndex = 0;
         const activeGpad = connectedGamepads[0];
-        indicator.classList.add('connected');
-        statusText.textContent = '✓ Connected';
-        nameDisplay.textContent = activeGpad.id;
+        if (indicator) indicator.classList.add('connected');
+        if (statusText) statusText.textContent = '✓ Connected';
+        if (nameDisplay) nameDisplay.textContent = activeGpad.id;
     } else {
         activeGamepadIndex = -1;
-        indicator.classList.remove('connected');
-        statusText.textContent = '✗ Disconnected';
-        nameDisplay.textContent = '—';
+        if (indicator) indicator.classList.remove('connected');
+        if (statusText) statusText.textContent = '✗ Disconnected';
+        if (nameDisplay) nameDisplay.textContent = '—';
     }
 }
 
@@ -431,7 +440,7 @@ function updateStatusBadges() {
         gamepadText.textContent = name.substring(0, 20); // Truncate long names
     } else {
         gamepadDot.classList.remove('active');
-        gamepadText.textContent = '—';
+        gamepadText.textContent = 'bluetooth';
     }
     
     // Update camera badge
@@ -442,7 +451,7 @@ function updateStatusBadges() {
         cameraText.textContent = `/dev/video${currentCamera}`;
     } else {
         cameraDot.classList.remove('active');
-        cameraText.textContent = '—';
+        cameraText.textContent = 'camera';
     }
     
     // FPS badge is updated by polling, so we'll just ensure the element exists
@@ -715,12 +724,14 @@ function updateCameraStatus() {
             const indicator = document.getElementById('statusIndicator');
             const message = document.getElementById('statusMessage');
             
-            if (data.connected) {
-                indicator.style.background = '#00aa00';
-                message.textContent = '✓ Camera Connected';
-            } else {
-                indicator.style.background = '#ff4444';
-                message.textContent = '✗ Camera Disconnected';
+            if (indicator && message) {
+                if (data.connected) {
+                    indicator.style.background = '#00aa00';
+                    message.textContent = '✓ Camera Connected';
+                } else {
+                    indicator.style.background = '#ff4444';
+                    message.textContent = '✗ Camera Disconnected';
+                }
             }
         })
         .catch(e => console.error('Status fetch error:', e));
