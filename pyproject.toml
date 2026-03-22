@@ -8,6 +8,7 @@ dependencies = [
     "numpy<2",
     "pyusb",
     "pyserial",
+    "pynput",
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.23.0",
     "websockets>=11.0",
