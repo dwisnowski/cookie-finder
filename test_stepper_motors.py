@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 """
-Interactive stepper motor control using keyboard arrow keys.
-Left/Right arrows: Pan motor
-Up/Down arrows: Tilt motor
-ESC: Exit
+Stepper motor test script for pan/tilt gimbal.
+Controls motors via command-line arguments.
+
+Usage:
+  test_stepper_motors.py [command] [steps]
+  
+Commands:
+  pan-cw [steps]     Pan motor clockwise (default: 50)
+  pan-ccw [steps]    Pan motor counter-clockwise (default: 50)
+  tilt-cw [steps]    Tilt motor clockwise (default: 50)
+  tilt-ccw [steps]   Tilt motor counter-clockwise (default: 50)
+  home               Home both motors (hits limit switches)
+  auto               Automated test sequence
 """
 
 from stepper_motor_controller import StepperMotor, MotorDirection
-import time
 import sys
-
-try:
-    from pynput import keyboard
-    KEYBOARD_AVAILABLE = True
-except ImportError:
-    KEYBOARD_AVAILABLE = False
-    print("⚠️  pynput not installed. Install with: pip install pynput")
-    sys.exit(1)
+import time
 
 # Pin assignments for Orange Pi Zero 2W
 PAN_PINS = (10, 11, 12, 13)      # PI10, PI11, PI12, PI13
@@ -24,30 +25,8 @@ TILT_PINS = (14, 15, 16, 17)     # PI14, PI15, PI16, PI17
 PAN_LIMIT = 18                     # PI18
 TILT_LIMIT = 19                    # PI19
 
-# Track pressed keys
-pressed_keys = set()
-
-def on_press(key):
-    """Handle key press."""
-    try:
-        pressed_keys.add(key)
-    except AttributeError:
-        pass
-
-def on_release(key):
-    """Handle key release."""
-    try:
-        pressed_keys.discard(key)
-    except AttributeError:
-        pass
-
-def control_motors():
-    """Main interactive control loop."""
-    print("\n=== Keyboard Motor Control ===\n")
-    print("Controls:")
-    print("  LEFT/RIGHT arrows  → Pan motor")
-    print("  UP/DOWN arrows     → Tilt motor")
-    print("  ESC                → Exit\n")
+def run_command(command, steps=50):
+    """Execute motor control command."""
     
     # Initialize motors
     pan_motor = StepperMotor(
@@ -64,61 +43,82 @@ def control_motors():
         motor_name="Tilt"
     )
     
-    # Start keyboard listener
-    exit_event = False
-    
-    def on_release_exit(key):
-        nonlocal exit_event
-        try:
-            pressed_keys.discard(key)
-        except AttributeError:
-            pass
-        if key == keyboard.Key.esc:
-            exit_event = True
-            return False
-    
-    listener = keyboard.Listener(
-        on_press=on_press,
-        on_release=on_release_exit
-    )
-    listener.start()
-    
     try:
-        while listener.is_alive() and not exit_event:
-            moved = False
+        if command == "pan-cw":
+            print(f"Pan CW {steps} steps...")
+            pan_motor.step(MotorDirection.CLOCKWISE, steps=steps)
+            print(f"Pan: {pan_motor.get_angle():.1f}°")
             
-            # Pan motor control (left/right)
-            if keyboard.Key.left in pressed_keys:
-                pan_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=5)
-                print(f"Pan: {pan_motor.get_angle():.1f}° | Tilt: {tilt_motor.get_angle():.1f}°", end='\r')
-                moved = True
+        elif command == "pan-ccw":
+            print(f"Pan CCW {steps} steps...")
+            pan_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=steps)
+            print(f"Pan: {pan_motor.get_angle():.1f}°")
             
-            if keyboard.Key.right in pressed_keys:
-                pan_motor.step(MotorDirection.CLOCKWISE, steps=5)
-                print(f"Pan: {pan_motor.get_angle():.1f}° | Tilt: {tilt_motor.get_angle():.1f}°", end='\r')
-                moved = True
+        elif command == "tilt-cw":
+            print(f"Tilt CW {steps} steps...")
+            tilt_motor.step(MotorDirection.CLOCKWISE, steps=steps)
+            print(f"Tilt: {tilt_motor.get_angle():.1f}°")
             
-            # Tilt motor control (up/down)
-            if keyboard.Key.up in pressed_keys:
-                tilt_motor.step(MotorDirection.CLOCKWISE, steps=5)
-                print(f"Pan: {pan_motor.get_angle():.1f}° | Tilt: {tilt_motor.get_angle():.1f}°", end='\r')
-                moved = True
+        elif command == "tilt-ccw":
+            print(f"Tilt CCW {steps} steps...")
+            tilt_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=steps)
+            print(f"Tilt: {tilt_motor.get_angle():.1f}°")
             
-            if keyboard.Key.down in pressed_keys:
-                tilt_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=5)
-                print(f"Pan: {pan_motor.get_angle():.1f}° | Tilt: {tilt_motor.get_angle():.1f}°", end='\r')
-                moved = True
+        elif command == "home":
+            print("Homing motors...")
+            pan_motor.home()
+            tilt_motor.home()
+            print(f"Pan: {pan_motor.get_angle():.1f}° | Tilt: {tilt_motor.get_angle():.1f}°")
             
-            if not moved:
-                time.sleep(0.01)  # Idle polling
+        elif command == "auto":
+            print("=== Automated Motor Test ===\n")
             
-    except KeyboardInterrupt:
-        print("\n⚠️  Interrupted")
+            print("Testing PAN motor...")
+            print("  CW 100 steps...")
+            pan_motor.step(MotorDirection.CLOCKWISE, steps=100)
+            print(f"  Pan angle: {pan_motor.get_angle():.1f}°")
+            time.sleep(0.5)
+            
+            print("  CCW 50 steps...")
+            pan_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=50)
+            print(f"  Pan angle: {pan_motor.get_angle():.1f}°")
+            time.sleep(0.5)
+            
+            print("\nTesting TILT motor...")
+            print("  CW 100 steps...")
+            tilt_motor.step(MotorDirection.CLOCKWISE, steps=100)
+            print(f"  Tilt angle: {tilt_motor.get_angle():.1f}°")
+            time.sleep(0.5)
+            
+            print("  CCW 50 steps...")
+            tilt_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=50)
+            print(f"  Tilt angle: {tilt_motor.get_angle():.1f}°")
+            
+            print("\n✅ Test complete!")
+        else:
+            print(f"Unknown command: {command}")
+            print(__doc__)
+            return 1
+            
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return 1
     finally:
-        listener.stop()
         pan_motor.cleanup()
         tilt_motor.cleanup()
-        print("\n✅ Motors cleaned up")
+    
+    return 0
+
+def main():
+    """Parse arguments and run command."""
+    if len(sys.argv) < 2:
+        print(__doc__)
+        return 0
+    
+    command = sys.argv[1]
+    steps = int(sys.argv[2]) if len(sys.argv) > 2 else 50
+    
+    return run_command(command, steps)
 
 if __name__ == "__main__":
-    control_motors()
+    sys.exit(main())

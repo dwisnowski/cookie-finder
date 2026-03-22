@@ -1,4 +1,4 @@
-.PHONY: run run-standalone run-web run-web-custom test-gamepad test-motors install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
+.PHONY: run run-standalone run-web run-web-custom test-gamepad test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw test-motors-tilt-ccw test-motors-home install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
 
 install:
 	uv sync
@@ -32,8 +32,29 @@ run-web-custom:
 	uv run main.py --web --port $$port --host $$host
 
 test-motors:
-	@echo "Testing stepper motors (pan & tilt)..."
-	uv run test_stepper_motors.py
+	@echo "Motor control test script:"
+	@echo "  make test-motors auto           # Automated test sequence"
+	@echo "  make test-motors-pan-cw         # Pan clockwise 50 steps"
+	@echo "  make test-motors-pan-ccw        # Pan counter-clockwise 50 steps"
+	@echo "  make test-motors-tilt-cw        # Tilt clockwise 50 steps"
+	@echo "  make test-motors-tilt-ccw       # Tilt counter-clockwise 50 steps"
+	@echo "  make test-motors-home           # Home both motors"
+	uv run test_stepper_motors.py auto
+
+test-motors-pan-cw:
+	uv run test_stepper_motors.py pan-cw
+
+test-motors-pan-ccw:
+	uv run test_stepper_motors.py pan-ccw
+
+test-motors-tilt-cw:
+	uv run test_stepper_motors.py tilt-cw
+
+test-motors-tilt-ccw:
+	uv run test_stepper_motors.py tilt-ccw
+
+test-motors-home:
+	uv run test_stepper_motors.py home
 
 find-camera:
 	@echo "Detecting available camera devices..."
