@@ -2,10 +2,10 @@
 Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via gpiod.
 
 GPIO Pin Assignments (Orange Pi Zero 2W):
-  Pan Motor (IN1-IN4):     GPIO23, GPIO24, GPIO25, GPIO26
-  Tilt Motor (IN1-IN4):    GPIO27, GPIO28, GPIO29, GPIO30
-  Pan Limit Switch:        GPIO31 (input, active low with internal pull-up)
-  Tilt Limit Switch:       GPIO32 (input, active low with internal pull-up)
+  Pan Motor (IN1-IN4):     PI10, PI11, PI12, PI13
+  Tilt Motor (IN1-IN4):    PI14, PI15, PI16, PI17
+  Pan Limit Switch:        PI18 (input, active low with internal pull-up)
+  Tilt Limit Switch:       PI19 (input, active low with internal pull-up)
 
 Speed Notes:
   - 28BYJ-48 is a geared motor (1:64 reduction + internal gearing ≈ 4076 steps/rev)

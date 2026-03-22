@@ -1,4 +1,4 @@
-.PHONY: run run-standalone run-web run-web-custom test-gamepad install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
+.PHONY: run run-standalone run-web run-web-custom test-gamepad test-motors install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
 
 install:
 	uv sync
@@ -30,6 +30,10 @@ run-web-custom:
 	host=$${host:-0.0.0.0}; \
 	echo "Starting Thermal Camera Viewer (WebServer mode on http://$$host:$$port)..."; \
 	uv run main.py --web --port $$port --host $$host
+
+test-motors:
+	@echo "Testing stepper motors (pan & tilt)..."
+	uv run test_stepper_motors.py
 
 find-camera:
 	@echo "Detecting available camera devices..."
