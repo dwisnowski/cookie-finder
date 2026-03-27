@@ -109,12 +109,12 @@ class StepperMotor:
             chip_path = "gpiochip1"
             try:
                 self.chip = gpiod.Chip(chip_path)
-            except Exception:
+            except Exception as e1:
                 # Fallback: try gpiochip0, then scan
                 try:
                     self.chip = gpiod.Chip("gpiochip0")
                     chip_path = "gpiochip0"
-                except Exception:
+                except Exception as e2:
                     for i in range(5):
                         try:
                             self.chip = gpiod.Chip(f"gpiochip{i}")
@@ -122,9 +122,14 @@ class StepperMotor:
                             break
                         except Exception:
                             continue
+                    if self.chip is None:
+                        print(f"[{self.motor_name}] No GPIO chip found. Errors: gpiochip1={e1}, gpiochip0={e2}")
+                        print(f"[{self.motor_name}] Try running with 'sudo' or check GPIO permissions")
+                        return
             
             if self.chip is None:
                 print(f"[{self.motor_name}] No GPIO chip found")
+                print(f"[{self.motor_name}] Try running with 'sudo' or check GPIO permissions")
                 return
             
             # Request control lines as outputs with bulk request

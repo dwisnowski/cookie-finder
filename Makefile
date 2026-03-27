@@ -33,28 +33,28 @@ run-web-custom:
 
 test-motors:
 	@echo "Motor control test script:"
-	@echo "  make test-motors auto           # Automated test sequence"
-	@echo "  make test-motors-pan-cw         # Pan clockwise 50 steps"
-	@echo "  make test-motors-pan-ccw        # Pan counter-clockwise 50 steps"
-	@echo "  make test-motors-tilt-cw        # Tilt clockwise 50 steps"
-	@echo "  make test-motors-tilt-ccw       # Tilt counter-clockwise 50 steps"
-	@echo "  make test-motors-home           # Home both motors"
-	uv run test_stepper_motors.py auto
+	@echo "  sudo make test-motors auto           # Automated test sequence"
+	@echo "  sudo make test-motors-pan-cw         # Pan clockwise 50 steps"
+	@echo "  sudo make test-motors-pan-ccw        # Pan counter-clockwise 50 steps"
+	@echo "  sudo make test-motors-tilt-cw        # Tilt clockwise 50 steps"
+	@echo "  sudo make test-motors-tilt-ccw       # Tilt counter-clockwise 50 steps"
+	@echo "  sudo make test-motors-home           # Home both motors"
+	sudo uv run test_stepper_motors.py auto
 
 test-motors-pan-cw:
-	uv run test_stepper_motors.py pan-cw
+	sudo uv run test_stepper_motors.py pan-cw
 
 test-motors-pan-ccw:
-	uv run test_stepper_motors.py pan-ccw
+	sudo uv run test_stepper_motors.py pan-ccw
 
 test-motors-tilt-cw:
-	uv run test_stepper_motors.py tilt-cw
+	sudo uv run test_stepper_motors.py tilt-cw
 
 test-motors-tilt-ccw:
-	uv run test_stepper_motors.py tilt-ccw
+	sudo uv run test_stepper_motors.py tilt-ccw
 
 test-motors-home:
-	uv run test_stepper_motors.py home
+	sudo uv run test_stepper_motors.py home
 
 test-pan-step:
 	@echo "Freeing GPIO pins..."
