@@ -39,22 +39,22 @@ test-motors:
 	@echo "  sudo make test-motors-tilt-cw        # Tilt clockwise 50 steps"
 	@echo "  sudo make test-motors-tilt-ccw       # Tilt counter-clockwise 50 steps"
 	@echo "  sudo make test-motors-home           # Home both motors"
-	sudo uv run test_stepper_motors.py auto
+	@sudo uv run test_stepper_motors.py auto
 
 test-motors-pan-cw:
-	sudo uv run test_stepper_motors.py pan-cw
+	@sudo uv run test_stepper_motors.py pan-cw
 
 test-motors-pan-ccw:
-	sudo uv run test_stepper_motors.py pan-ccw
+	@sudo uv run test_stepper_motors.py pan-ccw
 
 test-motors-tilt-cw:
-	sudo uv run test_stepper_motors.py tilt-cw
+	@sudo uv run test_stepper_motors.py tilt-cw
 
 test-motors-tilt-ccw:
-	sudo uv run test_stepper_motors.py tilt-ccw
+	@sudo uv run test_stepper_motors.py tilt-ccw
 
 test-motors-home:
-	sudo uv run test_stepper_motors.py home
+	@sudo uv run test_stepper_motors.py home
 
 test-pan-step:
 	@echo "Freeing GPIO pins..."
