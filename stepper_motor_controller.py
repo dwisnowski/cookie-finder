@@ -171,6 +171,11 @@ class StepperMotor:
                     self.chip = None
                     self.control_lines = []
                     self.limit_line = None
+        except Exception as e:
+            print(f"[{self.motor_name}] GPIO initialization failed: {e}")
+            self.chip = None
+            self.control_lines = []
+            self.limit_line = None
     
     def _set_step(self, step_index: int) -> None:
         """Set motor pins to a specific step in the sequence."""
