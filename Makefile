@@ -56,6 +56,18 @@ test-motors-tilt-ccw:
 test-motors-home:
 	uv run test_stepper_motors.py home
 
+test-pan-pins:
+	@echo "Toggling pan motor pins (PI10, PI11, PI12, PI13) - watch logic analyzer..."
+	@for i in 1 2 3 4 5; do \
+		echo "  Cycle $$i: All ON"; \
+		gpioset gpiochip0 10=1 11=1 12=1 13=1; \
+		sleep 1; \
+		echo "  Cycle $$i: All OFF"; \
+		gpioset gpiochip0 10=0 11=0 12=0 13=0; \
+		sleep 1; \
+	done
+	@echo "Done. 5 cycles complete."
+
 find-camera:
 	@echo "Detecting available camera devices..."
 	@echo "Checking /dev/video devices:"
