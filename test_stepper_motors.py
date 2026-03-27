@@ -19,11 +19,12 @@ from stepper_motor_controller import StepperMotor, MotorDirection
 import sys
 import time
 
-# Pin assignments for Orange Pi Zero 2W
-PAN_PINS = (10, 11, 12, 13)      # PI10, PI11, PI12, PI13
-TILT_PINS = (14, 15, 16, 17)     # PI14, PI15, PI16, PI17
-PAN_LIMIT = 18                     # PI18
-TILT_LIMIT = 19                    # PI19
+# GPIO offsets for Orange Pi Zero 2W (H618 SoC, gpiochip1)
+# Confirmed working with logic analyzer
+PAN_PINS = (258, 268, 271, 272)   # Pan motor GPIO offsets
+TILT_PINS = (273, 274, 275, 276)  # Tilt motor GPIO offsets (estimated)
+PAN_LIMIT = 277                    # Pan limit switch GPIO offset (estimated)
+TILT_LIMIT = 278                   # Tilt limit switch GPIO offset (estimated)
 
 def run_command(command, steps=50):
     """Execute motor control command."""

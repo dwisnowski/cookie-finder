@@ -1,14 +1,17 @@
 """
 Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via gpiod (libgpiod).
 
-GPIO Pin Assignments (Orange Pi Zero 2W):
-  Pan Motor (IN1-IN4):     PI10, PI11, PI12, PI13
-  Tilt Motor (IN1-IN4):    PI14, PI15, PI16, PI17
-  Pan Limit Switch:        PI18 (input, active low with internal pull-up)
-  Tilt Limit Switch:       PI19 (input, active low with internal pull-up)
+GPIO Pin Assignments (Orange Pi Zero 2W, gpiochip1):
+  Pan Motor (IN1-IN4):     258, 268, 271, 272 (GPIO offsets)  pins (PI15, PI12, PI2, PI16)
+  Tilt Motor (IN1-IN4):    273, 274, 275, 276 (GPIO offsets, estimated)
+  Pan Limit Switch:        277 (GPIO offset, estimated)
+  Tilt Limit Switch:       279 (GPIO offset, estimated)
+
+Driver: ULN2003 with full-step sequence (4 steps per cycle).
+Confirmed working with logic analyzer.
 
 Speed Notes:
-  - 28BYJ-48 is a geared motor (1:64 reduction + internal gearing ≈ 4076 steps/rev)
+  - 28BYJ-48 is a geared motor (internal gearing ≈ 4076 steps/rev)
   - Step frequency = RPM × 4076 / 60
   - At 12V, typical max is ~10 RPM
   - At 5V, typical max is ~5 RPM
@@ -42,17 +45,14 @@ class StepperMotor:
     Monitors a limit switch GPIO for end-of-range detection.
     """
     
-    # 28BYJ-48 half-step sequence (8 steps per full cycle)
+    # 28BYJ-48 full-step sequence (4 steps per full cycle)
     # Each tuple is (IN1, IN2, IN3, IN4) logic levels
-    HALF_STEP_SEQUENCE = [
+    # Confirmed working with logic analyzer on Orange Pi Zero 2W
+    FULL_STEP_SEQUENCE = [
         (1, 0, 0, 0),
-        (1, 1, 0, 0),
         (0, 1, 0, 0),
-        (0, 1, 1, 0),
         (0, 0, 1, 0),
-        (0, 0, 1, 1),
         (0, 0, 0, 1),
-        (1, 0, 0, 1),
     ]
     
     # Steps per revolution for 28BYJ-48 (with gearing)
@@ -81,7 +81,7 @@ class StepperMotor:
         
         # Motor state
         self.current_angle = 0.0  # degrees
-        self.current_step = 0  # position in HALF_STEP_SEQUENCE
+        self.current_step = 0  # position in FULL_STEP_SEQUENCE
         self.is_moving = False
         self.target_angle: Optional[float] = None
         self.speed_hz = 500  # stepping frequency in Hz
@@ -105,19 +105,23 @@ class StepperMotor:
     def _init_gpio(self) -> None:
         """Initialize GPIO lines using gpiod on Linux."""
         try:
-            # Open the GPIO chip (typically gpiochip0 on Orange Pi)
-            chip_path = "gpiochip0"
+            # Use gpiochip1 for Orange Pi Zero 2W (H618 SoC)
+            chip_path = "gpiochip1"
             try:
                 self.chip = gpiod.Chip(chip_path)
             except Exception:
-                # Fallback: try to find an available chip
-                for i in range(5):
-                    try:
-                        self.chip = gpiod.Chip(f"gpiochip{i}")
-                        chip_path = f"gpiochip{i}"
-                        break
-                    except Exception:
-                        continue
+                # Fallback: try gpiochip0, then scan
+                try:
+                    self.chip = gpiod.Chip("gpiochip0")
+                    chip_path = "gpiochip0"
+                except Exception:
+                    for i in range(5):
+                        try:
+                            self.chip = gpiod.Chip(f"gpiochip{i}")
+                            chip_path = f"gpiochip{i}"
+                            break
+                        except Exception:
+                            continue
             
             if self.chip is None:
                 print(f"[{self.motor_name}] No GPIO chip found")
@@ -182,7 +186,7 @@ class StepperMotor:
         if len(self.control_lines) < 4:
             return
         
-        step_values = self.HALF_STEP_SEQUENCE[step_index % len(self.HALF_STEP_SEQUENCE)]
+        step_values = self.FULL_STEP_SEQUENCE[step_index % len(self.FULL_STEP_SEQUENCE)]
         try:
             for i, line in enumerate(self.control_lines):
                 if line is not None:
@@ -236,11 +240,13 @@ class StepperMotor:
                 # Step towards target
                 direction = 1 if angle_diff > 0 else -1
                 self.current_step += direction
-                self.current_step %= len(self.HALF_STEP_SEQUENCE)
+                self.current_step %= len(self.FULL_STEP_SEQUENCE)
                 
-                # Update angle (each half-step is 360 / (2 * 4076) degrees)
-                degrees_per_half_step = 360.0 / (2.0 * self.STEPS_PER_REVOLUTION)
-                self.current_angle += direction * degrees_per_half_step
+                # Update angle (each full-step is 2x half-step increment)
+                # Half-step angle: 360 / (2 * 4076) degrees
+                # Full-step angle: 2 * half-step angle
+                degrees_per_full_step = 360.0 / self.STEPS_PER_REVOLUTION
+                self.current_angle += direction * degrees_per_full_step
                 self.current_angle = max(0, min(self.current_angle, self.max_angle))
                 
                 self._set_step(self.current_step)
@@ -306,7 +312,7 @@ class StepperMotor:
                 return
             
             # Step backward (CCW)
-            self.current_step = (self.current_step - 1) % len(self.HALF_STEP_SEQUENCE)
+            self.current_step = (self.current_step - 1) % len(self.FULL_STEP_SEQUENCE)
             self._set_step(self.current_step)
             time.sleep(1.0 / self.speed_hz)
         
@@ -328,10 +334,9 @@ class StepperMotor:
                     break
                 
                 self.current_step += direction.value
-                self.current_step %= len(self.HALF_STEP_SEQUENCE)
+                self.current_step %= len(self.FULL_STEP_SEQUENCE)
                 
-                degrees_per_half_step = 360.0 / (2.0 * self.STEPS_PER_REVOLUTION)
-                self.current_angle += direction.value * degrees_per_half_step
+                self.current_angle += direction.value * 360.0 / self.STEPS_PER_REVOLUTION
                 self.current_angle = max(0, min(self.current_angle, self.max_angle))
                 
                 self._set_step(self.current_step)
