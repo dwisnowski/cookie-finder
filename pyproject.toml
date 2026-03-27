@@ -11,7 +11,7 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.23.0",
     "websockets>=11.0",
-    "Adafruit-Blinka",
+    "gpiod>=2.1.0",
 ]
 
 [project.optional-dependencies]
