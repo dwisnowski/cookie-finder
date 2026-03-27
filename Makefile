@@ -72,6 +72,24 @@ test-pan-step:
 		echo "Done stepping."; \
 	'
 
+test-all-gpio:
+	@echo "Scanning and blinking all available GPIO pins..."
+	@bash -c '\
+	for chip in /dev/gpiochip*; do \
+		chipname=$$(basename $$chip); \
+		echo "---- Testing $$chipname ----"; \
+		lines=$$(gpioinfo $$chipname | grep "line" | wc -l); \
+		for ((i=0; i<lines; i++)); do \
+			# Try to toggle HIGH then LOW (skip if busy) \
+			sudo gpioset $$chipname $$i=1 2>/dev/null && \
+			sleep 0.05 && \
+			sudo gpioset $$chipname $$i=0 2>/dev/null && \
+			echo "  Toggled $$chipname line $$i"; \
+		done; \
+	done; \
+	echo "Done scanning all GPIO."; \
+	'
+
 find-camera:
 	@echo "Detecting available camera devices..."
 	@echo "Checking /dev/video devices:"
