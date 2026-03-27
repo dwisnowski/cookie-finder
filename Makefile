@@ -57,19 +57,19 @@ test-motors-home:
 	uv run test_stepper_motors.py home
 
 test-pan-step:
-	@echo "Freeing GPIO pins (266–269)..."
+	@echo "Freeing GPIO pins..."
 	@bash -c '\
-		for g in 266 267 268 269; do \
+		for g in 258 268 271 272; do \
 			echo $$g > /sys/class/gpio/unexport 2>/dev/null || true; \
 		done; \
-		echo "Stepping pan motor sequence..."; \
+		echo "Stepping pan motor (custom pin set)..."; \
 		for i in $$(seq 1 20); do \
-			sudo gpioset gpiochip1 266=1 267=0 268=0 269=0; sleep 0.1; \
-			sudo gpioset gpiochip1 266=0 267=1 268=0 269=0; sleep 0.1; \
-			sudo gpioset gpiochip1 266=0 267=0 268=1 269=0; sleep 0.1; \
-			sudo gpioset gpiochip1 266=0 267=0 268=0 269=1; sleep 0.1; \
+			sudo gpioset gpiochip1 258=1 268=0 271=0 272=0; sleep 0.1; \
+			sudo gpioset gpiochip1 258=0 268=1 271=0 272=0; sleep 0.1; \
+			sudo gpioset gpiochip1 258=0 268=0 271=1 272=0; sleep 0.1; \
+			sudo gpioset gpiochip1 258=0 268=0 271=0 272=1; sleep 0.1; \
 		done; \
-		echo "Done stepping."; \
+		echo "Done."; \
 	'
 
 test-all-gpio:
