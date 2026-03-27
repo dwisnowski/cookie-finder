@@ -57,26 +57,19 @@ test-motors-home:
 	uv run test_stepper_motors.py home
 
 test-pan-pins:
-	@echo "Toggling pan motor pins (PI10, PI11, PI12, PI13) - watch logic analyzer..."
+	@echo "Toggling pan motor pins (PI10–PI13 => 266–269) - watch logic analyzer..."
 	@bash -c '\
-		export GPIO_PINS="266 267 268 269"; \
-		echo "GPIO offsets: $$GPIO_PINS"; \
-		for gpio in $$GPIO_PINS; do \
-			echo $$gpio > /sys/class/gpio/export 2>/dev/null || true; \
-			echo "out" > /sys/class/gpio/gpio$$gpio/direction 2>/dev/null || true; \
-		done; \
+		PINS="266 267 268 269"; \
+		echo "GPIO lines: $$PINS (gpiochip1)"; \
 		for i in 1 2 3 4 5; do \
 			echo "  Cycle $$i: All ON"; \
-			for gpio in $$GPIO_PINS; do echo 1 > /sys/class/gpio/gpio$$gpio/value 2>/dev/null || true; done; \
+			sudo gpioset gpiochip1 266=1 267=1 268=1 269=1; \
 			sleep 1; \
 			echo "  Cycle $$i: All OFF"; \
-			for gpio in $$GPIO_PINS; do echo 0 > /sys/class/gpio/gpio$$gpio/value 2>/dev/null || true; done; \
+			sudo gpioset gpiochip1 266=0 267=0 268=0 269=0; \
 			sleep 1; \
 		done; \
 		echo "Done. 5 cycles complete."; \
-		for gpio in $$GPIO_PINS; do \
-			echo $$gpio > /sys/class/gpio/unexport 2>/dev/null || true; \
-		done \
 	'
 
 find-camera:
