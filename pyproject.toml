@@ -2,7 +2,7 @@
 name = "thermal-camera-viewer"
 version = "0.1.0"
 description = "USB thermal camera viewer using OpenCV (Standalone GUI + Web Server)"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "opencv-python",
     "numpy<2",
