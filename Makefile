@@ -56,20 +56,16 @@ test-motors-tilt-ccw:
 test-motors-home:
 	uv run test_stepper_motors.py home
 
-test-pan-pins:
-	@echo "Toggling pan motor pins (PI10–PI13 => 266–269) - watch logic analyzer..."
+test-pan-step:
+	@echo "Stepping pan motor sequence..."
 	@bash -c '\
-		PINS="266 267 268 269"; \
-		echo "GPIO lines: $$PINS (gpiochip1)"; \
-		for i in 1 2 3 4 5; do \
-			echo "  Cycle $$i: All ON"; \
-			sudo gpioset gpiochip1 266=1 267=1 268=1 269=1; \
-			sleep 1; \
-			echo "  Cycle $$i: All OFF"; \
-			sudo gpioset gpiochip1 266=0 267=0 268=0 269=0; \
-			sleep 1; \
+		for i in $$(seq 1 20); do \
+			sudo gpioset gpiochip1 266=1 267=0 268=0 269=0; sleep 0.1; \
+			sudo gpioset gpiochip1 266=0 267=1 268=0 269=0; sleep 0.1; \
+			sudo gpioset gpiochip1 266=0 267=0 268=1 269=0; sleep 0.1; \
+			sudo gpioset gpiochip1 266=0 267=0 268=0 269=1; sleep 0.1; \
 		done; \
-		echo "Done. 5 cycles complete."; \
+		echo "Done stepping."; \
 	'
 
 find-camera:
