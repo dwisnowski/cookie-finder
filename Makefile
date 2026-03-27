@@ -59,22 +59,23 @@ test-motors-home:
 test-pan-pins:
 	@echo "Toggling pan motor pins (PI10, PI11, PI12, PI13) - watch logic analyzer..."
 	@bash -c '\
-		export PINS="10 11 12 13"; \
-		for pin in $$PINS; do \
-			echo $$pin > /sys/class/gpio/export 2>/dev/null || true; \
-			echo "out" > /sys/class/gpio/gpio$$pin/direction; \
+		export GPIO_PINS="266 267 268 269"; \
+		echo "GPIO offsets: $$GPIO_PINS"; \
+		for gpio in $$GPIO_PINS; do \
+			echo $$gpio > /sys/class/gpio/export 2>/dev/null || true; \
+			echo "out" > /sys/class/gpio/gpio$$gpio/direction 2>/dev/null || true; \
 		done; \
 		for i in 1 2 3 4 5; do \
 			echo "  Cycle $$i: All ON"; \
-			for pin in $$PINS; do echo 1 > /sys/class/gpio/gpio$$pin/value; done; \
+			for gpio in $$GPIO_PINS; do echo 1 > /sys/class/gpio/gpio$$gpio/value 2>/dev/null || true; done; \
 			sleep 1; \
 			echo "  Cycle $$i: All OFF"; \
-			for pin in $$PINS; do echo 0 > /sys/class/gpio/gpio$$pin/value; done; \
+			for gpio in $$GPIO_PINS; do echo 0 > /sys/class/gpio/gpio$$gpio/value 2>/dev/null || true; done; \
 			sleep 1; \
 		done; \
 		echo "Done. 5 cycles complete."; \
-		for pin in $$PINS; do \
-			echo $$pin > /sys/class/gpio/unexport 2>/dev/null || true; \
+		for gpio in $$GPIO_PINS; do \
+			echo $$gpio > /sys/class/gpio/unexport 2>/dev/null || true; \
 		done \
 	'
 
