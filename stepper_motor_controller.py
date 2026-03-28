@@ -1,11 +1,11 @@
 """
-Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via gpiod (libgpiod).
+Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via OPi.GPIO.
 
-GPIO Pin Assignments (Orange Pi Zero 2W, gpiochip1):
-  Pan Motor (IN1-IN4):     258, 268, 271, 272 (GPIO offsets)  pins (PI15, PI12, PI2, PI16)
-  Tilt Motor (IN1-IN4):    273, 274, 275, 276 (GPIO offsets, estimated)
-  Pan Limit Switch:        277 (GPIO offset, estimated)
-  Tilt Limit Switch:       279 (GPIO offset, estimated)
+GPIO Pin Assignments (Orange Pi Zero 2W, BOARD mode):
+  Pan Motor (IN1-IN4):     31, 33, 35, 37 (physical pins: PI15, PI12, PI02, PI16)
+  Tilt Motor (IN1-IN4):    (to be configured)
+  Pan Limit Switch:        (to be configured)
+  Tilt Limit Switch:       (to be configured)
 
 Driver: ULN2003 with full-step sequence (4 steps per cycle).
 Confirmed working with logic analyzer.
@@ -21,14 +21,16 @@ Speed Notes:
 import threading
 import time
 from enum import Enum
-from typing import Optional, List
+from typing import Optional
 
 try:
-    import gpiod
+    import OPi.GPIO as GPIO
     GPIO_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     GPIO_AVAILABLE = False
-    gpiod = None
+    GPIO = None
+    print(f"[WARNING] Failed to import OPi.GPIO: {e}")
+    print("[WARNING] GPIO control will not be available. Install with: uv pip install OPi.GPIO")
 
 
 class MotorDirection(Enum):
@@ -61,7 +63,7 @@ class StepperMotor:
     def __init__(
         self,
         control_pins: tuple[int, int, int, int],
-        limit_switch_pin: int,
+        limit_switch_pin: Optional[int] = None,
         max_angle: float = 180.0,
         motor_name: str = "Motor",
     ):
@@ -69,8 +71,8 @@ class StepperMotor:
         Initialize stepper motor controller.
         
         Args:
-            control_pins: GPIO pin numbers (IN1, IN2, IN3, IN4) for Orange Pi
-            limit_switch_pin: GPIO pin number for limit switch input
+            control_pins: GPIO pin numbers in BOARD mode (physical pins)
+            limit_switch_pin: GPIO pin number for limit switch input (BOARD mode), or None if not available
             max_angle: Maximum rotation angle (degrees)
             motor_name: Human-readable motor name
         """
@@ -94,121 +96,56 @@ class StepperMotor:
         self._step_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         
-        # GPIO setup using gpiod
-        self.control_lines: List[Optional[gpiod.Line]] = []
-        self.limit_line: Optional[gpiod.Line] = None
-        self.chip: Optional[gpiod.Chip] = None
-        
         if GPIO_AVAILABLE:
             self._init_gpio()
     
     def _init_gpio(self) -> None:
-        """Initialize GPIO lines using gpiod on Linux."""
+        """Initialize GPIO pins using OPi.GPIO."""
         try:
-            # Use gpiochip1 for Orange Pi Zero 2W (H618 SoC)
-            chip_path = "gpiochip1"
-            try:
-                self.chip = gpiod.Chip(chip_path)
-            except Exception as e1:
-                # Fallback: try gpiochip0, then scan
+            # Set GPIO mode to BOARD (physical pin numbers on Orange Pi Zero 2W)
+            if GPIO.getmode() is None:
+                GPIO.setmode(GPIO.BOARD)
+                print(f"[{self.motor_name}] GPIO mode set to BOARD")
+            
+            # Setup control pins as outputs
+            for pin in self.control_pins:
                 try:
-                    self.chip = gpiod.Chip("gpiochip0")
-                    chip_path = "gpiochip0"
-                except Exception as e2:
-                    for i in range(5):
-                        try:
-                            self.chip = gpiod.Chip(f"gpiochip{i}")
-                            chip_path = f"gpiochip{i}"
-                            break
-                        except Exception:
-                            continue
-                    if self.chip is None:
-                        print(f"[{self.motor_name}] No GPIO chip found. Errors: gpiochip1={e1}, gpiochip0={e2}")
-                        print(f"[{self.motor_name}] Try running with 'sudo' or check GPIO permissions")
-                        return
+                    GPIO.setup(pin, GPIO.OUT)
+                    GPIO.output(pin, 0)  # Initialize to LOW
+                except Exception as pin_err:
+                    print(f"[{self.motor_name}] Failed to setup pin {pin}: {pin_err}")
+                    raise
             
-            if self.chip is None:
-                print(f"[{self.motor_name}] No GPIO chip found")
-                print(f"[{self.motor_name}] Try running with 'sudo' or check GPIO permissions")
-                return
-            
-            # Request control lines as outputs with bulk request
-            control_line_offsets = list(self.control_pins)
-            limit_line_offset = self.limit_switch_pin
-            
-            try:
-                # Create settings for control (output) lines
-                output_settings = gpiod.LineSettings(direction=gpiod.Line.Direction.OUTPUT)
-                
-                # Request all control lines
-                control_request = self.chip.request_lines(
-                    offsets=control_line_offsets,
-                    config={self.chip.LINE_SEQ_ALL: output_settings}
-                )
-                self.control_lines = [control_request.get_line(offset) for offset in control_line_offsets]
-                
-                # Create settings for limit switch line (input with pull-up)
-                input_settings = gpiod.LineSettings(
-                    direction=gpiod.Line.Direction.INPUT,
-                    bias=gpiod.Line.Bias.PULL_UP
-                )
-                
-                # Request limit line
-                limit_request = self.chip.request_lines(
-                    offsets=[limit_line_offset],
-                    config={self.chip.LINE_SEQ_ALL: input_settings}
-                )
-                self.limit_line = limit_request.get_line(limit_line_offset)
-                
-                print(f"[{self.motor_name}] GPIO initialized on {chip_path}: control pins {self.control_pins}, limit pin {self.limit_switch_pin}")
-            except Exception as e:
-                print(f"[{self.motor_name}] GPIO line request failed: {e}. Falling back to simple line access.")
-                # Fallback: try to get lines individually
-                try:
-                    for pin_num in control_line_offsets:
-                        line = self.chip.get_line(pin_num)
-                        line.request(consumer=f"{self.motor_name}_ctrl", type=gpiod.LINE_REQUEST_DIRECTION_OUTPUT)
-                        self.control_lines.append(line)
-                    
-                    limit_line = self.chip.get_line(limit_line_offset)
-                    limit_line.request(consumer=f"{self.motor_name}_limit", type=gpiod.LINE_REQUEST_DIRECTION_INPUT)
-                    self.limit_line = limit_line
-                    
-                    print(f"[{self.motor_name}] GPIO initialized (fallback method) on {chip_path}")
-                except Exception as e2:
-                    print(f"[{self.motor_name}] GPIO line access failed: {e2}")
-                    self.chip = None
-                    self.control_lines = []
-                    self.limit_line = None
+            # Setup limit switch pin as input if provided
+            if self.limit_switch_pin is not None:
+                GPIO.setup(self.limit_switch_pin, GPIO.IN)
+                print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}, limit pin {self.limit_switch_pin}")
+            else:
+                print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}")
         except Exception as e:
             print(f"[{self.motor_name}] GPIO initialization failed: {e}")
-            self.chip = None
-            self.control_lines = []
-            self.limit_line = None
+            print(f"[{self.motor_name}] GPIO access requires root. Try: sudo make test-motors-pan-ccw")
     
     def _set_step(self, step_index: int) -> None:
         """Set motor pins to a specific step in the sequence."""
-        if len(self.control_lines) < 4:
+        if not GPIO_AVAILABLE:
             return
         
         step_values = self.FULL_STEP_SEQUENCE[step_index % len(self.FULL_STEP_SEQUENCE)]
         try:
-            for i, line in enumerate(self.control_lines):
-                if line is not None:
-                    # gpiod uses set_value with 0 or 1
-                    line.set_value(1 if step_values[i] else 0)
+            for i, pin in enumerate(self.control_pins):
+                GPIO.output(pin, 1 if step_values[i] else 0)
         except Exception as e:
             print(f"[{self.motor_name}] Failed to set step {step_index}: {e}")
     
     def _check_limit_switch(self) -> bool:
-        """Check if limit switch is triggered (active low)."""
-        if self.limit_line is None:
+        """Check if limit switch is triggered (active low). Returns False if not configured or not available."""
+        if self.limit_switch_pin is None or not GPIO_AVAILABLE:
             return False
         
         try:
             # Limit switch is active low (triggered = 0 when pressed)
-            # gpiod get_value returns 0 or 1
-            triggered = self.limit_line.get_value() == 0
+            triggered = GPIO.input(self.limit_switch_pin) == 0
             if triggered and not self.limit_triggered:
                 print(f"[{self.motor_name}] Limit switch triggered!")
                 self.limit_triggered = True
@@ -333,6 +270,10 @@ class StepperMotor:
             direction: MotorDirection.CLOCKWISE or COUNTERCLOCKWISE
             steps: Number of half-steps
         """
+        if not GPIO_AVAILABLE:
+            print(f"[{self.motor_name}] GPIO not available. Cannot step motor.")
+            return
+        
         with self._lock:
             for _ in range(steps):
                 if self._check_limit_switch():
@@ -365,24 +306,18 @@ class StepperMotor:
         if self._step_thread and self._step_thread.is_alive():
             self._step_thread.join(timeout=1.0)
         
-        # De-energize motor (set all control pins to LOW)
-        try:
-            for line in self.control_lines:
-                if line is not None:
-                    line.set_value(0)
-        except Exception as e:
-            print(f"[{self.motor_name}] Failed to de-energize: {e}")
-        
-        # Close GPIO resources
-        self.control_lines = []
-        self.limit_line = None
-        
-        if self.chip is not None:
+        # De-energize motor (set all control pins to LOW) if GPIO is available
+        if GPIO_AVAILABLE:
             try:
-                # The chip will be garbage collected and properly closed
-                self.chip.close()
+                for pin in self.control_pins:
+                    GPIO.output(pin, 0)
             except Exception as e:
-                print(f"[{self.motor_name}] Failed to close GPIO chip: {e}")
+                print(f"[{self.motor_name}] Failed to de-energize: {e}")
+            
+            # Clean up GPIO
+            try:
+                GPIO.cleanup()
+            except Exception as e:
+                print(f"[{self.motor_name}] Failed to cleanup GPIO: {e}")
         
-        self.chip = None
         print(f"[{self.motor_name}] Cleaned up")

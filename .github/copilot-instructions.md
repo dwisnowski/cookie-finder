@@ -1,5 +1,8 @@
 # Cookie Finder – Copilot Instructions
 
+
+ **Keep the chat output to a minimum, only include code snippets when necessary to illustrate a point. Focus on clear, concise explanations and instructions.**
+
 ## Project Overview
 Cookie Finder is a hardware + software project that uses an Orange Pi Zero 2W with a USB thermal camera to detect and locate warm objects (e.g., cookies) in real time.
 
