@@ -42,7 +42,7 @@ test-motors:
 	@sudo uv run test_stepper_motors.py auto
 
 test-motors-pan-cw:
-	@sudo uv run test_stepper_motors.py pan-cw
+	@uv run test_stepper_motors.py pan-cw
 
 test-motors-pan-ccw:
 	@sudo uv run test_stepper_motors.py pan-ccw

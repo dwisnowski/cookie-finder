@@ -1,8 +1,8 @@
 """
-Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via OPi.GPIO.
+Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via gpiod (libgpiod).
 
-GPIO Pin Assignments (Orange Pi Zero 2W, BOARD mode):
-  Pan Motor (IN1-IN4):     31, 33, 35, 37 (physical pins: PI15, PI12, PI02, PI16)
+GPIO Pin Assignments (Orange Pi Zero 2W, gpiochip1):
+  Pan Motor (IN1-IN4):     258, 268, 271, 272 (GPIO offsets: PI15, PI12, PI02, PI16)
   Tilt Motor (IN1-IN4):    (to be configured)
   Pan Limit Switch:        (to be configured)
   Tilt Limit Switch:       (to be configured)
@@ -24,13 +24,13 @@ from enum import Enum
 from typing import Optional
 
 try:
-    import OPi.GPIO as GPIO
+    import gpiod
     GPIO_AVAILABLE = True
 except ImportError as e:
     GPIO_AVAILABLE = False
-    GPIO = None
-    print(f"[WARNING] Failed to import OPi.GPIO: {e}")
-    print("[WARNING] GPIO control will not be available. Install with: uv pip install OPi.GPIO")
+    gpiod = None
+    print(f"[WARNING] Failed to import gpiod: {e}")
+    print("[WARNING] GPIO control will not be available. Install with: uv pip install gpiod")
 
 
 class MotorDirection(Enum):
@@ -71,8 +71,8 @@ class StepperMotor:
         Initialize stepper motor controller.
         
         Args:
-            control_pins: GPIO pin numbers in BOARD mode (physical pins)
-            limit_switch_pin: GPIO pin number for limit switch input (BOARD mode), or None if not available
+            control_pins: GPIO line offsets (gpiochip1) for IN1, IN2, IN3, IN4
+            limit_switch_pin: GPIO line offset for limit switch input, or None if not available
             max_angle: Maximum rotation angle (degrees)
             motor_name: Human-readable motor name
         """
@@ -96,45 +96,48 @@ class StepperMotor:
         self._step_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         
+        # GPIO resources
+        self.chip = None
+        self.lines = None
+        
         if GPIO_AVAILABLE:
             self._init_gpio()
     
     def _init_gpio(self) -> None:
-        """Initialize GPIO pins using OPi.GPIO."""
+        """Initialize GPIO lines using gpiod with bulk request."""
         try:
-            # Set GPIO mode to BOARD (physical pin numbers on Orange Pi Zero 2W)
-            if GPIO.getmode() is None:
-                GPIO.setmode(GPIO.BOARD)
-                print(f"[{self.motor_name}] GPIO mode set to BOARD")
+            self.chip = gpiod.Chip("/dev/gpiochip1")
             
-            # Setup control pins as outputs
-            for pin in self.control_pins:
-                try:
-                    GPIO.setup(pin, GPIO.OUT)
-                    GPIO.output(pin, 0)  # Initialize to LOW
-                except Exception as pin_err:
-                    print(f"[{self.motor_name}] Failed to setup pin {pin}: {pin_err}")
-                    raise
+            # Configure output settings for control pins
+            output_config = {
+                offset: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)
+                for offset in self.control_pins
+            }
             
-            # Setup limit switch pin as input if provided
-            if self.limit_switch_pin is not None:
-                GPIO.setup(self.limit_switch_pin, GPIO.IN)
-                print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}, limit pin {self.limit_switch_pin}")
-            else:
-                print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}")
+            # Request all control lines at once
+            self.lines = self.chip.request_lines(
+                consumer=self.motor_name,
+                config=output_config
+            )
+            
+            print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}")
         except Exception as e:
             print(f"[{self.motor_name}] GPIO initialization failed: {e}")
             print(f"[{self.motor_name}] GPIO access requires root. Try: sudo make test-motors-pan-ccw")
     
     def _set_step(self, step_index: int) -> None:
         """Set motor pins to a specific step in the sequence."""
-        if not GPIO_AVAILABLE:
+        if not GPIO_AVAILABLE or self.lines is None:
             return
         
         step_values = self.FULL_STEP_SEQUENCE[step_index % len(self.FULL_STEP_SEQUENCE)]
         try:
-            for i, pin in enumerate(self.control_pins):
-                GPIO.output(pin, 1 if step_values[i] else 0)
+            # Build value dict for bulk set_values call
+            values = {
+                offset: gpiod.line.Value.ACTIVE if step_values[i] else gpiod.line.Value.INACTIVE
+                for i, offset in enumerate(self.control_pins)
+            }
+            self.lines.set_values(values)
         except Exception as e:
             print(f"[{self.motor_name}] Failed to set step {step_index}: {e}")
     
@@ -306,18 +309,16 @@ class StepperMotor:
         if self._step_thread and self._step_thread.is_alive():
             self._step_thread.join(timeout=1.0)
         
-        # De-energize motor (set all control pins to LOW) if GPIO is available
-        if GPIO_AVAILABLE:
+        # De-energize motor (set all control pins to INACTIVE) if GPIO is available
+        if GPIO_AVAILABLE and self.lines is not None:
             try:
-                for pin in self.control_pins:
-                    GPIO.output(pin, 0)
+                # Set all pins to INACTIVE
+                values = {offset: gpiod.line.Value.INACTIVE for offset in self.control_pins}
+                self.lines.set_values(values)
+                self.lines.release()
             except Exception as e:
                 print(f"[{self.motor_name}] Failed to de-energize: {e}")
-            
-            # Clean up GPIO
-            try:
-                GPIO.cleanup()
-            except Exception as e:
-                print(f"[{self.motor_name}] Failed to cleanup GPIO: {e}")
         
+        self.lines = None
+        self.chip = None
         print(f"[{self.motor_name}] Cleaned up")

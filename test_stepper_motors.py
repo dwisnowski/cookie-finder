@@ -18,10 +18,9 @@ from stepper_motor_controller import StepperMotor, MotorDirection
 import sys
 import time
 
-# Orange Pi Zero 2W physical pins (BOARD mode)
-# See: orangepi.zero2w for full pin mapping
-# Pan motor: pins 31(IN1/PI15), 33(IN2/PI12), 35(IN3/PI02), 37(IN4/PI16)
-PAN_PINS = (31, 33, 35, 37)
+# Orange Pi Zero 2W GPIO offsets (gpiochip1)
+# Pan motor: 258(PI15), 268(PI12), 271(PI02), 272(PI16)
+PAN_PINS = (258, 268, 271, 272)
 
 def run_command(command, steps=50):
     """Execute motor control command."""
