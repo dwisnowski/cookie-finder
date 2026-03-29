@@ -14,7 +14,7 @@ Commands:
   auto               Automated test sequence
 """
 
-from stepper_motor_controller import StepperMotor, MotorDirection
+from cookie_finder.gimbal.stepper import StepperMotor, MotorDirection
 import sys
 import time
 

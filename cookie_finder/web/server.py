@@ -12,6 +12,7 @@ import numpy as np
 from io import BytesIO
 from queue import Queue
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 # Suppress OpenCV warnings (camera not found messages)
 os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
@@ -23,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 
-from thermal_processor import ThermalProcessor
+from cookie_finder.camera.processor import ThermalProcessor
 
 
 # Global state
@@ -246,8 +247,9 @@ def create_app(camera_id=None):
     app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
     
     # Setup templates and static files
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-    templates = Jinja2Templates(directory="templates")
+    web_dir = Path(__file__).parent
+    app.mount("/static", StaticFiles(directory=str(web_dir / "static")), name="static")
+    templates = Jinja2Templates(directory=str(web_dir / "templates"))
     
     # Add CORS middleware
     app.add_middleware(

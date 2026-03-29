@@ -22,7 +22,7 @@ GPIO Pin Layout (Orange Pi Zero 2W, gpiochip0):
 
 import threading
 from typing import Optional
-from stepper_motor_controller import StepperMotor, MotorDirection
+from cookie_finder.gimbal.stepper import StepperMotor, MotorDirection
 
 
 class PanTiltGimbal:

@@ -20,9 +20,12 @@ yolo = [
     "torchvision>=0.18.0",
     "ultralytics",
 ]
+docs = [
+    "mkdocs-material>=9.0.0",
+]
 
 [tool.setuptools]
-py-modules = ["main", "uvc_controls"]
+packages = ["cookie_finder"]
 
 [build-system]
 requires = ["setuptools>=68.0"]
