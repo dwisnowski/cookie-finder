@@ -1,10 +1,17 @@
-.PHONY: run run-standalone run-web run-web-custom test-gamepad install install-yolo clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
+.PHONY: run run-standalone run-web run-web-custom test-gamepad test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw test-motors-tilt-ccw test-motors-home install install-yolo install-docs docs clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
 
 install:
 	uv sync
 
 install-yolo:
 	uv sync --extra yolo
+
+install-docs:
+	uv sync --extra docs
+
+docs: install-docs
+	@echo "Starting MkDocs dev server at http://127.0.0.1:8001..."
+	uv run mkdocs serve --dev-addr 127.0.0.1:8001
 
 install-ffmpeg:
 	brew install ffmpeg
@@ -31,6 +38,65 @@ run-web-custom:
 	echo "Starting Thermal Camera Viewer (WebServer mode on http://$$host:$$port)..."; \
 	uv run main.py --web --port $$port --host $$host
 
+test-motors:
+	@echo "Motor control test script:"
+	@echo "  sudo make test-motors auto           # Automated test sequence"
+	@echo "  sudo make test-motors-pan-cw         # Pan clockwise 50 steps"
+	@echo "  sudo make test-motors-pan-ccw        # Pan counter-clockwise 50 steps"
+	@echo "  sudo make test-motors-tilt-cw        # Tilt clockwise 50 steps"
+	@echo "  sudo make test-motors-tilt-ccw       # Tilt counter-clockwise 50 steps"
+	@echo "  sudo make test-motors-home           # Home both motors"
+	@sudo uv run tools/test_motors.py auto
+
+test-motors-pan-cw:
+	@uv run tools/test_motors.py pan-cw
+
+test-motors-pan-ccw:
+	@sudo uv run tools/test_motors.py pan-ccw
+
+test-motors-tilt-cw:
+	@sudo uv run tools/test_motors.py tilt-cw
+
+test-motors-tilt-ccw:
+	@sudo uv run tools/test_motors.py tilt-ccw
+
+test-motors-home:
+	@sudo uv run tools/test_motors.py home
+
+test-pan-step:
+	@echo "Freeing GPIO pins..."
+	@bash -c '\
+		for g in 258 268 271 272; do \
+			echo $$g > /sys/class/gpio/unexport 2>/dev/null || true; \
+		done; \
+		echo "Stepping pan motor (custom pin set)..."; \
+		for i in $$(seq 1 20); do \
+			sudo gpioset gpiochip1 258=1 268=0 271=0 272=0; sleep 0.1; \
+			sudo gpioset gpiochip1 258=0 268=1 271=0 272=0; sleep 0.1; \
+			sudo gpioset gpiochip1 258=0 268=0 271=1 272=0; sleep 0.1; \
+			sudo gpioset gpiochip1 258=0 268=0 271=0 272=1; sleep 0.1; \
+		done; \
+		echo "Done."; \
+	'
+
+test-all-gpio:
+	@echo "Scanning and blinking all available GPIO pins..."
+	@bash -c '\
+	for chip in /dev/gpiochip*; do \
+		chipname=$$(basename $$chip); \
+		echo "---- Testing $$chipname ----"; \
+		lines=$$(gpioinfo $$chipname | grep "line" | wc -l); \
+		for ((i=0; i<lines; i++)); do \
+			# Try to toggle HIGH then LOW (skip if busy) \
+			sudo gpioset $$chipname $$i=1 2>/dev/null && \
+			sleep 0.05 && \
+			sudo gpioset $$chipname $$i=0 2>/dev/null && \
+			echo "  Toggled $$chipname line $$i"; \
+		done; \
+	done; \
+	echo "Done scanning all GPIO."; \
+	'
+
 find-camera:
 	@echo "Detecting available camera devices..."
 	@echo "Checking /dev/video devices:"
@@ -39,22 +105,22 @@ find-camera:
 	@echo "Camera details:"
 	@v4l2-ctl --list-devices 2>/dev/null || echo "v4l2-ctl not available"
 	@echo ""
-	@uv run find_working_camera.py
+	@uv run tools/find_camera.py
 
 list-devices:
-	uv run uvc_controls.py list-devices
+	uv run tools/uvc_controls.py list-devices
 
 list-controls:
-	uv run uvc_controls.py list-controls
+	uv run tools/uvc_controls.py list-controls
 
 get-control:
 	@read -p "Enter control name: " control; \
-	uv run uvc_controls.py get $control
+	uv run tools/uvc_controls.py get $control
 
 set-control:
 	@read -p "Enter control name: " control; \
 	read -p "Enter value: " value; \
-	uv run uvc_controls.py set $control $value
+	uv run tools/uvc_controls.py set $control $value
 
 list-cameras:
 	ffmpeg -f avfoundation -list_devices true -i ""
@@ -66,19 +132,19 @@ probe-install:
 	brew install libusb
 
 probe-usb: probe-install
-	uv run probing_thermal_camera/probe_usb.py
+	uv run tools/probing_thermal_camera/probe_usb.py
 
 probe-cdc:
-	uv run probing_thermal_camera/probe_cdc.py
+	uv run tools/probing_thermal_camera/probe_cdc.py
 
 probe-serial:
-	uv run probing_thermal_camera/probe_serial.py
+	uv run tools/probing_thermal_camera/probe_serial.py
 
 probe-resolution:
-	uv run probing_thermal_camera/probe_resolution.py
+	uv run tools/probing_thermal_camera/probe_resolution.py
 
 probe-xu:
-	uv run probing_thermal_camera/probe_uvc_xu.py
+	uv run tools/probing_thermal_camera/probe_uvc_xu.py
 
 probe: probe-usb probe-cdc probe-serial probe-resolution probe-xu
 

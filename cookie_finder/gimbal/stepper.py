@@ -1,14 +1,17 @@
 """
-Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via gpiod.
+Low-level stepper motor control for 28BYJ-48 + ULN2003 driver via gpiod (libgpiod).
 
-GPIO Pin Assignments (Orange Pi Zero 2W):
-  Pan Motor (IN1-IN4):     GPIO23, GPIO24, GPIO25, GPIO26
-  Tilt Motor (IN1-IN4):    GPIO27, GPIO28, GPIO29, GPIO30
-  Pan Limit Switch:        GPIO31 (input, active low with internal pull-up)
-  Tilt Limit Switch:       GPIO32 (input, active low with internal pull-up)
+GPIO Pin Assignments (Orange Pi Zero 2W, gpiochip1):
+  Pan Motor (IN1-IN4):     258, 268, 271, 272 (GPIO offsets: PI15, PI12, PI02, PI16)
+  Tilt Motor (IN1-IN4):    (to be configured)
+  Pan Limit Switch:        (to be configured)
+  Tilt Limit Switch:       (to be configured)
+
+Driver: ULN2003 with full-step sequence (4 steps per cycle).
+Confirmed working with logic analyzer.
 
 Speed Notes:
-  - 28BYJ-48 is a geared motor (1:64 reduction + internal gearing ≈ 4076 steps/rev)
+  - 28BYJ-48 is a geared motor (internal gearing ≈ 4076 steps/rev)
   - Step frequency = RPM × 4076 / 60
   - At 12V, typical max is ~10 RPM
   - At 5V, typical max is ~5 RPM
@@ -23,9 +26,11 @@ from typing import Optional
 try:
     import gpiod
     GPIO_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     GPIO_AVAILABLE = False
     gpiod = None
+    print(f"[WARNING] Failed to import gpiod: {e}")
+    print("[WARNING] GPIO control will not be available. Install with: uv pip install gpiod")
 
 
 class MotorDirection(Enum):
@@ -42,17 +47,14 @@ class StepperMotor:
     Monitors a limit switch GPIO for end-of-range detection.
     """
     
-    # 28BYJ-48 half-step sequence (8 steps per full cycle)
+    # 28BYJ-48 full-step sequence (4 steps per full cycle)
     # Each tuple is (IN1, IN2, IN3, IN4) logic levels
-    HALF_STEP_SEQUENCE = [
+    # Confirmed working with logic analyzer on Orange Pi Zero 2W
+    FULL_STEP_SEQUENCE = [
         (1, 0, 0, 0),
-        (1, 1, 0, 0),
         (0, 1, 0, 0),
-        (0, 1, 1, 0),
         (0, 0, 1, 0),
-        (0, 0, 1, 1),
         (0, 0, 0, 1),
-        (1, 0, 0, 1),
     ]
     
     # Steps per revolution for 28BYJ-48 (with gearing)
@@ -61,7 +63,7 @@ class StepperMotor:
     def __init__(
         self,
         control_pins: tuple[int, int, int, int],
-        limit_switch_pin: int,
+        limit_switch_pin: Optional[int] = None,
         max_angle: float = 180.0,
         motor_name: str = "Motor",
     ):
@@ -69,8 +71,8 @@ class StepperMotor:
         Initialize stepper motor controller.
         
         Args:
-            control_pins: GPIO line numbers (IN1, IN2, IN3, IN4)
-            limit_switch_pin: GPIO line number for limit switch input
+            control_pins: GPIO line offsets (gpiochip1) for IN1, IN2, IN3, IN4
+            limit_switch_pin: GPIO line offset for limit switch input, or None if not available
             max_angle: Maximum rotation angle (degrees)
             motor_name: Human-readable motor name
         """
@@ -81,7 +83,7 @@ class StepperMotor:
         
         # Motor state
         self.current_angle = 0.0  # degrees
-        self.current_step = 0  # position in HALF_STEP_SEQUENCE
+        self.current_step = 0  # position in FULL_STEP_SEQUENCE
         self.is_moving = False
         self.target_angle: Optional[float] = None
         self.speed_hz = 500  # stepping frequency in Hz
@@ -94,63 +96,59 @@ class StepperMotor:
         self._step_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
         
-        # GPIO setup
-        self.chip: Optional[gpiod.Chip] = None
-        self.lines: Optional[gpiod.LineSettings] = None
-        self.limit_line: Optional[gpiod.LineSettings] = None
+        # GPIO resources
+        self.chip = None
+        self.lines = None
         
         if GPIO_AVAILABLE:
             self._init_gpio()
     
     def _init_gpio(self) -> None:
-        """Initialize gpiod chip and request GPIO lines."""
+        """Initialize GPIO lines using gpiod with bulk request."""
         try:
-            # Open GPIO chip (gpiochip0 for Orange Pi)
-            self.chip = gpiod.Chip("gpiochip0")
+            self.chip = gpiod.Chip("/dev/gpiochip1")
             
-            # Request output lines for motor control
-            request_config = gpiod.RequestConfig(
-                consumer=f"{self.motor_name}_driver",
-                offsets=list(self.control_pins),
-                output_values=[gpiod.Line.Value.LOW] * 4,
+            # Configure output settings for control pins
+            output_config = {
+                offset: gpiod.LineSettings(direction=gpiod.line.Direction.OUTPUT)
+                for offset in self.control_pins
+            }
+            
+            # Request all control lines at once
+            self.lines = self.chip.request_lines(
+                consumer=self.motor_name,
+                config=output_config
             )
-            self.lines = self.chip.request_lines(request_config)
             
-            # Request input line for limit switch with pull-up (internal)
-            request_config_limit = gpiod.RequestConfig(
-                consumer=f"{self.motor_name}_limit",
-                offsets=[self.limit_switch_pin],
-            )
-            self.limit_line = self.chip.request_lines(request_config_limit)
-            
-            print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}, limit pin {self.limit_switch_pin}")
+            print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}")
         except Exception as e:
             print(f"[{self.motor_name}] GPIO initialization failed: {e}")
-            self.chip = None
-            self.lines = None
-            self.limit_line = None
+            print(f"[{self.motor_name}] GPIO access requires root. Try: sudo make test-motors-pan-ccw")
     
     def _set_step(self, step_index: int) -> None:
         """Set motor pins to a specific step in the sequence."""
-        if not self.lines:
+        if not GPIO_AVAILABLE or self.lines is None:
             return
         
-        step_values = self.HALF_STEP_SEQUENCE[step_index % len(self.HALF_STEP_SEQUENCE)]
+        step_values = self.FULL_STEP_SEQUENCE[step_index % len(self.FULL_STEP_SEQUENCE)]
         try:
-            values = [gpiod.Line.Value(v) for v in step_values]
+            # Build value dict for bulk set_values call
+            values = {
+                offset: gpiod.line.Value.ACTIVE if step_values[i] else gpiod.line.Value.INACTIVE
+                for i, offset in enumerate(self.control_pins)
+            }
             self.lines.set_values(values)
         except Exception as e:
             print(f"[{self.motor_name}] Failed to set step {step_index}: {e}")
     
     def _check_limit_switch(self) -> bool:
-        """Check if limit switch is triggered (active low)."""
-        if not self.limit_line:
+        """Check if limit switch is triggered (active low). Returns False if not configured or not available."""
+        if self.limit_switch_pin is None or not GPIO_AVAILABLE:
             return False
         
         try:
-            values = self.limit_line.get_values()
-            # Limit switch is active low (triggered = 0)
-            triggered = values[0] == gpiod.Line.Value.LOW
+            # Limit switch is active low (triggered = 0 when pressed)
+            triggered = GPIO.input(self.limit_switch_pin) == 0
             if triggered and not self.limit_triggered:
                 print(f"[{self.motor_name}] Limit switch triggered!")
                 self.limit_triggered = True
@@ -187,11 +185,13 @@ class StepperMotor:
                 # Step towards target
                 direction = 1 if angle_diff > 0 else -1
                 self.current_step += direction
-                self.current_step %= len(self.HALF_STEP_SEQUENCE)
+                self.current_step %= len(self.FULL_STEP_SEQUENCE)
                 
-                # Update angle (each half-step is 360 / (2 * 4076) degrees)
-                degrees_per_half_step = 360.0 / (2.0 * self.STEPS_PER_REVOLUTION)
-                self.current_angle += direction * degrees_per_half_step
+                # Update angle (each full-step is 2x half-step increment)
+                # Half-step angle: 360 / (2 * 4076) degrees
+                # Full-step angle: 2 * half-step angle
+                degrees_per_full_step = 360.0 / self.STEPS_PER_REVOLUTION
+                self.current_angle += direction * degrees_per_full_step
                 self.current_angle = max(0, min(self.current_angle, self.max_angle))
                 
                 self._set_step(self.current_step)
@@ -257,7 +257,7 @@ class StepperMotor:
                 return
             
             # Step backward (CCW)
-            self.current_step = (self.current_step - 1) % len(self.HALF_STEP_SEQUENCE)
+            self.current_step = (self.current_step - 1) % len(self.FULL_STEP_SEQUENCE)
             self._set_step(self.current_step)
             time.sleep(1.0 / self.speed_hz)
         
@@ -273,16 +273,19 @@ class StepperMotor:
             direction: MotorDirection.CLOCKWISE or COUNTERCLOCKWISE
             steps: Number of half-steps
         """
+        if not GPIO_AVAILABLE:
+            print(f"[{self.motor_name}] GPIO not available. Cannot step motor.")
+            return
+        
         with self._lock:
             for _ in range(steps):
                 if self._check_limit_switch():
                     break
                 
                 self.current_step += direction.value
-                self.current_step %= len(self.HALF_STEP_SEQUENCE)
+                self.current_step %= len(self.FULL_STEP_SEQUENCE)
                 
-                degrees_per_half_step = 360.0 / (2.0 * self.STEPS_PER_REVOLUTION)
-                self.current_angle += direction.value * degrees_per_half_step
+                self.current_angle += direction.value * 360.0 / self.STEPS_PER_REVOLUTION
                 self.current_angle = max(0, min(self.current_angle, self.max_angle))
                 
                 self._set_step(self.current_step)
@@ -306,19 +309,16 @@ class StepperMotor:
         if self._step_thread and self._step_thread.is_alive():
             self._step_thread.join(timeout=1.0)
         
-        # De-energize motor
-        if self.lines:
+        # De-energize motor (set all control pins to INACTIVE) if GPIO is available
+        if GPIO_AVAILABLE and self.lines is not None:
             try:
-                self.lines.set_values([gpiod.Line.Value.LOW] * 4)
+                # Set all pins to INACTIVE
+                values = {offset: gpiod.line.Value.INACTIVE for offset in self.control_pins}
+                self.lines.set_values(values)
+                self.lines.release()
             except Exception as e:
                 print(f"[{self.motor_name}] Failed to de-energize: {e}")
         
-        # Release GPIO lines
-        if self.lines:
-            self.lines.release()
-        if self.limit_line:
-            self.limit_line.release()
-        if self.chip:
-            self.chip.close()
-        
+        self.lines = None
+        self.chip = None
         print(f"[{self.motor_name}] Cleaned up")

@@ -8,6 +8,7 @@ between different output frontends (GUI, web, etc.).
 
 import cv2
 import numpy as np
+from pathlib import Path
 
 
 # Static thermal color palettes
@@ -548,7 +549,9 @@ class ThermalProcessor:
         
         try:
             from ultralytics import YOLO
-            self.yolo_model = YOLO('yolov8n.pt')
+            project_root = Path(__file__).parent.parent.parent
+            model_path = project_root / 'yolov8n.pt'
+            self.yolo_model = YOLO(str(model_path))
             return self.yolo_model
         except ImportError:
             print("Error: ultralytics not installed. Run: make install-yolo")

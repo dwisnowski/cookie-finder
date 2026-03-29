@@ -1,0 +1,45 @@
+site_name: Cookie Finder
+site_description: Real-time USB thermal camera system for the Orange Pi Zero 2W
+repo_url: https://github.com/dwisnowski/cookie-finder
+repo_name: dwisnowski/cookie-finder
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: deep orange
+      accent: orange
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - toc.integrate
+    - content.code.copy
+
+nav:
+  - Home: index.md
+  - Hardware:
+      - Camera: hardware/camera.md
+      - Wiring: hardware/wiring.md
+  - Setup:
+      - Orange Pi: setup/orange-pi.md
+      - Development: setup/development.md
+  - Usage:
+      - Running: usage/running.md
+      - Controls: usage/controls.md
+      - Modes: usage/modes.md
+      - Web Server API: usage/web-server.md
+  - Reference:
+      - Makefile: reference/makefile.md
+      - UVC Controls: reference/uvc-controls.md
+
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - toc:
+      permalink: true

@@ -25,8 +25,8 @@ cv2.setLogLevel(0)
 
 import numpy as np
 
-from thermal_processor import ThermalProcessor, THERMAL_PALETTES
-from web_server import run_webserver
+from cookie_finder.camera.processor import ThermalProcessor, THERMAL_PALETTES
+from cookie_finder.web.server import run_webserver
 
 
 def find_available_cameras(max_devices=10):
