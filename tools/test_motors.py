@@ -4,14 +4,15 @@ Stepper motor test script for pan/tilt gimbal.
 Controls motors via command-line arguments.
 
 Usage:
-  test_stepper_motors.py [command] [steps]
+  test_motors.py [command] [steps]
   
 Commands:
   pan-cw [steps]     Pan motor clockwise (default: 50)
   pan-ccw [steps]    Pan motor counter-clockwise (default: 50)
-  tilt-cw [steps]    Tilt motor clockwise (default: 50) - NOT YET CONFIGURED
-  tilt-ccw [steps]   Tilt motor counter-clockwise (default: 50) - NOT YET CONFIGURED
+  tilt-cw [steps]    Tilt motor clockwise (default: 50)
+  tilt-ccw [steps]   Tilt motor counter-clockwise (default: 50)
   auto               Automated test sequence
+  home               Home both motors to limit switches
 """
 
 from cookie_finder.gimbal.stepper import StepperMotor, MotorDirection
@@ -19,21 +20,28 @@ import sys
 import time
 
 # Orange Pi Zero 2W GPIO offsets (gpiochip1)
-# Pan motor: 258(PI15), 268(PI12), 271(PI02), 272(PI16)
-PAN_PINS = (258, 268, 271, 272)
+# Pan motor:  271(PI15), 268(PI12), 258(PI02), 272(PI16)
+PAN_PINS = (271, 268, 258, 272)
+
+# Tilt motor: 262(PI6), 229(PH5), 233(PH9), 265(PI9)
+TILT_PINS = (262, 229, 233, 265)
 
 def run_command(command, steps=50):
     """Execute motor control command."""
     
-    # Initialize pan motor (no limit switch configured yet)
+    # Initialize pan motor
     pan_motor = StepperMotor(
         control_pins=PAN_PINS,
         max_angle=180.0,
         motor_name="Pan"
     )
     
-    # TODO: Configure tilt motor pins and limit switch
-    tilt_motor = None
+    # Initialize tilt motor
+    tilt_motor = StepperMotor(
+        control_pins=TILT_PINS,
+        max_angle=180.0,
+        motor_name="Tilt"
+    )
     
     try:
         if command == "pan-cw":
@@ -47,24 +55,20 @@ def run_command(command, steps=50):
             print(f"Pan: {pan_motor.get_angle():.1f}°")
             
         elif command == "tilt-cw":
-            if tilt_motor is None:
-                print("Tilt motor not yet configured")
-                return 1
             print(f"Tilt CW {steps} steps...")
             tilt_motor.step(MotorDirection.CLOCKWISE, steps=steps)
             print(f"Tilt: {tilt_motor.get_angle():.1f}°")
             
         elif command == "tilt-ccw":
-            if tilt_motor is None:
-                print("Tilt motor not yet configured")
-                return 1
             print(f"Tilt CCW {steps} steps...")
             tilt_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=steps)
             print(f"Tilt: {tilt_motor.get_angle():.1f}°")
             
         elif command == "home":
-            print("Home command not yet available (limit switch not configured)")
-            return 1
+            print("Homing both motors...")
+            pan_motor.home()
+            tilt_motor.home()
+            print(f"Home complete: Pan {pan_motor.get_angle():.1f}°, Tilt {tilt_motor.get_angle():.1f}°")
             
         elif command == "auto":
             print("=== Automated Motor Test ===\n")
@@ -80,18 +84,15 @@ def run_command(command, steps=50):
             print(f"  Pan angle: {pan_motor.get_angle():.1f}°")
             time.sleep(0.5)
             
-            if tilt_motor is not None:
-                print("\nTesting TILT motor...")
-                print("  CW 100 steps...")
-                tilt_motor.step(MotorDirection.CLOCKWISE, steps=100)
-                print(f"  Tilt angle: {tilt_motor.get_angle():.1f}°")
-                time.sleep(0.5)
-                
-                print("  CCW 50 steps...")
-                tilt_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=50)
-                print(f"  Tilt angle: {tilt_motor.get_angle():.1f}°")
-            else:
-                print("\nTilt motor not yet configured")
+            print("\nTesting TILT motor...")
+            print("  CW 100 steps...")
+            tilt_motor.step(MotorDirection.CLOCKWISE, steps=100)
+            print(f"  Tilt angle: {tilt_motor.get_angle():.1f}°")
+            time.sleep(0.5)
+            
+            print("  CCW 50 steps...")
+            tilt_motor.step(MotorDirection.COUNTERCLOCKWISE, steps=50)
+            print(f"  Tilt angle: {tilt_motor.get_angle():.1f}°")
             
             print("\n✅ Test complete!")
         else:
@@ -104,8 +105,7 @@ def run_command(command, steps=50):
         return 1
     finally:
         pan_motor.cleanup()
-        if tilt_motor is not None:
-            tilt_motor.cleanup()
+        tilt_motor.cleanup()
     
     return 0
 

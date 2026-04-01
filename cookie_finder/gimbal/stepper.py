@@ -98,7 +98,8 @@ class StepperMotor:
         
         # GPIO resources
         self.chip = None
-        self.lines = None
+        self.lines = None  # Control pins (output)
+        self.limit_line = None  # Limit switch pin (input)
         
         if GPIO_AVAILABLE:
             self._init_gpio()
@@ -121,6 +122,19 @@ class StepperMotor:
             )
             
             print(f"[{self.motor_name}] GPIO initialized: control pins {self.control_pins}")
+            
+            # Initialize limit switch if configured
+            if self.limit_switch_pin is not None:
+                try:
+                    limit_config = {self.limit_switch_pin: gpiod.LineSettings(direction=gpiod.line.Direction.INPUT)}
+                    self.limit_line = self.chip.request_lines(
+                        consumer=f"{self.motor_name}_limit",
+                        config=limit_config
+                    )
+                    print(f"[{self.motor_name}] Limit switch initialized on pin {self.limit_switch_pin}")
+                except Exception as e:
+                    print(f"[{self.motor_name}] Limit switch initialization failed: {e}")
+                    self.limit_line = None
         except Exception as e:
             print(f"[{self.motor_name}] GPIO initialization failed: {e}")
             print(f"[{self.motor_name}] GPIO access requires root. Try: sudo make test-motors-pan-ccw")
@@ -143,12 +157,13 @@ class StepperMotor:
     
     def _check_limit_switch(self) -> bool:
         """Check if limit switch is triggered (active low). Returns False if not configured or not available."""
-        if self.limit_switch_pin is None or not GPIO_AVAILABLE:
+        if self.limit_switch_pin is None or not GPIO_AVAILABLE or self.limit_line is None:
             return False
         
         try:
             # Limit switch is active low (triggered = 0 when pressed)
-            triggered = GPIO.input(self.limit_switch_pin) == 0
+            values = self.limit_line.get_values([self.limit_switch_pin])
+            triggered = values[self.limit_switch_pin] == gpiod.line.Value.INACTIVE
             if triggered and not self.limit_triggered:
                 print(f"[{self.motor_name}] Limit switch triggered!")
                 self.limit_triggered = True
@@ -319,6 +334,14 @@ class StepperMotor:
             except Exception as e:
                 print(f"[{self.motor_name}] Failed to de-energize: {e}")
         
+        # Release limit switch line if available
+        if self.limit_line is not None:
+            try:
+                self.limit_line.release()
+            except Exception as e:
+                print(f"[{self.motor_name}] Failed to release limit switch: {e}")
+        
         self.lines = None
+        self.limit_line = None
         self.chip = None
         print(f"[{self.motor_name}] Cleaned up")

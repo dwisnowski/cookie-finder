@@ -10,6 +10,33 @@ GPIO wiring for the **Orange Pi Zero 2W** and attached peripherals.
 
 ![Orange Pi Zero 2W Pinout](orangepi-zero2w-pinout.png)
 
+ +------+-----+----------+--------+---+  ZERO2W  +---+--------+----------+-----+------+
+ | GPIO | wPi |   Name   |  Mode  | V | Physical | V |  Mode  | Name     | wPi | GPIO |
+ +------+-----+----------+--------+---+----++----+---+--------+----------+-----+------+
+ |      |     |     3.3V |        |   |  1 || 2  |   |        | 5V       |     |      |
+ |  264 |   0 |    SDA.1 |    OFF | 0 |  3 || 4  |   |        | 5V       |     |      |
+ |  263 |   1 |    SCL.1 |    OFF | 0 |  5 || 6  |   |        | GND      |     |      |
+ |  269 |   2 |     PWM3 |    OFF | 0 |  7 || 8  | 0 | ALT2   | TXD.0    | 3   | 224  |
+ |      |     |      GND |        |   |  9 || 10 | 0 | ALT2   | RXD.0    | 4   | 225  |
+ |  226 |   5 |    TXD.5 |    OFF | 0 | 11 || 12 | 0 | OFF    | PI01     | 6   | 257  |
+ |  227 |   7 |    RXD.5 |    OFF | 0 | 13 || 14 |   |        | GND      |     |      |
+ |  261 |   8 |    TXD.2 |    OFF | 0 | 15 || 16 | 0 | OFF    | PWM4     | 9   | 270  |
+ |      |     |     3.3V |        |   | 17 || 18 | 0 | OFF    | PH04     | 10  | 228  |
+ |  231 |  11 |   MOSI.1 |    OFF | 0 | 19 || 20 |   |        | GND      |     |      |
+ |  232 |  12 |   MISO.1 |    OFF | 0 | 21 || 22 | 0 | OFF    | RXD.2    | 13  | 262  |
+ |  230 |  14 |   SCLK.1 |    OFF | 0 | 23 || 24 | 0 | OFF    | CE.0     | 15  | 229  |
+ |      |     |      GND |        |   | 25 || 26 | 0 | ALT3   | CE.1     | 16  | 233  |
+ |  266 |  17 |    SDA.2 |    OFF | 0 | 27 || 28 | 0 | OFF    | SCL.2    | 18  | 265  |
+ |  256 |  19 |     PI00 |    OFF | 0 | 29 || 30 |   |        | GND      |     |      |
+ |  271 |  20 |     PI15 |    OFF | 0 | 31 || 32 | 0 | OFF    | PWM1     | 21  | 267  |
+ |  268 |  22 |     PI12 |    OFF | 0 | 33 || 34 |   |        | GND      |     |      |
+ |  258 |  23 |     PI02 |    OFF | 0 | 35 || 36 | 1 | OUT    | PC12     | 24  | 76   |
+ |  272 |  25 |     PI16 |    OFF | 0 | 37 || 38 | 0 | OFF    | PI04     | 26  | 260  |
+ |      |     |      GND |        |   | 39 || 40 | 0 | OFF    | PI03     | 27  | 259  |
+ +------+-----+----------+--------+---+----++----+---+--------+----------+-----+------+
+ | GPIO | wPi |   Name   |  Mode  | V | Physical | V |  Mode  | Name     | wPi | GPIO |
+ +------+-----+----------+--------+---+  ZERO2W  +---+--------+----------+-----+------+
+
 ---
 
 > All GPIO access uses `/dev/gpiochip1` via `libgpiod`. Pin offsets below are the confirmed working values from hardware testing on the Orange Pi Zero 2W.
@@ -22,12 +49,13 @@ The pan motor is a 4-wire unipolar stepper driven by a ULN2003 driver board.
 
 ### Connections
 
-| Signal | gpiochip1 Offset | Orange Pi GPIO Label | ULN2003 Pin | Wire Color (typical) |
-|--------|-----------------|----------------------|-------------|----------------------|
-| PAN IN1 | **258** | PI15 | IN1 | Orange |
-| PAN IN2 | **268** | PI12 | IN2 | Yellow |
-| PAN IN3 | **271** | PI02 | IN3 | Pink |
-| PAN IN4 | **272** | PI16 | IN4 | Blue |
+| Signal   | gpiochip1 Offset | Orange Pi GPIO Label | ULN2003 Pin | Wire Color (typical) |
+|----------|------------------|----------------------|-------------|----------------------|
+| PAN IN1  | 271              | PI15                 | IN1         | Orange               |
+| PAN IN2  | 268              | PI12                 | IN2         | Yellow               |
+| PAN IN3  | 258              | PI02                 | IN3         | Pink                 |
+| PAN IN4  | 272              | PI16                 | IN4         | Blue                 |
+| -------  | ---------------- | -------------------- | ----------- | -------------------- |
 
 ### Power
 
@@ -74,12 +102,12 @@ This runs 20 full-step cycles directly via `gpioset` on the confirmed pin offset
 
 > **TBD** — Tilt motor wiring not yet mapped from hardware testing.
 
-| Signal | gpiochip1 Offset | Orange Pi GPIO Label | ULN2003 Pin |
-|--------|-----------------|----------------------|-------------|
-| TILT IN1 | _TBD_ | _TBD_ | IN1 |
-| TILT IN2 | _TBD_ | _TBD_ | IN2 |
-| TILT IN3 | _TBD_ | _TBD_ | IN3 |
-| TILT IN4 | _TBD_ | _TBD_ | IN4 |
+| Signal   | gpiochip1 Offset | Orange Pi GPIO Label | ULN2003 Pin | Wire Color (typical) |
+|----------|------------------|----------------------|-------------|----------------------|
+| TILT IN1 | 224              | PH0                  | IN1         | Orange               |
+| TILT IN2 | 225              | PH1                  | IN2         | Yellow               |
+| TILT IN3 | 257              | PI01                 | IN3         | Pink                 |
+| TILT IN4 | 270              | PI14                 | IN4         | Blue                 |
 
 ---
 

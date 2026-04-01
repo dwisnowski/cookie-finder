@@ -25,6 +25,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 
 from cookie_finder.camera.processor import ThermalProcessor
+from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
 
 
 # Global state
@@ -38,6 +39,8 @@ reconnect_lock = threading.Lock()
 available_cameras = []  # List of working camera devices
 camera_switch_event = threading.Event()  # Signal to switch cameras
 camera_switch_id = 0  # Target camera ID to switch to
+gimbal = None  # PanTiltGimbal instance
+motor_moving = {}  # Track which motors are moving: {command: True/False}
 
 
 def try_open_camera(camera_id=0):
@@ -228,11 +231,22 @@ def create_app(camera_id=None):
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global camera_thread, processor
+        global camera_thread, processor, gimbal
         
         # Startup
         print(f"Initializing processor...")
         processor = ThermalProcessor()
+        
+        # Initialize gimbal for motor control
+        try:
+            print(f"Initializing gimbal (pan/tilt motors)...")
+            gimbal = PanTiltGimbal(max_pan=150.0, max_tilt=60.0)
+            gimbal.set_speed(pan_hz=500, tilt_hz=500)
+            print(f"✓ Gimbal initialized")
+        except Exception as e:
+            print(f"⚠ Gimbal initialization failed (GPIO may require root): {e}")
+            gimbal = None
+        
         camera_desc = f"/dev/video{camera_id}" if camera_id is not None else "auto-detect (none found)"
         print(f"Starting camera thread (device {camera_desc})...")
         camera_thread = threading.Thread(target=capture_frames, args=(camera_id,), daemon=True)
@@ -242,6 +256,8 @@ def create_app(camera_id=None):
         yield
         
         # Shutdown
+        if gimbal is not None:
+            gimbal.cleanup()
         print("Web server shutting down")
     
     app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
@@ -343,21 +359,41 @@ def create_app(camera_id=None):
                     motor_cmd = command.get("command")
                     motor_state = command.get("state")
                     
-                    if motor_cmd == "gamepad_input":
+                    if gimbal is None:
+                        await websocket.send_json({"type": "error", "message": "Gimbal not initialized"})
+                    elif motor_cmd == "gamepad_input":
                         # Gamepad analog input: continuous pan/tilt angles
                         pan = command.get("pan", 0)
                         tilt = command.get("tilt", 0)
                         print(f"🎮 Gamepad: Pan={pan:.1f}°, Tilt={tilt:.1f}°")
-                        # Here you can add actual GPIO/PWM gimbal control with angles
-                        # Example: control_gimbal_angles(pan, tilt)
+                        gimbal.move_to_angles(pan, tilt)
                     else:
                         # Button-based motor commands (discrete start/stop)
                         if motor_state == "start":
+                            motor_moving[motor_cmd] = True
                             print(f"🎮 Motor: {motor_cmd} START")
-                        else:
+                            
+                            # Start continuous stepping in a background thread
+                            def step_motor():
+                                while motor_moving.get(motor_cmd, False):
+                                    if motor_cmd == "motor_up":
+                                        gimbal.tilt_step(1, steps=2)  # Small increments
+                                    elif motor_cmd == "motor_down":
+                                        gimbal.tilt_step(-1, steps=2)
+                                    elif motor_cmd == "motor_left":
+                                        gimbal.pan_step(-1, steps=2)
+                                    elif motor_cmd == "motor_right":
+                                        gimbal.pan_step(1, steps=2)
+                                    time.sleep(0.1)  # Small delay between steps
+                            
+                            motor_thread = threading.Thread(target=step_motor, daemon=True)
+                            motor_thread.start()
+                        elif motor_state == "stop":
+                            motor_moving[motor_cmd] = False
                             print(f"🎮 Motor: {motor_cmd} STOP")
-                        # Here you can add actual GPIO/PWM control for pan/tilt gimbal
-                        # Example: control_gimbal(motor_cmd, motor_state)
+                        elif motor_cmd == "motor_home":
+                            print(f"🎮 Motor: HOMING")
+                            gimbal.home()
                 
                 elif action == "get_state":
                     await websocket.send_json({"type": "state", "data": processor.get_state()})
