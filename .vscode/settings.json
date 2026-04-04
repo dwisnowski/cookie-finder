@@ -16,5 +16,6 @@
             "approve": true,
             "matchCommandLine": true
         }
-    }
+    },
+    "makefile.configureOnOpen": false
 }

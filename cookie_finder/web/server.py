@@ -26,6 +26,7 @@ from fastapi.templating import Jinja2Templates
 
 from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
+from cookie_finder.bluetooth.controller import BluetoothController
 
 
 # Global state
@@ -41,6 +42,8 @@ camera_switch_event = threading.Event()  # Signal to switch cameras
 camera_switch_id = 0  # Target camera ID to switch to
 gimbal = None  # PanTiltGimbal instance
 motor_moving = {}  # Track which motors are moving: {command: True/False}
+bluetooth_controller = None  # BluetoothController instance
+bt_active_clients = set()  # WebSocket clients listening to BT updates
 
 
 def try_open_camera(camera_id=0):
@@ -231,7 +234,7 @@ def create_app(camera_id=None):
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global camera_thread, processor, gimbal
+        global camera_thread, processor, gimbal, bluetooth_controller
         
         # Startup
         print(f"Initializing processor...")
@@ -247,6 +250,26 @@ def create_app(camera_id=None):
             print(f"⚠ Gimbal initialization failed (GPIO may require root): {e}")
             gimbal = None
         
+        # Initialize Bluetooth controller
+        try:
+            print(f"Initializing Bluetooth controller...")
+            bluetooth_controller = BluetoothController()
+            
+            def bt_status_callback(update):
+                """Broadcast Bluetooth status to all connected WebSocket clients."""
+                for client in bt_active_clients:
+                    try:
+                        import asyncio
+                        asyncio.create_task(client.send_json({"type": "bluetooth", "data": update}))
+                    except:
+                        pass
+            
+            bluetooth_controller.set_status_callback(bt_status_callback)
+            print(f"✓ Bluetooth controller initialized")
+        except Exception as e:
+            print(f"⚠ Bluetooth initialization failed: {e}")
+            bluetooth_controller = None
+        
         camera_desc = f"/dev/video{camera_id}" if camera_id is not None else "auto-detect (none found)"
         print(f"Starting camera thread (device {camera_desc})...")
         camera_thread = threading.Thread(target=capture_frames, args=(camera_id,), daemon=True)
@@ -258,6 +281,8 @@ def create_app(camera_id=None):
         # Shutdown
         if gimbal is not None:
             gimbal.cleanup()
+        if bluetooth_controller is not None and bluetooth_controller.scanning:
+            bluetooth_controller.stop_scan()
         print("Web server shutting down")
     
     app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
@@ -320,13 +345,108 @@ def create_app(camera_id=None):
             return {"error": "Processor not initialized"}
         return processor.get_state()
     
+    @app.post("/bluetooth/scan")
+    async def bluetooth_scan():
+        """Start Bluetooth device scan."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        if bluetooth_controller.scanning:
+            return {"status": "already_scanning", "message": "Scan already in progress"}
+        
+        try:
+            bluetooth_controller.start_scan()
+            return {"status": "scan_started", "message": "Bluetooth scan started..."}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/bluetooth/stop-scan")
+    async def bluetooth_stop_scan():
+        """Stop Bluetooth device scan."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            bluetooth_controller.stop_scan()
+            return {"status": "scan_stopped", "message": "Bluetooth scan stopped"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.get("/bluetooth/devices")
+    async def bluetooth_get_devices():
+        """Get list of discovered Bluetooth devices."""
+        if bluetooth_controller is None:
+            return {"devices": [], "scanning": False}
+        
+        return {
+            "devices": bluetooth_controller.get_devices_list(),
+            "scanning": bluetooth_controller.scanning
+        }
+    
+    @app.post("/bluetooth/connect/{device_address}")
+    async def bluetooth_connect(device_address: str):
+        """Connect to a Bluetooth device."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            success = bluetooth_controller.connect_device(device_address)
+            return {
+                "status": "success" if success else "failed",
+                "address": device_address,
+                "message": f"Device {'connected' if success else 'connection failed'}"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/bluetooth/disconnect/{device_address}")
+    async def bluetooth_disconnect(device_address: str):
+        """Disconnect from a Bluetooth device."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            success = bluetooth_controller.disconnect_device(device_address)
+            return {
+                "status": "success" if success else "failed",
+                "address": device_address,
+                "message": f"Device {'disconnected' if success else 'disconnection failed'}"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/bluetooth/remove/{device_address}")
+    async def bluetooth_remove(device_address: str):
+        """Remove/forget a Bluetooth device."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            success = bluetooth_controller.remove_device(device_address)
+            return {
+                "status": "success" if success else "failed",
+                "address": device_address,
+                "message": f"Device {'removed' if success else 'removal failed'}"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
     @app.websocket("/control")
     async def websocket_control(websocket: WebSocket):
         await websocket.accept()
         active_clients.add(websocket)
+        bt_active_clients.add(websocket)
         
         try:
             await websocket.send_json({"type": "state", "data": processor.get_state()})
+            if bluetooth_controller is not None:
+                await websocket.send_json({
+                    "type": "bluetooth_state",
+                    "data": {
+                        "devices": bluetooth_controller.get_devices_list(),
+                        "scanning": bluetooth_controller.scanning
+                    }
+                })
             
             while True:
                 data = await websocket.receive_text()
@@ -395,11 +515,70 @@ def create_app(camera_id=None):
                             print(f"🎮 Motor: HOMING")
                             gimbal.home()
                 
+                elif action == "bluetooth_start_scan":
+                    if bluetooth_controller is None:
+                        await websocket.send_json({"type": "error", "message": "Bluetooth not available"})
+                    else:
+                        try:
+                            bluetooth_controller.start_scan()
+                            await websocket.send_json({
+                                "type": "bluetooth_scan_started",
+                                "message": "Bluetooth scan started"
+                            })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to start Bluetooth scan: {str(e)}"
+                            })
+                
+                elif action == "bluetooth_stop_scan":
+                    if bluetooth_controller is not None:
+                        bluetooth_controller.stop_scan()
+                        await websocket.send_json({
+                            "type": "bluetooth_scan_stopped",
+                            "message": "Bluetooth scan stopped"
+                        })
+                
+                elif action == "bluetooth_connect":
+                    address = command.get("address")
+                    if bluetooth_controller is None:
+                        await websocket.send_json({"type": "error", "message": "Bluetooth not available"})
+                    else:
+                        try:
+                            success = bluetooth_controller.connect_device(address)
+                            await websocket.send_json({
+                                "type": "bluetooth_connect_result",
+                                "address": address,
+                                "success": success
+                            })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to connect: {str(e)}"
+                            })
+                
+                elif action == "bluetooth_disconnect":
+                    address = command.get("address")
+                    if bluetooth_controller is not None:
+                        try:
+                            bluetooth_controller.disconnect_device(address)
+                            await websocket.send_json({
+                                "type": "bluetooth_disconnect_result",
+                                "address": address,
+                                "success": True
+                            })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to disconnect: {str(e)}"
+                            })
+                
                 elif action == "get_state":
                     await websocket.send_json({"type": "state", "data": processor.get_state()})
         
         except WebSocketDisconnect:
             active_clients.discard(websocket)
+            bt_active_clients.discard(websocket)
     
     @app.get("/")
     async def root(request: Request):
