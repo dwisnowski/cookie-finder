@@ -25,6 +25,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 
 from cookie_finder.camera.processor import ThermalProcessor
+from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
+from cookie_finder.bluetooth.controller import BluetoothController
 
 
 # Global state
@@ -38,6 +40,10 @@ reconnect_lock = threading.Lock()
 available_cameras = []  # List of working camera devices
 camera_switch_event = threading.Event()  # Signal to switch cameras
 camera_switch_id = 0  # Target camera ID to switch to
+gimbal = None  # PanTiltGimbal instance
+motor_moving = {}  # Track which motors are moving: {command: True/False}
+bluetooth_controller = None  # BluetoothController instance
+bt_active_clients = set()  # WebSocket clients listening to BT updates
 
 
 def try_open_camera(camera_id=0):
@@ -228,11 +234,42 @@ def create_app(camera_id=None):
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global camera_thread, processor
+        global camera_thread, processor, gimbal, bluetooth_controller
         
         # Startup
         print(f"Initializing processor...")
         processor = ThermalProcessor()
+        
+        # Initialize gimbal for motor control
+        try:
+            print(f"Initializing gimbal (pan/tilt motors)...")
+            gimbal = PanTiltGimbal(max_pan=150.0, max_tilt=60.0)
+            gimbal.set_speed(pan_hz=500, tilt_hz=500)
+            print(f"✓ Gimbal initialized")
+        except Exception as e:
+            print(f"⚠ Gimbal initialization failed (GPIO may require root): {e}")
+            gimbal = None
+        
+        # Initialize Bluetooth controller
+        try:
+            print(f"Initializing Bluetooth controller...")
+            bluetooth_controller = BluetoothController()
+            
+            def bt_status_callback(update):
+                """Broadcast Bluetooth status to all connected WebSocket clients."""
+                for client in bt_active_clients:
+                    try:
+                        import asyncio
+                        asyncio.create_task(client.send_json({"type": "bluetooth", "data": update}))
+                    except:
+                        pass
+            
+            bluetooth_controller.set_status_callback(bt_status_callback)
+            print(f"✓ Bluetooth controller initialized")
+        except Exception as e:
+            print(f"⚠ Bluetooth initialization failed: {e}")
+            bluetooth_controller = None
+        
         camera_desc = f"/dev/video{camera_id}" if camera_id is not None else "auto-detect (none found)"
         print(f"Starting camera thread (device {camera_desc})...")
         camera_thread = threading.Thread(target=capture_frames, args=(camera_id,), daemon=True)
@@ -242,6 +279,10 @@ def create_app(camera_id=None):
         yield
         
         # Shutdown
+        if gimbal is not None:
+            gimbal.cleanup()
+        if bluetooth_controller is not None and bluetooth_controller.scanning:
+            bluetooth_controller.stop_scan()
         print("Web server shutting down")
     
     app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
@@ -304,13 +345,108 @@ def create_app(camera_id=None):
             return {"error": "Processor not initialized"}
         return processor.get_state()
     
+    @app.post("/bluetooth/scan")
+    async def bluetooth_scan():
+        """Start Bluetooth device scan."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        if bluetooth_controller.scanning:
+            return {"status": "already_scanning", "message": "Scan already in progress"}
+        
+        try:
+            bluetooth_controller.start_scan()
+            return {"status": "scan_started", "message": "Bluetooth scan started..."}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/bluetooth/stop-scan")
+    async def bluetooth_stop_scan():
+        """Stop Bluetooth device scan."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            bluetooth_controller.stop_scan()
+            return {"status": "scan_stopped", "message": "Bluetooth scan stopped"}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.get("/bluetooth/devices")
+    async def bluetooth_get_devices():
+        """Get list of discovered Bluetooth devices."""
+        if bluetooth_controller is None:
+            return {"devices": [], "scanning": False}
+        
+        return {
+            "devices": bluetooth_controller.get_devices_list(),
+            "scanning": bluetooth_controller.scanning
+        }
+    
+    @app.post("/bluetooth/connect/{device_address}")
+    async def bluetooth_connect(device_address: str):
+        """Connect to a Bluetooth device."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            success = bluetooth_controller.connect_device(device_address)
+            return {
+                "status": "success" if success else "failed",
+                "address": device_address,
+                "message": f"Device {'connected' if success else 'connection failed'}"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/bluetooth/disconnect/{device_address}")
+    async def bluetooth_disconnect(device_address: str):
+        """Disconnect from a Bluetooth device."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            success = bluetooth_controller.disconnect_device(device_address)
+            return {
+                "status": "success" if success else "failed",
+                "address": device_address,
+                "message": f"Device {'disconnected' if success else 'disconnection failed'}"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/bluetooth/remove/{device_address}")
+    async def bluetooth_remove(device_address: str):
+        """Remove/forget a Bluetooth device."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            success = bluetooth_controller.remove_device(device_address)
+            return {
+                "status": "success" if success else "failed",
+                "address": device_address,
+                "message": f"Device {'removed' if success else 'removal failed'}"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
     @app.websocket("/control")
     async def websocket_control(websocket: WebSocket):
         await websocket.accept()
         active_clients.add(websocket)
+        bt_active_clients.add(websocket)
         
         try:
             await websocket.send_json({"type": "state", "data": processor.get_state()})
+            if bluetooth_controller is not None:
+                await websocket.send_json({
+                    "type": "bluetooth_state",
+                    "data": {
+                        "devices": bluetooth_controller.get_devices_list(),
+                        "scanning": bluetooth_controller.scanning
+                    }
+                })
             
             while True:
                 data = await websocket.receive_text()
@@ -343,27 +479,106 @@ def create_app(camera_id=None):
                     motor_cmd = command.get("command")
                     motor_state = command.get("state")
                     
-                    if motor_cmd == "gamepad_input":
+                    if gimbal is None:
+                        await websocket.send_json({"type": "error", "message": "Gimbal not initialized"})
+                    elif motor_cmd == "gamepad_input":
                         # Gamepad analog input: continuous pan/tilt angles
                         pan = command.get("pan", 0)
                         tilt = command.get("tilt", 0)
                         print(f"🎮 Gamepad: Pan={pan:.1f}°, Tilt={tilt:.1f}°")
-                        # Here you can add actual GPIO/PWM gimbal control with angles
-                        # Example: control_gimbal_angles(pan, tilt)
+                        gimbal.move_to_angles(pan, tilt)
                     else:
                         # Button-based motor commands (discrete start/stop)
                         if motor_state == "start":
+                            motor_moving[motor_cmd] = True
                             print(f"🎮 Motor: {motor_cmd} START")
-                        else:
+                            
+                            # Start continuous stepping in a background thread
+                            def step_motor():
+                                while motor_moving.get(motor_cmd, False):
+                                    if motor_cmd == "motor_up":
+                                        gimbal.tilt_step(1, steps=2)  # Small increments
+                                    elif motor_cmd == "motor_down":
+                                        gimbal.tilt_step(-1, steps=2)
+                                    elif motor_cmd == "motor_left":
+                                        gimbal.pan_step(-1, steps=2)
+                                    elif motor_cmd == "motor_right":
+                                        gimbal.pan_step(1, steps=2)
+                                    time.sleep(0.1)  # Small delay between steps
+                            
+                            motor_thread = threading.Thread(target=step_motor, daemon=True)
+                            motor_thread.start()
+                        elif motor_state == "stop":
+                            motor_moving[motor_cmd] = False
                             print(f"🎮 Motor: {motor_cmd} STOP")
-                        # Here you can add actual GPIO/PWM control for pan/tilt gimbal
-                        # Example: control_gimbal(motor_cmd, motor_state)
+                        elif motor_cmd == "motor_home":
+                            print(f"🎮 Motor: HOMING")
+                            gimbal.home()
+                
+                elif action == "bluetooth_start_scan":
+                    if bluetooth_controller is None:
+                        await websocket.send_json({"type": "error", "message": "Bluetooth not available"})
+                    else:
+                        try:
+                            bluetooth_controller.start_scan()
+                            await websocket.send_json({
+                                "type": "bluetooth_scan_started",
+                                "message": "Bluetooth scan started"
+                            })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to start Bluetooth scan: {str(e)}"
+                            })
+                
+                elif action == "bluetooth_stop_scan":
+                    if bluetooth_controller is not None:
+                        bluetooth_controller.stop_scan()
+                        await websocket.send_json({
+                            "type": "bluetooth_scan_stopped",
+                            "message": "Bluetooth scan stopped"
+                        })
+                
+                elif action == "bluetooth_connect":
+                    address = command.get("address")
+                    if bluetooth_controller is None:
+                        await websocket.send_json({"type": "error", "message": "Bluetooth not available"})
+                    else:
+                        try:
+                            success = bluetooth_controller.connect_device(address)
+                            await websocket.send_json({
+                                "type": "bluetooth_connect_result",
+                                "address": address,
+                                "success": success
+                            })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to connect: {str(e)}"
+                            })
+                
+                elif action == "bluetooth_disconnect":
+                    address = command.get("address")
+                    if bluetooth_controller is not None:
+                        try:
+                            bluetooth_controller.disconnect_device(address)
+                            await websocket.send_json({
+                                "type": "bluetooth_disconnect_result",
+                                "address": address,
+                                "success": True
+                            })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to disconnect: {str(e)}"
+                            })
                 
                 elif action == "get_state":
                     await websocket.send_json({"type": "state", "data": processor.get_state()})
         
         except WebSocketDisconnect:
             active_clients.discard(websocket)
+            bt_active_clients.discard(websocket)
     
     @app.get("/")
     async def root(request: Request):

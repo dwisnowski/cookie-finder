@@ -11,7 +11,9 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn[standard]>=0.23.0",
     "websockets>=11.0",
-    "gpiod>=2.1.0",
+    "jinja2",
+    "bleak>=0.20.0",
+    "gpiod>=2.1.0; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

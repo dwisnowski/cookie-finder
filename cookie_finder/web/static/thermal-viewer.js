@@ -344,6 +344,42 @@ function connectWebSocket() {
         if (msg.type === 'state') {
             state = msg.data;
             updateUI();
+        } else if (msg.type === 'bluetooth') {
+            // Handle Bluetooth status updates from controller
+            const btUpdate = msg.data;
+            if (btUpdate.status === 'scan_started') {
+                bluetoothScanning = true;
+                bluetoothDevices = [];
+                updateBluetoothUI();
+            } else if (btUpdate.status === 'scan_update') {
+                bluetoothDevices = btUpdate.data.devices || [];
+                updateBluetoothUI();
+            } else if (btUpdate.status === 'scan_complete') {
+                bluetoothScanning = false;
+                bluetoothDevices = btUpdate.data.devices || [];
+                updateBluetoothUI();
+            } else if (btUpdate.status === 'device_connected' || btUpdate.status === 'device_disconnected' || btUpdate.status === 'device_removed') {
+                // Refresh device list after connection/disconnection
+                fetch('/bluetooth/devices')
+                    .then(r => r.json())
+                    .then(data => {
+                        bluetoothDevices = data.devices;
+                        bluetoothScanning = data.scanning;
+                        updateBluetoothUI();
+                    });
+            }
+        } else if (msg.type === 'bluetooth_state') {
+            // Initial Bluetooth state on connection
+            bluetoothDevices = msg.data.devices || [];
+            bluetoothScanning = msg.data.scanning || false;
+            updateBluetoothUI();
+        } else if (msg.type === 'bluetooth_scan_started') {
+            bluetoothScanning = true;
+            bluetoothDevices = [];
+            updateBluetoothUI();
+        } else if (msg.type === 'bluetooth_scan_stopped') {
+            bluetoothScanning = false;
+            updateBluetoothUI();
         }
     };
     
@@ -872,6 +908,130 @@ if (verticalPresetBtn) {
     verticalPresetBtn.addEventListener('click', () => {
         applyPreset('vertical');
     });
+}
+
+// === BLUETOOTH FUNCTIONALITY ===
+let bluetoothDevices = [];
+let bluetoothScanning = false;
+
+function updateBluetoothUI() {
+    const devicesList = document.getElementById('btDevicesList');
+    const statusDisplay = document.getElementById('btStatusDisplay');
+    const scanBtn = document.getElementById('btn_bt_scan');
+    const stopBtn = document.getElementById('btn_bt_stop');
+    
+    if (bluetoothScanning) {
+        scanBtn.style.display = 'none';
+        stopBtn.style.display = 'block';
+        statusDisplay.textContent = 'Scanning for devices...';
+    } else {
+        scanBtn.style.display = 'block';
+        stopBtn.style.display = 'none';
+    }
+    
+    if (bluetoothDevices.length === 0) {
+        devicesList.innerHTML = '<div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">No devices found. Click "Scan Devices" to start.</div>';
+        if (!bluetoothScanning) {
+            statusDisplay.textContent = 'Ready to scan';
+        }
+        return;
+    }
+    
+    statusDisplay.textContent = `Found ${bluetoothDevices.length} device${bluetoothDevices.length !== 1 ? 's' : ''}`;
+    
+    devicesList.innerHTML = bluetoothDevices.map(device => {
+        const addressShort = device.address.substring(device.address.length - 5).toUpperCase();
+        const statusClass = device.connected ? 'connected' : device.paired ? 'paired' : '';
+        const statusText = device.connected ? '🔗 Connected' : device.paired ? '✓ Paired' : '⊗ Available';
+        
+        return `
+            <div style="
+                padding: var(--spacing-sm);
+                margin-bottom: var(--spacing-xs);
+                background: rgba(45, 55, 72, 0.6);
+                border: 1px solid var(--border-color);
+                border-radius: var(--radius-sm);
+                font-size: 11px;
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <div style="font-weight: 600; color: var(--text-primary);">
+                        ${device.name || 'Unknown Device'}
+                    </div>
+                    <div style="font-size: 9px; color: var(--text-tertiary);">
+                        ${addressShort} ${device.signal_strength}
+                    </div>
+                </div>
+                <div style="margin-bottom: 4px; font-size: 10px; color: var(--accent);">
+                    ${statusText}
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
+                    ${!device.connected ? `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothConnect('${device.address}')">Connect</button>` : `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>`}
+                    <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;"  onclick="bluetoothRemove('${device.address}')">Remove</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function bluetoothConnect(address) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'bluetooth_connect',
+            address: address
+        }));
+    }
+}
+
+function bluetoothDisconnect(address) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'bluetooth_disconnect',
+            address: address
+        }));
+    }
+}
+
+function bluetoothRemove(address) {
+    if (confirm(`Remove device ${address}?`)) {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'bluetooth_remove',
+                address: address
+            }));
+        }
+    }
+}
+
+function startBluetoothScan() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        bluetoothScanning = true;
+        bluetoothDevices = [];
+        updateBluetoothUI();
+        ws.send(JSON.stringify({
+            action: 'bluetooth_start_scan'
+        }));
+    }
+}
+
+function stopBluetoothScan() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        bluetoothScanning = false;
+        updateBluetoothUI();
+        ws.send(JSON.stringify({
+            action: 'bluetooth_stop_scan'
+        }));
+    }
+}
+
+// Bluetooth button event listeners
+const btScanBtn = document.getElementById('btn_bt_scan');
+if (btScanBtn) {
+    btScanBtn.addEventListener('click', startBluetoothScan);
+}
+
+const btStopBtn = document.getElementById('btn_bt_stop');
+if (btStopBtn) {
+    btStopBtn.addEventListener('click', stopBluetoothScan);
 }
 
 connectWebSocket();

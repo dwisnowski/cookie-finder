@@ -36,10 +36,10 @@ class PanTiltGimbal:
     
     # GPIO pin assignments for Orange Pi Zero 2W (gpiochip1 offsets)
     PAN_CONTROL_PINS = (271, 268, 258, 272)   # IN1-IN4 for pan motor (PI15, PI12, PI02, PI16)
-    PAN_LIMIT_PIN = 31                         # Limit switch for pan end (TBD)
+    PAN_LIMIT_PIN = 264                         # Limit switch for pan end (TBD)
     
     TILT_CONTROL_PINS = (224, 225, 257, 270)  # IN1-IN4 for tilt motor (PH0, PH1, PI01, PI14)
-    TILT_LIMIT_PIN = 32                        # Limit switch for tilt end (TBD)
+    TILT_LIMIT_PIN = 263                        # Limit switch for tilt end (TBD)
     
     def __init__(self, max_pan: float = 180.0, max_tilt: float = 180.0):
         """
