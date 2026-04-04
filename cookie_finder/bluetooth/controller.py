@@ -130,8 +130,6 @@ class BluetoothController:
                 name = None
                 if advertisement_data.local_name:
                     name = advertisement_data.local_name
-                elif advertisement_data.short_local_name:
-                    name = advertisement_data.short_local_name
                 elif device.name:
                     name = device.name
                 
