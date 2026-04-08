@@ -1071,15 +1071,31 @@
             
             <!-- Bluetooth -->
             <div class="section">
-                <div class="section-title">Bluetooth</div>
-                <button class="btn" id="btn_bt_scan" style="width: 100%; margin-bottom: 8px;" title="Scan for devices">🔍 Scan Devices</button>
-                <button class="btn" id="btn_bt_stop" style="width: 100%; margin-bottom: 8px; display: none;" title="Stop scanning">⏹ Stop Scan</button>
+                <div class="section-title">Bluetooth Devices</div>
+                
+                <!-- Connected Devices Section -->
+                <div style="margin-bottom: 12px;">
+                    <div style="font-size: 10px; color: var(--accent); font-weight: bold; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Active Connections</div>
+                    <div id="btConnectedList" style="border: 1px solid rgba(0, 255, 136, 0.2); border-radius: var(--radius-sm); background: rgba(0, 255, 136, 0.05); padding: var(--spacing-sm);">
+                        <div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">
+                            No devices connected
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Scanning Controls -->
+                <div style="margin-bottom: 8px;">
+                    <button class="btn" id="btn_bt_scan" style="width: 100%; margin-bottom: 8px;" title="Scan for devices">🔍 Scan Devices</button>
+                    <button class="btn" id="btn_bt_stop" style="width: 100%; margin-bottom: 8px; display: none;" title="Stop scanning">⏹ Stop Scan</button>
+                </div>
                 
                 <div id="btStatusDisplay" style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 8px; text-align: center;">
                     Ready to scan
                 </div>
                 
-                <div id="btDevicesList" style="max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: rgba(45, 55, 72, 0.3); padding: var(--spacing-sm);">
+                <!-- Discovered Devices List -->
+                <div style="font-size: 10px; color: var(--text-secondary); font-weight: bold; margin-bottom: 6px;">Found Devices</div>
+                <div id="btDevicesList" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: rgba(45, 55, 72, 0.3); padding: var(--spacing-sm);">
                     <div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">
                         No devices found. Click "Scan Devices" to start.
                     </div>

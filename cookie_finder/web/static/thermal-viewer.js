@@ -337,6 +337,10 @@ function connectWebSocket() {
     ws.onopen = () => {
         document.getElementById('statusText').innerHTML = 'Connected';
         updateCameraSelector();
+        // Fetch connected devices immediately and multiple times
+        fetchConnectedDevices();
+        setTimeout(fetchConnectedDevices, 500);
+        setTimeout(fetchConnectedDevices, 1000);
     };
     
     ws.onmessage = (event) => {
@@ -344,6 +348,12 @@ function connectWebSocket() {
         if (msg.type === 'state') {
             state = msg.data;
             updateUI();
+        } else if (msg.type === 'gimbal_position') {
+            // Handle gimbal position updates from server (from BT device or web control)
+            const pos = msg.data;
+            currentPan = pos.pan || 0;
+            currentTilt = pos.tilt || 0;
+            updatePanTiltIndicator();
         } else if (msg.type === 'bluetooth') {
             // Handle Bluetooth status updates from controller
             const btUpdate = msg.data;
@@ -354,10 +364,14 @@ function connectWebSocket() {
             } else if (btUpdate.status === 'scan_update') {
                 bluetoothDevices = btUpdate.data.devices || [];
                 updateBluetoothUI();
+                // Refresh connected devices in case any newly scanned devices are connected
+                fetchConnectedDevices();
             } else if (btUpdate.status === 'scan_complete') {
                 bluetoothScanning = false;
                 bluetoothDevices = btUpdate.data.devices || [];
                 updateBluetoothUI();
+                // Refresh connected devices after scan completes
+                fetchConnectedDevices();
             } else if (btUpdate.status === 'device_connected' || btUpdate.status === 'device_disconnected' || btUpdate.status === 'device_removed') {
                 // Refresh device list after connection/disconnection
                 fetch('/bluetooth/devices')
@@ -366,6 +380,7 @@ function connectWebSocket() {
                         bluetoothDevices = data.devices;
                         bluetoothScanning = data.scanning;
                         updateBluetoothUI();
+                        fetchConnectedDevices();
                     });
             }
         } else if (msg.type === 'bluetooth_state') {
@@ -373,6 +388,7 @@ function connectWebSocket() {
             bluetoothDevices = msg.data.devices || [];
             bluetoothScanning = msg.data.scanning || false;
             updateBluetoothUI();
+            fetchConnectedDevices();
         } else if (msg.type === 'bluetooth_scan_started') {
             bluetoothScanning = true;
             bluetoothDevices = [];
@@ -380,6 +396,7 @@ function connectWebSocket() {
         } else if (msg.type === 'bluetooth_scan_stopped') {
             bluetoothScanning = false;
             updateBluetoothUI();
+            fetchConnectedDevices();
         }
     };
     
@@ -913,6 +930,7 @@ if (verticalPresetBtn) {
 // === BLUETOOTH FUNCTIONALITY ===
 let bluetoothDevices = [];
 let bluetoothScanning = false;
+let bluetoothConnectedDevices = [];
 
 function updateBluetoothUI() {
     const devicesList = document.getElementById('btDevicesList');
@@ -964,13 +982,67 @@ function updateBluetoothUI() {
                 <div style="margin-bottom: 4px; font-size: 10px; color: var(--accent);">
                     ${statusText}
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px;">
                     ${!device.connected ? `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothConnect('${device.address}')">Connect</button>` : `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>`}
+                    <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothSetActive('${device.address}')">Set Active</button>
                     <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;"  onclick="bluetoothRemove('${device.address}')">Remove</button>
                 </div>
             </div>
         `;
     }).join('');
+}
+
+function updateConnectedBluetoothUI() {
+    const connectedList = document.getElementById('btConnectedList');
+    
+    if (!bluetoothConnectedDevices || bluetoothConnectedDevices.length === 0) {
+        connectedList.innerHTML = '<div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">No devices connected</div>';
+        return;
+    }
+    
+    connectedList.innerHTML = bluetoothConnectedDevices.map(device => {
+        const addressShort = device.address.substring(device.address.length - 5).toUpperCase();
+        const signalBar = device.signal_strength || '▓░░░░';
+        const isActive = device.is_active;
+        
+        return `
+            <div style="
+                padding: var(--spacing-sm);
+                margin-bottom: var(--spacing-xs);
+                background: ${isActive ? 'rgba(0, 255, 136, 0.15)' : 'rgba(0, 255, 136, 0.08)'};
+                border: 2px solid ${isActive ? 'rgba(0, 255, 136, 0.5)' : 'rgba(0, 255, 136, 0.3)'};
+                border-radius: var(--radius-sm);
+                font-size: 11px;
+                position: relative;
+            ">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                    <div style="font-weight: 600; color: var(--accent); display: flex; align-items: center; gap: 6px;">
+                        🔗 ${device.name || 'Unknown Device'}
+                        ${isActive ? '⭐' : ''}
+                    </div>
+                    <div style="font-size: 9px; color: var(--text-tertiary);">
+                        ${addressShort} ${signalBar}
+                    </div>
+                </div>
+                ${isActive ? '<div style="font-size: 9px; color: var(--accent); margin-bottom: 4px; font-weight: bold;">● ACTIVE INPUT</div>' : ''}
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
+                    ${!isActive ? `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothSetActive('${device.address}')">Set Active</button>` : '<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px; opacity: 0.5; cursor: default;">Active</button>'}
+                    <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function fetchConnectedDevices() {
+    fetch('/bluetooth/connected')
+        .then(r => r.json())
+        .then(data => {
+            bluetoothConnectedDevices = data.connected_devices || [];
+            console.log('[BT] Connected devices fetched:', bluetoothConnectedDevices.length, bluetoothConnectedDevices);
+            updateConnectedBluetoothUI();
+        })
+        .catch(e => console.error('Error fetching connected devices:', e));
 }
 
 function bluetoothConnect(address) {
@@ -979,7 +1051,19 @@ function bluetoothConnect(address) {
             action: 'bluetooth_connect',
             address: address
         }));
+        // Fetch connected devices after a short delay to allow connection to complete
+        setTimeout(fetchConnectedDevices, 1500);
     }
+}
+
+function bluetoothSetActive(address) {
+    fetch(`/bluetooth/set-active/${address}`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            console.log('[BT] Set active response:', data);
+            fetchConnectedDevices();
+        })
+        .catch(e => console.error('Error setting active device:', e));
 }
 
 function bluetoothDisconnect(address) {
@@ -988,6 +1072,8 @@ function bluetoothDisconnect(address) {
             action: 'bluetooth_disconnect',
             address: address
         }));
+        // Fetch connected devices after a short delay
+        setTimeout(fetchConnectedDevices, 500);
     }
 }
 
@@ -998,6 +1084,8 @@ function bluetoothRemove(address) {
                 action: 'bluetooth_remove',
                 address: address
             }));
+            // Fetch connected devices after removal
+            setTimeout(fetchConnectedDevices, 500);
         }
     }
 }
@@ -1033,5 +1121,14 @@ const btStopBtn = document.getElementById('btn_bt_stop');
 if (btStopBtn) {
     btStopBtn.addEventListener('click', stopBluetoothScan);
 }
+
+// Periodic polling of connected Bluetooth devices (more frequently initially)
+// Fetch immediately on page load
+fetchConnectedDevices();
+setTimeout(fetchConnectedDevices, 300);
+setTimeout(fetchConnectedDevices, 600);
+
+// Then poll every 3 seconds (more aggressive)
+setInterval(fetchConnectedDevices, 3000);
 
 connectWebSocket();

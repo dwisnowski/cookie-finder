@@ -1,4 +1,4 @@
-.PHONY: run run-standalone run-web run-web-custom test-gamepad test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw test-motors-tilt-ccw test-motors-home install install-yolo install-docs docs clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
+.PHONY: run run-standalone run-web run-web-custom test-gamepad test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw test-motors-tilt-ccw test-motors-home test-bluetooth-input test-gimbal-gamepad install install-yolo install-docs docs clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera
 
 install:
 	uv sync
@@ -62,6 +62,14 @@ test-motors-tilt-ccw:
 
 test-motors-home:
 	@sudo uv run tools/test_motors.py home
+
+test-bluetooth-input:
+	@echo "Bluetooth input test: reads and logs all gamepad input (60 seconds)..."
+	@uv run tools/test_bluetooth_input.py
+
+test-gimbal-gamepad:
+	@echo "Gimbal + Gamepad test: control gimbal with joystick input..."
+	@uv run tools/test_gimbal_gamepad.py
 
 test-pan-step:
 	@echo "Freeing GPIO pins..."

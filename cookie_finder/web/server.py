@@ -44,6 +44,9 @@ gimbal = None  # PanTiltGimbal instance
 motor_moving = {}  # Track which motors are moving: {command: True/False}
 bluetooth_controller = None  # BluetoothController instance
 bt_active_clients = set()  # WebSocket clients listening to BT updates
+gimbal_position = {"pan": 0.0, "tilt": 0.0}  # Current gimbal angles
+gimbal_lock = threading.Lock()  # Thread-safe access to gimbal_position
+bt_device_connected = False  # Track if BT device is connected for input
 
 
 def try_open_camera(camera_id=0):
@@ -229,6 +232,78 @@ def mjpeg_generator(jpeg_quality=65):
         time.sleep(0.02)
 
 
+def poll_bluetooth_controller():
+    """
+    Background thread: Poll connected Bluetooth device for input and control gimbal.
+    Converts joystick input to gimbal angles and broadcasts to all connected WebSocket clients.
+    """
+    global gimbal, bluetooth_controller, gimbal_position, gimbal_lock, bt_device_connected, bt_active_clients
+    
+    print("[BT] Input polling thread started")
+    last_pan = 0.0
+    last_tilt = 0.0
+    
+    while True:
+        try:
+            # Check if we have a connected device
+            if not bluetooth_controller or not bluetooth_controller.get_connected_device():
+                bt_device_connected = False
+                time.sleep(0.5)
+                continue
+            
+            bt_device_connected = True
+            
+            # Read input from connected device
+            input_data = bluetooth_controller.read_controller_input()
+            pan_axis = input_data.get("pan_axis", 0.0)
+            tilt_axis = input_data.get("tilt_axis", 0.0)
+            
+            # Skip if input hasn't changed much (deadzone)
+            if abs(pan_axis - last_pan) < 0.05 and abs(tilt_axis - last_tilt) < 0.05:
+                time.sleep(0.05)
+                continue
+            
+            last_pan = pan_axis
+            last_tilt = tilt_axis
+            
+            if gimbal is None:
+                time.sleep(0.05)
+                continue
+            
+            # Convert normalized axis values (-1.0 to 1.0) to gimbal angles
+            # pan_axis: -1.0 (left) to 1.0 (right)
+            # tilt_axis: -1.0 (up) to 1.0 (down)
+            
+            new_pan = (pan_axis + 1.0) / 2.0 * gimbal.max_pan  # 0 to max_pan
+            new_tilt = (tilt_axis + 1.0) / 2.0 * gimbal.max_tilt  # 0 to max_tilt
+            
+            # Move gimbal to new angles
+            gimbal.move_to_angles(new_pan, new_tilt)
+            
+            # Update global position
+            with gimbal_lock:
+                gimbal_position["pan"] = new_pan
+                gimbal_position["tilt"] = new_tilt
+                current_position = gimbal_position.copy()
+            
+            # Broadcast updated position to all connected WebSocket clients
+            position_msg = json.dumps({"type": "gimbal_position", "data": current_position})
+            for client in bt_active_clients:
+                try:
+                    import asyncio
+                    asyncio.run_coroutine_threadsafe(client.send_text(position_msg), client.app.state.loop)
+                except:
+                    pass
+            
+            print(f"[BT] Gimbal moved via BT device: pan={new_pan:.1f}°, tilt={new_tilt:.1f}°")
+            
+            time.sleep(0.05)  # Poll at 20Hz
+        
+        except Exception as e:
+            print(f"[BT] Polling error: {e}")
+            time.sleep(0.5)
+
+
 def create_app(camera_id=None):
     """Create and configure the FastAPI application."""
     
@@ -274,6 +349,12 @@ def create_app(camera_id=None):
         print(f"Starting camera thread (device {camera_desc})...")
         camera_thread = threading.Thread(target=capture_frames, args=(camera_id,), daemon=True)
         camera_thread.start()
+        
+        # Start Bluetooth input polling thread
+        print(f"Starting Bluetooth input polling thread...")
+        bt_polling_thread = threading.Thread(target=poll_bluetooth_controller, daemon=True)
+        bt_polling_thread.start()
+        
         print("✓ Web server started")
         
         yield
@@ -383,6 +464,48 @@ def create_app(camera_id=None):
             "scanning": bluetooth_controller.scanning
         }
     
+    @app.get("/bluetooth/connected")
+    async def bluetooth_get_connected():
+        """Get list of connected Bluetooth devices."""
+        if bluetooth_controller is None:
+            return {"connected_devices": []}
+        
+        # Get all devices and filter for connected ones
+        all_devices = bluetooth_controller.get_devices_list()
+        print(f"[API] Total devices from get_devices_list: {len(all_devices)}")
+        
+        # Log all devices for debugging
+        for i, d in enumerate(all_devices):
+            print(f"[API] Device {i}: addr={d.get('address')} connected={d.get('connected')} rssi={d.get('rssi')}")
+        
+        connected = [d for d in all_devices if d.get("connected", False)]
+        print(f"[API] After filtering for 'connected': {len(connected)} devices")
+        print(f"[API] Filtered device addresses: {[d.get('address') for d in connected]}")
+        
+        active_addr = bluetooth_controller.get_connected_device()
+        print(f"[API] Active device address: {active_addr}")
+        
+        # Mark which device is active
+        for device in connected:
+            is_active = device.get("address", "").upper() == (active_addr.upper() if active_addr else "")
+            device["is_active"] = is_active
+            print(f"[API]   Setting is_active for {device.get('address')}: {is_active}")
+        
+        # Debug logging
+        print(f"[API] Connected devices endpoint - Found {len(connected)} connected devices out of {len(all_devices)} total")
+        for d in connected:
+            print(f"[API]   - {d.get('address')}: {d.get('name')} (connected={d.get('connected')}, active={d.get('is_active')})")
+        
+        return {
+            "connected_devices": connected,
+            "active_device": active_addr,
+            "debug": {
+                "total_devices": len(all_devices),
+                "connected_count": len(connected),
+                "all_device_addrs": [d.get('address') for d in all_devices]
+            }
+        }
+    
     @app.post("/bluetooth/connect/{device_address}")
     async def bluetooth_connect(device_address: str):
         """Connect to a Bluetooth device."""
@@ -395,6 +518,36 @@ def create_app(camera_id=None):
                 "status": "success" if success else "failed",
                 "address": device_address,
                 "message": f"Device {'connected' if success else 'connection failed'}"
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+    
+    @app.post("/bluetooth/set-active/{device_address}")
+    async def bluetooth_set_active(device_address: str):
+        """Set a device as the active input device (connects if needed)."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+        
+        try:
+            device = bluetooth_controller.get_device(device_address)
+            if not device:
+                return {"status": "error", "message": f"Device {device_address} not found"}
+            
+            # Ensure device is connected (will skip for system-connected devices)
+            print(f"[BT] Connecting to device for input: {device_address} ({device.name})")
+            success = bluetooth_controller.connect_device(device_address)
+            
+            if not success:
+                return {"status": "error", "message": "Failed to connect device"}
+            
+            # Device is now active
+            print(f"[BT] Set active input device: {device_address} ({device.name})")
+            
+            return {
+                "status": "success",
+                "address": device_address,
+                "name": device.name,
+                "message": f"Connected and set as active input device"
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -433,12 +586,19 @@ def create_app(camera_id=None):
     
     @app.websocket("/control")
     async def websocket_control(websocket: WebSocket):
+        global gimbal_position, gimbal_lock
+        
         await websocket.accept()
         active_clients.add(websocket)
         bt_active_clients.add(websocket)
         
         try:
             await websocket.send_json({"type": "state", "data": processor.get_state()})
+            
+            # Send initial gimbal position
+            with gimbal_lock:
+                await websocket.send_json({"type": "gimbal_position", "data": gimbal_position.copy()})
+            
             if bluetooth_controller is not None:
                 await websocket.send_json({
                     "type": "bluetooth_state",
@@ -487,6 +647,18 @@ def create_app(camera_id=None):
                         tilt = command.get("tilt", 0)
                         print(f"🎮 Gamepad: Pan={pan:.1f}°, Tilt={tilt:.1f}°")
                         gimbal.move_to_angles(pan, tilt)
+                        
+                        # Update global position and broadcast
+                        with gimbal_lock:
+                            gimbal_position["pan"] = pan
+                            gimbal_position["tilt"] = tilt
+                            pos_data = gimbal_position.copy()
+                        
+                        for client in bt_active_clients:
+                            try:
+                                await client.send_json({"type": "gimbal_position", "data": pos_data})
+                            except:
+                                pass
                     else:
                         # Button-based motor commands (discrete start/stop)
                         if motor_state == "start":
@@ -514,6 +686,19 @@ def create_app(camera_id=None):
                         elif motor_cmd == "motor_home":
                             print(f"🎮 Motor: HOMING")
                             gimbal.home()
+                            
+                            # Update position after homing
+                            with gimbal_lock:
+                                pan, tilt = gimbal.get_position()
+                                gimbal_position["pan"] = pan
+                                gimbal_position["tilt"] = tilt
+                                pos_data = gimbal_position.copy()
+                            
+                            for client in bt_active_clients:
+                                try:
+                                    await client.send_json({"type": "gimbal_position", "data": pos_data})
+                                except:
+                                    pass
                 
                 elif action == "bluetooth_start_scan":
                     if bluetooth_controller is None:
