@@ -6,6 +6,7 @@ Optimized for 50 Hz video streaming over WiFi on embedded systems (Orange Pi).
 import os
 import cv2
 import json
+import asyncio
 import threading
 import time
 import numpy as np
@@ -19,10 +20,10 @@ os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
 cv2.setLogLevel(0)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
+from jinja2 import Environment, FileSystemLoader
 
 from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
@@ -47,6 +48,51 @@ bt_active_clients = set()  # WebSocket clients listening to BT updates
 gimbal_position = {"pan": 0.0, "tilt": 0.0}  # Current gimbal angles
 gimbal_lock = threading.Lock()  # Thread-safe access to gimbal_position
 bt_device_connected = False  # Track if BT device is connected for input
+control_loop = None  # Event loop used for cross-thread WebSocket broadcasts
+
+
+def sync_gimbal_position() -> dict:
+    """Copy the current hardware gimbal position into shared server state."""
+    if gimbal is None:
+        return {"pan": 0.0, "tilt": 0.0}
+
+    pan, tilt = gimbal.get_position()
+    with gimbal_lock:
+        gimbal_position["pan"] = pan
+        gimbal_position["tilt"] = tilt
+        return gimbal_position.copy()
+
+
+async def broadcast_gimbal_position(pos_data: dict | None = None) -> None:
+    """Broadcast the latest gimbal position to all connected WebSocket clients."""
+    if pos_data is None:
+        with gimbal_lock:
+            pos_data = gimbal_position.copy()
+
+    disconnected_clients = []
+    for client in list(bt_active_clients):
+        try:
+            await client.send_json({"type": "gimbal_position", "data": pos_data})
+        except Exception:
+            disconnected_clients.append(client)
+
+    for client in disconnected_clients:
+        bt_active_clients.discard(client)
+        active_clients.discard(client)
+
+
+def broadcast_gimbal_position_threadsafe(pos_data: dict | None = None) -> None:
+    """Broadcast gimbal position from worker threads on the main event loop."""
+    if pos_data is None:
+        pos_data = sync_gimbal_position()
+
+    if control_loop is None:
+        return
+
+    try:
+        asyncio.run_coroutine_threadsafe(broadcast_gimbal_position(pos_data), control_loop)
+    except Exception:
+        pass
 
 
 def try_open_camera(camera_id=0):
@@ -242,6 +288,9 @@ def poll_bluetooth_controller():
     print("[BT] Input polling thread started")
     last_pan = 0.0
     last_tilt = 0.0
+    last_update_time = time.time()
+    deadzone = 0.15
+    sensitivity = 100.0
     
     while True:
         try:
@@ -257,6 +306,12 @@ def poll_bluetooth_controller():
             input_data = bluetooth_controller.read_controller_input()
             pan_axis = input_data.get("pan_axis", 0.0)
             tilt_axis = input_data.get("tilt_axis", 0.0)
+            now = time.time()
+            time_delta = max(0.01, now - last_update_time)
+            last_update_time = now
+
+            pan_axis = pan_axis if abs(pan_axis) > deadzone else 0.0
+            tilt_axis = tilt_axis if abs(tilt_axis) > deadzone else 0.0
             
             # Skip if input hasn't changed much (deadzone)
             if abs(pan_axis - last_pan) < 0.05 and abs(tilt_axis - last_tilt) < 0.05:
@@ -269,31 +324,26 @@ def poll_bluetooth_controller():
             if gimbal is None:
                 time.sleep(0.05)
                 continue
-            
-            # Convert normalized axis values (-1.0 to 1.0) to gimbal angles
-            # pan_axis: -1.0 (left) to 1.0 (right)
-            # tilt_axis: -1.0 (up) to 1.0 (down)
-            
-            new_pan = (pan_axis + 1.0) / 2.0 * gimbal.max_pan  # 0 to max_pan
-            new_tilt = (tilt_axis + 1.0) / 2.0 * gimbal.max_tilt  # 0 to max_tilt
-            
+
+            # Apply joystick input as incremental movement so neutral does not force center.
+            current_pan, current_tilt = gimbal.get_position()
+            new_pan = max(0.0, min(gimbal.max_pan, current_pan + (pan_axis * sensitivity * time_delta)))
+            new_tilt = max(0.0, min(gimbal.max_tilt, current_tilt + (-tilt_axis * sensitivity * time_delta)))
+
+            if abs(new_pan - current_pan) < 0.01 and abs(new_tilt - current_tilt) < 0.01:
+                time.sleep(0.05)
+                continue
+
             # Move gimbal to new angles
             gimbal.move_to_angles(new_pan, new_tilt)
             
-            # Update global position
+            # Update global position and broadcast to connected clients
             with gimbal_lock:
                 gimbal_position["pan"] = new_pan
                 gimbal_position["tilt"] = new_tilt
                 current_position = gimbal_position.copy()
-            
-            # Broadcast updated position to all connected WebSocket clients
-            position_msg = json.dumps({"type": "gimbal_position", "data": current_position})
-            for client in bt_active_clients:
-                try:
-                    import asyncio
-                    asyncio.run_coroutine_threadsafe(client.send_text(position_msg), client.app.state.loop)
-                except:
-                    pass
+
+            broadcast_gimbal_position_threadsafe(current_position)
             
             print(f"[BT] Gimbal moved via BT device: pan={new_pan:.1f}°, tilt={new_tilt:.1f}°")
             
@@ -309,10 +359,11 @@ def create_app(camera_id=None):
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global camera_thread, processor, gimbal, bluetooth_controller
+        global camera_thread, processor, gimbal, bluetooth_controller, control_loop
         
         # Startup
         print(f"Initializing processor...")
+        control_loop = asyncio.get_running_loop()
         processor = ThermalProcessor()
         
         # Initialize gimbal for motor control
@@ -371,7 +422,9 @@ def create_app(camera_id=None):
     # Setup templates and static files
     web_dir = Path(__file__).parent
     app.mount("/static", StaticFiles(directory=str(web_dir / "static")), name="static")
-    templates = Jinja2Templates(directory=str(web_dir / "templates"))
+    
+    # Initialize Jinja2 environment
+    jinja_env = Environment(loader=FileSystemLoader(str(web_dir / "templates")))
     
     # Add CORS middleware
     app.add_middleware(
@@ -647,18 +700,14 @@ def create_app(camera_id=None):
                         tilt = command.get("tilt", 0)
                         print(f"🎮 Gamepad: Pan={pan:.1f}°, Tilt={tilt:.1f}°")
                         gimbal.move_to_angles(pan, tilt)
-                        
+
                         # Update global position and broadcast
                         with gimbal_lock:
                             gimbal_position["pan"] = pan
                             gimbal_position["tilt"] = tilt
                             pos_data = gimbal_position.copy()
-                        
-                        for client in bt_active_clients:
-                            try:
-                                await client.send_json({"type": "gimbal_position", "data": pos_data})
-                            except:
-                                pass
+
+                        await broadcast_gimbal_position(pos_data)
                     else:
                         # Button-based motor commands (discrete start/stop)
                         if motor_state == "start":
@@ -676,6 +725,8 @@ def create_app(camera_id=None):
                                         gimbal.pan_step(-1, steps=2)
                                     elif motor_cmd == "motor_right":
                                         gimbal.pan_step(1, steps=2)
+
+                                    broadcast_gimbal_position_threadsafe()
                                     time.sleep(0.1)  # Small delay between steps
                             
                             motor_thread = threading.Thread(target=step_motor, daemon=True)
@@ -686,19 +737,8 @@ def create_app(camera_id=None):
                         elif motor_cmd == "motor_home":
                             print(f"🎮 Motor: HOMING")
                             gimbal.home()
-                            
-                            # Update position after homing
-                            with gimbal_lock:
-                                pan, tilt = gimbal.get_position()
-                                gimbal_position["pan"] = pan
-                                gimbal_position["tilt"] = tilt
-                                pos_data = gimbal_position.copy()
-                            
-                            for client in bt_active_clients:
-                                try:
-                                    await client.send_json({"type": "gimbal_position", "data": pos_data})
-                                except:
-                                    pass
+
+                            await broadcast_gimbal_position(sync_gimbal_position())
                 
                 elif action == "bluetooth_start_scan":
                     if bluetooth_controller is None:
@@ -768,7 +808,9 @@ def create_app(camera_id=None):
     @app.get("/")
     async def root(request: Request):
         """Serve HTML UI."""
-        return templates.TemplateResponse("index.html", {"request": request})
+        template = jinja_env.get_template("index.html")
+        html_content = template.render(request=request)
+        return HTMLResponse(content=html_content)
     
     return app
 

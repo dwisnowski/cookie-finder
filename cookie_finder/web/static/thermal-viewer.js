@@ -78,6 +78,10 @@ const gamepadPresets = {
     }
 };
 
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
 function updateCameraSelector() {
     fetch('/available-cameras')
         .then(r => r.json())
@@ -122,11 +126,11 @@ function updateCameraSelector() {
 
 function updatePanTiltIndicator() {
     const svgRadius = 75;
-    const panPercent = currentPan / PAN_MAX;
-    const tiltPercent = currentTilt / TILT_MAX;
-    
-    const x = 100 + (panPercent * svgRadius);
-    const y = 100 - (tiltPercent * svgRadius);
+    const panPercent = PAN_MAX === 0 ? 0 : clamp(currentPan / PAN_MAX, 0, 1);
+    const tiltPercent = TILT_MAX === 0 ? 0 : clamp(currentTilt / TILT_MAX, 0, 1);
+
+    const x = 100 + ((panPercent * 2) - 1) * svgRadius;
+    const y = 100 - ((tiltPercent * 2) - 1) * svgRadius;
     
     const marker = document.getElementById('positionMarker');
     marker.setAttribute('cx', x);
@@ -139,8 +143,8 @@ function updatePanTiltIndicator() {
     
     const panAngleEl = document.getElementById('panAngle');
     const tiltAngleEl = document.getElementById('tiltAngle');
-    if (panAngleEl) panAngleEl.textContent = currentPan + '°';
-    if (tiltAngleEl) tiltAngleEl.textContent = currentTilt + '°';
+    if (panAngleEl) panAngleEl.textContent = currentPan.toFixed(2) + '°';
+    if (tiltAngleEl) tiltAngleEl.textContent = currentTilt.toFixed(2) + '°';
 }
 
 function updateGamepadStatus() {
@@ -203,9 +207,9 @@ function pollGamepadInput() {
     if (Math.abs(panInput) > 0.01 || Math.abs(tiltInput) > 0.01) {
         const panChange = panInput * GAMEPAD_SENSITIVITY * timeDelta;
         const tiltChange = tiltInput * GAMEPAD_SENSITIVITY * timeDelta;
-        
-        currentPan = Math.max(-PAN_MAX, Math.min(PAN_MAX, currentPan + panChange));
-        currentTilt = Math.max(-TILT_MAX, Math.min(TILT_MAX, currentTilt + tiltChange));
+
+        currentPan = clamp(currentPan + panChange, 0, PAN_MAX);
+        currentTilt = clamp(currentTilt + tiltChange, 0, TILT_MAX);
         
         updatePanTiltIndicator();
         
@@ -307,19 +311,19 @@ function updateGamepadAxisDisplay() {
 
 function updateMotorAngle(command) {
     const increment = PAN_STEP;
-    
+
     switch(command) {
         case 'motor_left':
-            currentPan = Math.max(-PAN_MAX, currentPan - increment);
+            currentPan = clamp(currentPan - increment, 0, PAN_MAX);
             break;
         case 'motor_right':
-            currentPan = Math.min(PAN_MAX, currentPan + increment);
+            currentPan = clamp(currentPan + increment, 0, PAN_MAX);
             break;
         case 'motor_up':
-            currentTilt = Math.min(TILT_MAX, currentTilt + increment);
+            currentTilt = clamp(currentTilt + increment, 0, TILT_MAX);
             break;
         case 'motor_down':
-            currentTilt = Math.max(-TILT_MAX, currentTilt - increment);
+            currentTilt = clamp(currentTilt - increment, 0, TILT_MAX);
             break;
         case 'motor_home':
             currentPan = 0;
@@ -351,8 +355,8 @@ function connectWebSocket() {
         } else if (msg.type === 'gimbal_position') {
             // Handle gimbal position updates from server (from BT device or web control)
             const pos = msg.data;
-            currentPan = pos.pan || 0;
-            currentTilt = pos.tilt || 0;
+            currentPan = clamp(Number(pos.pan) || 0, 0, PAN_MAX);
+            currentTilt = clamp(Number(pos.tilt) || 0, 0, TILT_MAX);
             updatePanTiltIndicator();
         } else if (msg.type === 'bluetooth') {
             // Handle Bluetooth status updates from controller
@@ -613,14 +617,11 @@ const motorCommands = {
     'btn_motor_home': 'motor_home'
 };
 
-let motorIntervals = {};
-
 for (const [btnId, command] of Object.entries(motorCommands)) {
     const btn = document.getElementById(btnId);
     if (btn) {
         const startMotor = () => {
             motorActive[command] = true;
-            updateMotorAngle(command);
             
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
@@ -629,20 +630,10 @@ for (const [btnId, command] of Object.entries(motorCommands)) {
                     state: 'start'
                 }));
             }
-            
-            motorIntervals[command] = setInterval(() => {
-                if (motorActive[command]) {
-                    updateMotorAngle(command);
-                }
-            }, 100);
         };
         
         const stopMotor = () => {
             motorActive[command] = false;
-            if (motorIntervals[command]) {
-                clearInterval(motorIntervals[command]);
-                delete motorIntervals[command];
-            }
             
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
@@ -713,19 +704,12 @@ document.addEventListener('keydown', (e) => {
             keyPressState[key] = true;
             const command = motorMap[key];
             motorActive[command] = true;
-            updateMotorAngle(command);
             
             ws.send(JSON.stringify({
                 action: 'motor_command',
                 command: command,
                 state: 'start'
             }));
-            
-            motorIntervals[command] = setInterval(() => {
-                if (motorActive[command]) {
-                    updateMotorAngle(command);
-                }
-            }, 100);
         }
         e.preventDefault();
     }
@@ -744,10 +728,6 @@ document.addEventListener('keyup', (e) => {
         
         const command = motorMap[key];
         motorActive[command] = false;
-        if (motorIntervals[command]) {
-            clearInterval(motorIntervals[command]);
-            delete motorIntervals[command];
-        }
         keyPressState[key] = false;
         
         ws.send(JSON.stringify({
