@@ -286,6 +286,11 @@ class BluetoothController:
         
         except Exception as e:
             error_msg = f"{type(e).__name__}: {str(e)}"
+            
+            # Handle common adapter issues with specific advice
+            if "No Bluetooth adapters found" in str(e) or "BleakBluetoothNotAvailableError" in type(e).__name__:
+                error_msg = "No Bluetooth adapter found. Try: 'sudo hciconfig hci0 up' or 'sudo systemctl restart bluetooth'."
+            
             tb = traceback.format_exc()
             print(f"[BT] Scan error: {error_msg}")
             print(f"[BT] Traceback:\n{tb}")

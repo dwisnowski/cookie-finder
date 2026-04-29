@@ -397,6 +397,22 @@ function connectWebSocket() {
             bluetoothScanning = true;
             bluetoothDevices = [];
             updateBluetoothUI();
+        } else if (msg.type === 'bluetooth_connect_result') {
+            console.log('[BT] Connect result incoming:', msg);
+            bluetoothConnectingDevices.delete(msg.address);
+            updateBluetoothUI();
+            fetchConnectedDevices();
+            if (!msg.success) {
+                const statusDisplay = document.getElementById('btStatusDisplay');
+                if (statusDisplay) {
+                    statusDisplay.textContent = `❌ Connection failed to ${msg.address}`;
+                    statusDisplay.style.color = '#ff4444';
+                    setTimeout(() => {
+                        statusDisplay.style.color = '';
+                        if (!bluetoothScanning) statusDisplay.textContent = 'Ready to scan';
+                    }, 5000);
+                }
+            }
         } else if (msg.type === 'bluetooth_scan_stopped') {
             bluetoothScanning = false;
             updateBluetoothUI();
@@ -910,6 +926,7 @@ if (verticalPresetBtn) {
 // === BLUETOOTH FUNCTIONALITY ===
 let bluetoothDevices = [];
 let bluetoothScanning = false;
+let hideUnknownDevices = true; // Default: hide Unknown Device
 let bluetoothConnectedDevices = [];
 let bluetoothConnectingDevices = new Set(); // Track devices being connected
 
@@ -928,17 +945,34 @@ function updateBluetoothUI() {
         stopBtn.style.display = 'none';
     }
 
-    if (bluetoothDevices.length === 0) {
-        devicesList.innerHTML = '<div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">No devices found. Click "Scan Devices" to start.</div>';
+    // Filter devices if 'Hide Unknown' is checked
+    let displayDevices = bluetoothDevices;
+    if (hideUnknownDevices) {
+        displayDevices = displayDevices.filter(d => d.name && !d.name.includes('Unknown'));
+    }
+
+    if (displayDevices.length === 0) {
+        if (bluetoothDevices.length > 0 && hideUnknownDevices) {
+            devicesList.innerHTML = `<div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">
+                ${bluetoothDevices.length} unknown devices hidden.<br>
+                <a href="#" onclick="document.getElementById('chk_hide_unknown').click(); return false;" style="color: var(--accent); text-decoration: underline;">Show them</a>
+             </div>`;
+        } else {
+            devicesList.innerHTML = '<div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">No devices found. Click "Scan Devices" to start.</div>';
+        }
+
         if (!bluetoothScanning) {
             statusDisplay.textContent = 'Ready to scan';
         }
         return;
     }
 
-    statusDisplay.textContent = `Found ${bluetoothDevices.length} device${bluetoothDevices.length !== 1 ? 's' : ''}`;
+    statusDisplay.textContent = `Found ${displayDevices.length} device${displayDevices.length !== 1 ? 's' : ''}`;
+    if (hideUnknownDevices && bluetoothDevices.length > displayDevices.length) {
+        statusDisplay.textContent += ` (${bluetoothDevices.length - displayDevices.length} hidden)`;
+    }
 
-    devicesList.innerHTML = bluetoothDevices.map(device => {
+    devicesList.innerHTML = displayDevices.map(device => {
         const addressShort = device.address.substring(device.address.length - 5).toUpperCase();
         const statusClass = device.connected ? 'connected' : device.paired ? 'paired' : '';
         const statusText = device.connected ? '🔗 Connected' : device.paired ? '✓ Paired' : '⊗ Available';
@@ -1037,12 +1071,7 @@ function bluetoothConnect(address) {
             action: 'bluetooth_connect',
             address: address
         }));
-        // Fetch connected devices after a delay to allow connection to complete
-        setTimeout(() => {
-            bluetoothConnectingDevices.delete(address);
-            updateBluetoothUI();
-            fetchConnectedDevices();
-        }, 1500);
+        // Removed hardcoded setTimeout - we now wait for bluetooth_connect_result via WS
     } else {
         bluetoothConnectingDevices.delete(address);
         updateBluetoothUI();
@@ -1113,6 +1142,15 @@ if (btScanBtn) {
 const btStopBtn = document.getElementById('btn_bt_stop');
 if (btStopBtn) {
     btStopBtn.addEventListener('click', stopBluetoothScan);
+}
+
+// Bluetooth filter checkbox
+const chkHideUnknown = document.getElementById('chk_hide_unknown');
+if (chkHideUnknown) {
+    chkHideUnknown.addEventListener('change', (e) => {
+        hideUnknownDevices = e.target.checked;
+        updateBluetoothUI();
+    });
 }
 
 // Periodic polling of connected Bluetooth devices (more frequently initially)

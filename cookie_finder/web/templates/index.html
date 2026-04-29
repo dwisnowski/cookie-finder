@@ -1103,7 +1103,13 @@
                 </div>
                 
                 <!-- Discovered Devices List -->
-                <div style="font-size: 10px; color: var(--text-secondary); font-weight: bold; margin-bottom: 6px;">Found Devices</div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-size: 10px; color: var(--text-secondary); font-weight: bold;">Found Devices</div>
+                    <label style="font-size: 9px; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="chk_hide_unknown" checked style="width: 12px; height: 12px; cursor: pointer;">
+                        Hide Unknown
+                    </label>
+                </div>
                 <div id="btDevicesList" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: rgba(45, 55, 72, 0.3); padding: var(--spacing-sm);">
                     <div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">
                         No devices found. Click "Scan Devices" to start.
