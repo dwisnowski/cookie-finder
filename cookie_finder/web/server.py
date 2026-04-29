@@ -437,7 +437,7 @@ def create_app(camera_id=None):
     
     # Add all the routes
     @app.get("/camera-status")
-    async def camera_status():
+    def camera_status():
         return {
             "connected": camera_connected,
             "camera_id": camera_id_current,
@@ -445,7 +445,7 @@ def create_app(camera_id=None):
         }
     
     @app.post("/reconnect")
-    async def reconnect():
+    def reconnect():
         print("Manual reconnect requested...")
         return {"status": "reconnect_triggered", "message": "Attempting to reconnect..."}
     
@@ -460,7 +460,7 @@ def create_app(camera_id=None):
         return {"status": "switching", "message": f"Switching to /dev/video{new_camera_id}..."}
     
     @app.get("/available-cameras")
-    async def get_available_cameras():
+    def get_available_cameras():
         return {
             "available": available_cameras,
             "current": camera_id_current
@@ -507,7 +507,7 @@ def create_app(camera_id=None):
             return {"status": "error", "message": str(e)}
     
     @app.get("/bluetooth/devices")
-    async def bluetooth_get_devices():
+    def bluetooth_get_devices():
         """Get list of discovered Bluetooth devices."""
         if bluetooth_controller is None:
             return {"devices": [], "scanning": False}
@@ -518,36 +518,36 @@ def create_app(camera_id=None):
         }
     
     @app.get("/bluetooth/connected")
-    async def bluetooth_get_connected():
+    def bluetooth_get_connected():
         """Get list of connected Bluetooth devices."""
         if bluetooth_controller is None:
             return {"connected_devices": []}
         
         # Get all devices and filter for connected ones
         all_devices = bluetooth_controller.get_devices_list()
-        print(f"[API] Total devices from get_devices_list: {len(all_devices)}")
+        # print(f"[API] Total devices from get_devices_list: {len(all_devices)}")
         
         # Log all devices for debugging
-        for i, d in enumerate(all_devices):
-            print(f"[API] Device {i}: addr={d.get('address')} connected={d.get('connected')} rssi={d.get('rssi')}")
+        # for i, d in enumerate(all_devices):
+        #     print(f"[API] Device {i}: addr={d.get('address')} connected={d.get('connected')} rssi={d.get('rssi')}")
         
         connected = [d for d in all_devices if d.get("connected", False)]
-        print(f"[API] After filtering for 'connected': {len(connected)} devices")
-        print(f"[API] Filtered device addresses: {[d.get('address') for d in connected]}")
+        # print(f"[API] After filtering for 'connected': {len(connected)} devices")
+        # print(f"[API] Filtered device addresses: {[d.get('address') for d in connected]}")
         
         active_addr = bluetooth_controller.get_connected_device()
-        print(f"[API] Active device address: {active_addr}")
+        # print(f"[API] Active device address: {active_addr}")
         
         # Mark which device is active
         for device in connected:
             is_active = device.get("address", "").upper() == (active_addr.upper() if active_addr else "")
             device["is_active"] = is_active
-            print(f"[API]   Setting is_active for {device.get('address')}: {is_active}")
+            # print(f"[API]   Setting is_active for {device.get('address')}: {is_active}")
         
         # Debug logging
-        print(f"[API] Connected devices endpoint - Found {len(connected)} connected devices out of {len(all_devices)} total")
-        for d in connected:
-            print(f"[API]   - {d.get('address')}: {d.get('name')} (connected={d.get('connected')}, active={d.get('is_active')})")
+        # print(f"[API] Connected devices endpoint - Found {len(connected)} connected devices out of {len(all_devices)} total")
+        # for d in connected:
+        #     print(f"[API]   - {d.get('address')}: {d.get('name')} (connected={d.get('connected')}, active={d.get('is_active')})")
         
         return {
             "connected_devices": connected,
@@ -560,7 +560,7 @@ def create_app(camera_id=None):
         }
     
     @app.post("/bluetooth/connect/{device_address}")
-    async def bluetooth_connect(device_address: str):
+    def bluetooth_connect(device_address: str):
         """Connect to a Bluetooth device."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}
@@ -576,7 +576,7 @@ def create_app(camera_id=None):
             return {"status": "error", "message": str(e)}
     
     @app.post("/bluetooth/set-active/{device_address}")
-    async def bluetooth_set_active(device_address: str):
+    def bluetooth_set_active(device_address: str):
         """Set a device as the active input device (connects if needed)."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}
@@ -606,7 +606,7 @@ def create_app(camera_id=None):
             return {"status": "error", "message": str(e)}
     
     @app.post("/bluetooth/disconnect/{device_address}")
-    async def bluetooth_disconnect(device_address: str):
+    def bluetooth_disconnect(device_address: str):
         """Disconnect from a Bluetooth device."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}
@@ -622,7 +622,7 @@ def create_app(camera_id=None):
             return {"status": "error", "message": str(e)}
     
     @app.post("/bluetooth/remove/{device_address}")
-    async def bluetooth_remove(device_address: str):
+    def bluetooth_remove(device_address: str):
         """Remove/forget a Bluetooth device."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}

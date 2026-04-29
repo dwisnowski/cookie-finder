@@ -88,11 +88,11 @@ function updateCameraSelector() {
         .then(data => {
             availableCameras = data.available;
             currentCamera = data.current;
-            
+
             const selector = document.getElementById('cameraSelector');
             if (selector) {
                 selector.innerHTML = '';
-                
+
                 if (availableCameras.length === 0) {
                     selector.innerHTML = '<p style="font-size: 11px; color: #aaa;">No cameras available</p>';
                 } else {
@@ -102,20 +102,20 @@ function updateCameraSelector() {
                         btn.style.width = '100%';
                         btn.style.marginBottom = '5px';
                         btn.textContent = `/dev/video${cameraId}`;
-                        
+
                         if (cameraId === currentCamera) {
                             btn.classList.add('active');
                         }
-                        
+
                         btn.addEventListener('click', () => {
                             switchCamera(cameraId);
                         });
-                        
+
                         selector.appendChild(btn);
                     });
                 }
             }
-            
+
             const currentCameraIdEl = document.getElementById('currentCameraId');
             if (currentCameraIdEl) {
                 currentCameraIdEl.textContent = currentCamera !== null ? currentCamera : '--';
@@ -131,16 +131,16 @@ function updatePanTiltIndicator() {
 
     const x = 100 + ((panPercent * 2) - 1) * svgRadius;
     const y = 100 - ((tiltPercent * 2) - 1) * svgRadius;
-    
+
     const marker = document.getElementById('positionMarker');
     marker.setAttribute('cx', x);
     marker.setAttribute('cy', y);
-    
+
     document.getElementById('markerLineH').setAttribute('x2', x);
     document.getElementById('markerLineH').setAttribute('y2', y);
     document.getElementById('markerLineV').setAttribute('x2', x);
     document.getElementById('markerLineV').setAttribute('y2', y);
-    
+
     const panAngleEl = document.getElementById('panAngle');
     const tiltAngleEl = document.getElementById('tiltAngle');
     if (panAngleEl) panAngleEl.textContent = currentPan.toFixed(2) + '°';
@@ -150,16 +150,16 @@ function updatePanTiltIndicator() {
 function updateGamepadStatus() {
     const gamepads = navigator.getGamepads?.() || [];
     connectedGamepads = Array.from(gamepads).filter(gp => gp !== null);
-    
+
     const countDisplay = document.getElementById('gamepadDeviceCount');
     if (countDisplay) {
         countDisplay.textContent = connectedGamepads.length + ' device' + (connectedGamepads.length !== 1 ? 's' : '');
     }
-    
+
     const indicator = document.getElementById('gamepadIndicator');
     const statusText = document.getElementById('gamepadStatusText');
     const nameDisplay = document.getElementById('gamepadNameDisplay');
-    
+
     if (activeGamepadIndex >= 0 && activeGamepadIndex < connectedGamepads.length) {
         const activeGpad = connectedGamepads[activeGamepadIndex];
         if (indicator) indicator.classList.add('connected');
@@ -187,32 +187,32 @@ function cycleGamepad() {
 
 function pollGamepadInput() {
     if (activeGamepadIndex < 0 || activeGamepadIndex >= connectedGamepads.length) return;
-    
+
     const gamepad = connectedGamepads[activeGamepadIndex];
-    
+
     let panInput = gamepad.axes[gamepadPanAxis] || 0;
     let tiltInput = gamepad.axes[gamepadTiltAxis] || 0;
-    
+
     if (gamepadInvertPan) panInput *= -1;
     if (gamepadInvertTilt) tiltInput *= -1;
-    
+
     tiltInput *= -1;
-    
+
     panInput = Math.abs(panInput) > GAMEPAD_DEADZONE ? panInput : 0;
     tiltInput = Math.abs(tiltInput) > GAMEPAD_DEADZONE ? tiltInput : 0;
-    
+
     const timeDelta = (Date.now() - lastGamepadPoll) / 1000;
     lastGamepadPoll = Date.now();
-    
+
     if (Math.abs(panInput) > 0.01 || Math.abs(tiltInput) > 0.01) {
         const panChange = panInput * GAMEPAD_SENSITIVITY * timeDelta;
         const tiltChange = tiltInput * GAMEPAD_SENSITIVITY * timeDelta;
 
         currentPan = clamp(currentPan + panChange, 0, PAN_MAX);
         currentTilt = clamp(currentTilt + tiltChange, 0, TILT_MAX);
-        
+
         updatePanTiltIndicator();
-        
+
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
                 action: 'motor_command',
@@ -222,7 +222,7 @@ function pollGamepadInput() {
             }));
         }
     }
-    
+
     updateGamepadButtonDisplay(gamepad);
 }
 
@@ -230,7 +230,7 @@ function updateGamepadButtonDisplay(gamepad) {
     for (let i = 0; i < 4; i++) {
         const button = gamepad.buttons[i];
         const buttonElement = document.getElementById('gamepadButton' + i);
-        
+
         if (button && button.pressed) {
             buttonElement.classList.add('pressed');
         } else {
@@ -241,14 +241,14 @@ function updateGamepadButtonDisplay(gamepad) {
 
 function applyPreset(presetName) {
     if (!gamepadPresets[presetName]) return;
-    
+
     const preset = gamepadPresets[presetName];
     currentPreset = presetName;
     gamepadPanAxis = preset.panAxis;
     gamepadTiltAxis = preset.tiltAxis;
     gamepadInvertPan = preset.invertPan;
     gamepadInvertTilt = preset.invertTilt;
-    
+
     updateGamepadAxisDisplay();
 }
 
@@ -264,10 +264,10 @@ function updateGamepadAxisDisplay() {
             }
         }
     }
-    
+
     const invertPanBtn = document.getElementById('btn_invert_pan');
     const invertTiltBtn = document.getElementById('btn_invert_tilt');
-    
+
     if (gamepadInvertPan) {
         invertPanBtn.classList.add('active');
         invertPanBtn.textContent = 'Invert Pan: ON';
@@ -275,7 +275,7 @@ function updateGamepadAxisDisplay() {
         invertPanBtn.classList.remove('active');
         invertPanBtn.textContent = 'Invert Pan: OFF';
     }
-    
+
     if (gamepadInvertTilt) {
         invertTiltBtn.classList.add('active');
         invertTiltBtn.textContent = 'Invert Tilt: ON';
@@ -283,10 +283,10 @@ function updateGamepadAxisDisplay() {
         invertTiltBtn.classList.remove('active');
         invertTiltBtn.textContent = 'Invert Tilt: OFF';
     }
-    
+
     const normalBtn = document.getElementById('btn_preset_normal');
     const verticalBtn = document.getElementById('btn_preset_vertical');
-    
+
     if (currentPreset === 'normal') {
         normalBtn.classList.add('active');
         verticalBtn.classList.remove('active');
@@ -297,7 +297,7 @@ function updateGamepadAxisDisplay() {
         normalBtn.classList.remove('active');
         verticalBtn.classList.remove('active');
     }
-    
+
     const presetDisplay = document.getElementById('currentPresetDisplay');
     let presetLabel = 'Custom';
     for (let key in gamepadPresets) {
@@ -312,7 +312,7 @@ function updateGamepadAxisDisplay() {
 function updateMotorAngle(command) {
     const increment = PAN_STEP;
 
-    switch(command) {
+    switch (command) {
         case 'motor_left':
             currentPan = clamp(currentPan - increment, 0, PAN_MAX);
             break;
@@ -330,14 +330,14 @@ function updateMotorAngle(command) {
             currentTilt = 0;
             break;
     }
-    
+
     updatePanTiltIndicator();
 }
 
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(protocol + '://' + window.location.host + '/control');
-    
+
     ws.onopen = () => {
         document.getElementById('statusText').innerHTML = 'Connected';
         updateCameraSelector();
@@ -346,7 +346,7 @@ function connectWebSocket() {
         setTimeout(fetchConnectedDevices, 500);
         setTimeout(fetchConnectedDevices, 1000);
     };
-    
+
     ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'state') {
@@ -403,11 +403,11 @@ function connectWebSocket() {
             fetchConnectedDevices();
         }
     };
-    
+
     ws.onerror = (error) => {
         document.getElementById('statusText').innerHTML = 'Connection error';
     };
-    
+
     ws.onclose = () => {
         setTimeout(connectWebSocket, 2000);
     };
@@ -422,7 +422,7 @@ function updateUI() {
             btn.classList.remove('active');
         }
     }
-    
+
     if (state.threshold_value !== undefined) {
         document.getElementById('slider_threshold_value').value = state.threshold_value;
         document.getElementById('val_threshold').textContent = state.threshold_value;
@@ -439,13 +439,13 @@ function updateUI() {
         document.getElementById('slider_isotherm_max').value = state.isotherm_max;
         document.getElementById('val_isotherm_max').textContent = state.isotherm_max;
     }
-    
+
     if (state.palette_idx !== undefined) {
         currentPaletteIdx = state.palette_idx;
         const paletteName = palettes[currentPaletteIdx] || 'Unknown';
         document.getElementById('currentPaletteName').textContent = paletteName;
     }
-    
+
     const buttons_list = document.querySelectorAll('#cameraSelector button');
     buttons_list.forEach(btn => {
         const btnId = parseInt(btn.textContent.match(/\d+/)[0]);
@@ -455,12 +455,12 @@ function updateUI() {
             btn.classList.remove('active');
         }
     });
-    
+
     let statusLines = [];
     if (state.palette_name) statusLines.push('Palette: ' + state.palette_name);
     statusLines.push('Connected');
     document.getElementById('statusText').innerHTML = statusLines.join('<br>');
-    
+
     // Update palette panel visibility
     updatePalettePanelVisibility();
     // Update parameters panel visibility
@@ -499,7 +499,7 @@ function updateStatusBadges() {
         gamepadDot.classList.remove('active');
         gamepadText.textContent = 'bluetooth';
     }
-    
+
     // Update camera badge
     const cameraDot = document.getElementById('badge_camera_dot');
     const cameraText = document.getElementById('badge_camera_text');
@@ -510,7 +510,7 @@ function updateStatusBadges() {
         cameraDot.classList.remove('active');
         cameraText.textContent = 'camera';
     }
-    
+
     // FPS badge is updated by polling, so we'll just ensure the element exists
     const fpsDot = document.getElementById('badge_fps_dot');
     const fpsText = document.getElementById('badge_fps_text');
@@ -622,7 +622,7 @@ for (const [btnId, command] of Object.entries(motorCommands)) {
     if (btn) {
         const startMotor = () => {
             motorActive[command] = true;
-            
+
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                     action: 'motor_command',
@@ -631,10 +631,10 @@ for (const [btnId, command] of Object.entries(motorCommands)) {
                 }));
             }
         };
-        
+
         const stopMotor = () => {
             motorActive[command] = false;
-            
+
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
                     action: 'motor_command',
@@ -643,16 +643,16 @@ for (const [btnId, command] of Object.entries(motorCommands)) {
                 }));
             }
         };
-        
+
         btn.addEventListener('mousedown', startMotor);
         btn.addEventListener('mouseup', stopMotor);
         btn.addEventListener('mouseleave', stopMotor);
-        
+
         btn.addEventListener('touchstart', (e) => {
             e.preventDefault();
             startMotor();
         });
-        
+
         btn.addEventListener('touchend', (e) => {
             e.preventDefault();
             stopMotor();
@@ -665,14 +665,14 @@ const keyPressState = {};
 
 document.addEventListener('keydown', (e) => {
     const key = e.key.toLowerCase();
-    
+
     if (buttons[key] && ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             action: 'toggle_mode',
             mode: buttons[key]
         }));
     }
-    
+
     if (key === '[' && ws && ws.readyState === WebSocket.OPEN) {
         const newIdx = (currentPaletteIdx - 1 + palettes.length) % palettes.length;
         ws.send(JSON.stringify({
@@ -691,7 +691,7 @@ document.addEventListener('keydown', (e) => {
         }));
         e.preventDefault();
     }
-    
+
     if ((key === 'arrowup' || key === 'arrowdown' || key === 'arrowleft' || key === 'arrowright') && ws && ws.readyState === WebSocket.OPEN) {
         const motorMap = {
             'arrowup': 'motor_up',
@@ -699,12 +699,12 @@ document.addEventListener('keydown', (e) => {
             'arrowleft': 'motor_left',
             'arrowright': 'motor_right'
         };
-        
+
         if (!keyPressState[key]) {
             keyPressState[key] = true;
             const command = motorMap[key];
             motorActive[command] = true;
-            
+
             ws.send(JSON.stringify({
                 action: 'motor_command',
                 command: command,
@@ -717,7 +717,7 @@ document.addEventListener('keydown', (e) => {
 
 document.addEventListener('keyup', (e) => {
     const key = e.key.toLowerCase();
-    
+
     if ((key === 'arrowup' || key === 'arrowdown' || key === 'arrowleft' || key === 'arrowright') && ws && ws.readyState === WebSocket.OPEN) {
         const motorMap = {
             'arrowup': 'motor_up',
@@ -725,11 +725,11 @@ document.addEventListener('keyup', (e) => {
             'arrowleft': 'motor_left',
             'arrowright': 'motor_right'
         };
-        
+
         const command = motorMap[key];
         motorActive[command] = false;
         keyPressState[key] = false;
-        
+
         ws.send(JSON.stringify({
             action: 'motor_command',
             command: command,
@@ -737,7 +737,7 @@ document.addEventListener('keyup', (e) => {
         }));
         e.preventDefault();
     }
-    
+
     if ((key === '?' || e.key === '?') || (e.shiftKey && key === '/')) {
         const isOpen = helpOverlay.classList.contains('active');
         if (isOpen) {
@@ -756,7 +756,7 @@ function updateCameraStatus() {
         .then(data => {
             const indicator = document.getElementById('statusIndicator');
             const message = document.getElementById('statusMessage');
-            
+
             if (indicator && message) {
                 if (data.connected) {
                     indicator.style.background = '#00aa00';
@@ -911,13 +911,14 @@ if (verticalPresetBtn) {
 let bluetoothDevices = [];
 let bluetoothScanning = false;
 let bluetoothConnectedDevices = [];
+let bluetoothConnectingDevices = new Set(); // Track devices being connected
 
 function updateBluetoothUI() {
     const devicesList = document.getElementById('btDevicesList');
     const statusDisplay = document.getElementById('btStatusDisplay');
     const scanBtn = document.getElementById('btn_bt_scan');
     const stopBtn = document.getElementById('btn_bt_stop');
-    
+
     if (bluetoothScanning) {
         scanBtn.style.display = 'none';
         stopBtn.style.display = 'block';
@@ -926,7 +927,7 @@ function updateBluetoothUI() {
         scanBtn.style.display = 'block';
         stopBtn.style.display = 'none';
     }
-    
+
     if (bluetoothDevices.length === 0) {
         devicesList.innerHTML = '<div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">No devices found. Click "Scan Devices" to start.</div>';
         if (!bluetoothScanning) {
@@ -934,14 +935,15 @@ function updateBluetoothUI() {
         }
         return;
     }
-    
+
     statusDisplay.textContent = `Found ${bluetoothDevices.length} device${bluetoothDevices.length !== 1 ? 's' : ''}`;
-    
+
     devicesList.innerHTML = bluetoothDevices.map(device => {
         const addressShort = device.address.substring(device.address.length - 5).toUpperCase();
         const statusClass = device.connected ? 'connected' : device.paired ? 'paired' : '';
         const statusText = device.connected ? '🔗 Connected' : device.paired ? '✓ Paired' : '⊗ Available';
-        
+        const isConnecting = bluetoothConnectingDevices.has(device.address);
+
         return `
             <div style="
                 padding: var(--spacing-sm);
@@ -960,10 +962,10 @@ function updateBluetoothUI() {
                     </div>
                 </div>
                 <div style="margin-bottom: 4px; font-size: 10px; color: var(--accent);">
-                    ${statusText}
+                    ${isConnecting ? '<span style="animation: blink 1s infinite;">🔄 Connecting...</span>' : statusText}
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px;">
-                    ${!device.connected ? `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothConnect('${device.address}')">Connect</button>` : `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>`}
+                    ${!device.connected ? `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px; ${isConnecting ? 'opacity: 0.6; cursor: not-allowed;' : ''}" id="btn_connect_${device.address}" onclick="bluetoothConnect('${device.address}')" ${isConnecting ? 'disabled' : ''}>${isConnecting ? '⏳ Connecting...' : 'Connect'}</button>` : `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>`}
                     <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothSetActive('${device.address}')">Set Active</button>
                     <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;"  onclick="bluetoothRemove('${device.address}')">Remove</button>
                 </div>
@@ -974,17 +976,17 @@ function updateBluetoothUI() {
 
 function updateConnectedBluetoothUI() {
     const connectedList = document.getElementById('btConnectedList');
-    
+
     if (!bluetoothConnectedDevices || bluetoothConnectedDevices.length === 0) {
         connectedList.innerHTML = '<div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">No devices connected</div>';
         return;
     }
-    
+
     connectedList.innerHTML = bluetoothConnectedDevices.map(device => {
         const addressShort = device.address.substring(device.address.length - 5).toUpperCase();
         const signalBar = device.signal_strength || '▓░░░░';
         const isActive = device.is_active;
-        
+
         return `
             <div style="
                 padding: var(--spacing-sm);
@@ -1026,13 +1028,24 @@ function fetchConnectedDevices() {
 }
 
 function bluetoothConnect(address) {
+    // Mark device as connecting
+    bluetoothConnectingDevices.add(address);
+    updateBluetoothUI();
+
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             action: 'bluetooth_connect',
             address: address
         }));
-        // Fetch connected devices after a short delay to allow connection to complete
-        setTimeout(fetchConnectedDevices, 1500);
+        // Fetch connected devices after a delay to allow connection to complete
+        setTimeout(() => {
+            bluetoothConnectingDevices.delete(address);
+            updateBluetoothUI();
+            fetchConnectedDevices();
+        }, 1500);
+    } else {
+        bluetoothConnectingDevices.delete(address);
+        updateBluetoothUI();
     }
 }
 
@@ -1108,7 +1121,7 @@ fetchConnectedDevices();
 setTimeout(fetchConnectedDevices, 300);
 setTimeout(fetchConnectedDevices, 600);
 
-// Then poll every 3 seconds (more aggressive)
-setInterval(fetchConnectedDevices, 3000);
+// Then poll every 5 seconds (more relaxed for Orange Pi)
+setInterval(fetchConnectedDevices, 5000);
 
 connectWebSocket();

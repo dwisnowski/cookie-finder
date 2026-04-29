@@ -7,6 +7,8 @@ import asyncio
 import threading
 import traceback
 import subprocess
+import platform
+import sys
 from typing import List, Dict, Optional, Callable, Set
 from bleak import BleakScanner, BleakClient, BleakError
 
@@ -68,11 +70,24 @@ class BluetoothController:
         self.joystick_thread: Optional[threading.Thread] = None  # Thread for reading joystick
         self.joystick_running = False
         self.last_joystick_input: Dict = {"pan_axis": 0.0, "tilt_axis": 0.0, "buttons": {}}  # Latest joystick state
+        
+        # Caching for system device checks
+        self.last_system_check = 0
+        self._cached_system_connected = set()
+        self.system_check_cooldown = 10.0  # Seconds between physical checks
     
     def _get_system_connected_devices(self) -> Set[str]:
         """Query system Bluetooth adapter for actually connected devices (Linux)."""
+        import time
+        now = time.time()
+        
+        # Return cached result if within cooldown period
+        if now - self.last_system_check < self.system_check_cooldown:
+            return self._cached_system_connected
+            
         connected = set()
         try:
+            self.last_system_check = now
             # Try to get connected devices from bluetoothctl
             result = subprocess.run(
                 ['bluetoothctl', '--', 'devices', 'Connected'],
@@ -89,16 +104,23 @@ class BluetoothController:
                         if len(parts) >= 2:
                             address = parts[1]
                             connected.add(address.upper())
-                print(f"[BT] System-connected devices: {connected}")
+                # print(f"[BT] System-connected devices: {connected}")
             else:
-                print(f"[BT] bluetoothctl returned code {result.returncode}: {result.stderr}")
+                # print(f"[BT] bluetoothctl returned code {result.returncode}: {result.stderr}")
+                pass
+        except subprocess.TimeoutExpired:
+            print(f"[BT] Warning: bluetoothctl connection query timed out (using cached results)")
+            return self._cached_system_connected
+        except FileNotFoundError:
+            print(f"[BT] bluetoothctl not found - is bluez installed? Run: sudo apt install bluez")
         except Exception as e:
             print(f"[BT] Error querying system devices: {e}")
         
+        self._cached_system_connected = connected
         return connected
     
     def _get_device_name_from_system(self, address: str) -> Optional[str]:
-        """Query device name from bluetoothctl."""
+        """Query device name from bluetoothctl (Linux only)."""
         try:
             # Use bluetoothctl to get device info
             result = subprocess.run(
@@ -200,11 +222,21 @@ class BluetoothController:
     async def _scan_async(self):
         """Async scanning using bleak."""
         try:
-            print("[BT] Scanning for BLE devices...")
+            print("[BT] Starting BLE scan...")
+            print("[BT] Scanning for Bluetooth Low Energy (BLE) devices advertising nearby")
+            print("[BT] This will run for ~6 seconds. Ensure your target device is:")
+            print("[BT]   1. Powered ON")
+            print("[BT]   2. In pairing/advertising mode")
+            print("[BT]   3. Within Bluetooth range (~10 meters)")
+            
+            devices_found_count = 0
             
             # Scan for devices - detection_callback is called as devices are found
             def on_detection(device, advertisement_data):
                 """Callback when a device is discovered."""
+                nonlocal devices_found_count
+                devices_found_count += 1
+                
                 address = device.address
                 
                 # Extract name from advertisement data (multiple possible locations)
@@ -227,13 +259,28 @@ class BluetoothController:
                 # Emit periodic update
                 devices_list = self.get_devices_list()
                 self._emit_status("scan_update", {"devices": devices_list})
-                print(f"[BT] Found: {name} ({address}) RSSI={rssi}")
+                print(f"[BT] Found: {name} ({address}) RSSI={rssi} dBm")
             
             # Run scanner for ~6 seconds
             async with BleakScanner(detection_callback=on_detection) as scanner:
                 await asyncio.sleep(6)
             
-            print(f"[BT] Scan complete. Found {len(self.devices)} devices")
+            print(f"[BT] Scan complete. Found {devices_found_count} devices during scan, {len(self.devices)} total in cache")
+            
+            if len(self.devices) == 0:
+                print(f"[BT] No BLE devices found. Debugging steps:")
+                print(f"[BT] 1. Check Bluetooth adapter status:")
+                print(f"[BT]    sudo hciconfig")
+                print(f"[BT]    (Look for 'UP RUNNING' - if 'DOWN', run: sudo hciconfig hci0 up)")
+                print(f"[BT] 2. Check Bluetooth service:")
+                print(f"[BT]    sudo systemctl status bluetooth")
+                print(f"[BT] 3. Manually scan with bluetoothctl:")
+                print(f"[BT]    bluetoothctl scan on")
+                print(f"[BT] 4. Verify target device is:")
+                print(f"[BT]    - Powered ON and advertising")
+                print(f"[BT]    - Within ~10 meters of this system")
+                print(f"[BT]    - Not already connected to another device")
+            
             self.scanning = False
             self._emit_status("scan_complete", {"devices": self.get_devices_list()})
         
@@ -567,7 +614,7 @@ class BluetoothController:
         """Get list of discovered devices as dictionaries, including system-connected devices."""
         # Check system for actual connections
         system_connected = self._get_system_connected_devices()
-        print(f"[BT] get_devices_list() called, system_connected={system_connected}")
+        # print(f"[BT] get_devices_list() called, system_connected={system_connected}")
         
         devices_list = []
         seen_addresses = set()
@@ -579,13 +626,14 @@ class BluetoothController:
             # Mark as connected if it's actually connected at system level
             if address.upper() in system_connected:
                 device_dict["connected"] = True
-                print(f"[BT] Marking discovered device as connected: {address} → connected={device_dict.get('connected')}")
+                # print(f"[BT] Marking discovered device as connected: {address} → connected={device_dict.get('connected')}")
             else:
-                print(f"[BT] Device {address} not in system_connected")
+                # print(f"[BT] Device {address} not in system_connected")
+                pass
             devices_list.append(device_dict)
         
         # Add system-connected devices that weren't discovered
-        print(f"[BT] Checking for system-only devices: system_connected={system_connected}, seen={seen_addresses}")
+        # print(f"[BT] Checking for system-only devices: system_connected={system_connected}, seen={seen_addresses}")
         for sys_address in system_connected:
             if sys_address not in seen_addresses:
                 # Device is connected at system level but not in our discovered list
@@ -603,11 +651,11 @@ class BluetoothController:
                 
                 device_dict = device.to_dict()
                 devices_list.append(device_dict)
-                print(f"[BT] Added system-connected device: {sys_address} ({device_name}) with connected={device_dict.get('connected')}")
+                # print(f"[BT] Added system-connected device: {sys_address} ({device_name}) with connected={device_dict.get('connected')}")
         
-        print(f"[BT] get_devices_list() returning {len(devices_list)} total devices (system_connected count: {len(system_connected)})")
-        for i, d in enumerate(devices_list):
-            print(f"[BT]   [{i}] {d.get('address')}: connected={d.get('connected')}")
+        # print(f"[BT] get_devices_list() returning {len(devices_list)} total devices (system_connected count: {len(system_connected)})")
+        # for i, d in enumerate(devices_list):
+        #     print(f"[BT]   [{i}] {d.get('address')}: connected={d.get('connected')}")
         return devices_list
     
     def get_device(self, address: str) -> Optional[BluetoothDevice]:
@@ -762,31 +810,50 @@ class BluetoothController:
         self.joystick_thread = threading.Thread(target=self._joystick_read_loop, daemon=True)
         self.joystick_thread.start()
     
-    def _find_gamepad_device(self):
-        """Find the gamepad input device using pygame."""
+    def _find_gamepad_device(self, retry_attempts=3, retry_delay=1.0):
+        """Find the gamepad input device using pygame with retry logic.
+        
+        Args:
+            retry_attempts: Number of times to retry if no joystick found
+            retry_delay: Seconds to wait between retry attempts
+        """
         if not pygame:
             return None
         
-        try:
-            pygame.init()
-            pygame.joystick.init()
+        for attempt in range(1, retry_attempts + 1):
+            try:
+                pygame.init()
+                pygame.joystick.init()
+                
+                joystick_count = pygame.joystick.get_count()
+                print(f"[INPUT] Attempt {attempt}/{retry_attempts}: Found {joystick_count} joystick(s)")
+                
+                if joystick_count == 0:
+                    if attempt < retry_attempts:
+                        print(f"[INPUT] No joysticks detected yet, waiting {retry_delay}s before retry...")
+                        import time
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        print("[INPUT] No joysticks detected after all retries")
+                        return None
+                
+                # Use the first joystick
+                joystick = pygame.joystick.Joystick(0)
+                joystick.init()
+                print(f"[INPUT] ✓ Using joystick: {joystick.get_name()}")
+                return joystick
             
-            joystick_count = pygame.joystick.get_count()
-            print(f"[INPUT] Found {joystick_count} joystick(s)")
-            
-            if joystick_count == 0:
-                print("[INPUT] No joysticks detected")
-                return None
-            
-            # Use the first joystick
-            joystick = pygame.joystick.Joystick(0)
-            joystick.init()
-            print(f"[INPUT] Using joystick: {joystick.get_name()}")
-            return joystick
+            except Exception as e:
+                print(f"[INPUT] Error initializing pygame (attempt {attempt}/{retry_attempts}): {type(e).__name__}: {e}")
+                if attempt < retry_attempts:
+                    import time
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    return None
         
-        except Exception as e:
-            print(f"[INPUT] Error initializing pygame: {type(e).__name__}: {e}")
-            return None
+        return None
     
     def _joystick_read_loop(self):
         """Background thread loop to read joystick events via pygame."""
@@ -799,8 +866,12 @@ class BluetoothController:
             # Find and initialize pygame joystick
             joystick = self._find_gamepad_device()
             if not joystick:
-                print("[INPUT] No gamepad device found")
-                print("[INPUT] Try: jstest /dev/input/js0")
+                print("[INPUT] ✗ No gamepad device found")
+                print("[INPUT] Troubleshooting:")
+                print("[INPUT]   1. Ensure your Bluetooth gamepad is fully connected (check 'bluetoothctl devices Connected')")
+                print("[INPUT]   2. Check if device appears in /dev/input/: ls -la /dev/input/js*")
+                print("[INPUT]   3. Test manually: jstest /dev/input/js0")
+                print("[INPUT]   4. Check Bluetooth device settings - may need explicit pairing")
                 self.joystick_running = False
                 return
             

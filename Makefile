@@ -1,4 +1,4 @@
-.PHONY: help run run-standalone run-web run-web-custom test-gamepad test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw test-motors-tilt-ccw test-motors-home test-bluetooth-input test-gimbal-gamepad install install-yolo install-docs docs clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera test-pan-step test-all-gpio
+.PHONY: help init run run-standalone run-web run-web-custom test-gamepad test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw test-motors-tilt-ccw test-motors-home test-bluetooth-input test-gimbal-gamepad install install-yolo install-docs docs clean list-devices list-controls get-control set-control install-ffmpeg install-libusb list-cameras list-camera-formats probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu find-camera test-pan-step test-all-gpio
 
 .DEFAULT_GOAL := help
 
@@ -11,6 +11,7 @@ help:
 	@echo "  make install-docs      Install MkDocs dependencies"
 	@echo "  make install-ffmpeg    Install FFmpeg (macOS)"
 	@echo "  make install-libusb    Install libusb (macOS)"
+	@echo "  make init              Initialize Bluetooth permissions (Orange Pi)"
 	@echo ""
 	@echo "Running the Application:"
 	@echo "  make run               Start web server (default)"
@@ -73,6 +74,11 @@ install-ffmpeg:
 
 install-libusb:
 	brew install libusb
+
+init:
+	@echo "Initializing system permissions for Bluetooth..."
+	sudo usermod -aG bluetooth cookie
+	@echo "Bluetooth group permissions added. Please log out and log back in for changes to take effect."
 
 # Run modes
 run: run-web
