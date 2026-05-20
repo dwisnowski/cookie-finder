@@ -20,9 +20,18 @@ GPIO Pin Layout (Orange Pi Zero 2W, gpiochip0):
     - Limit Switch (input, active low): GPIO32
 """
 
+import logging
 import threading
 from typing import Optional
 from cookie_finder.gimbal.stepper import StepperMotor, MotorDirection
+
+logger = logging.getLogger(__name__)
+
+if not logging.root.handlers:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+    )
 
 
 class PanTiltGimbal:
@@ -38,7 +47,7 @@ class PanTiltGimbal:
     PAN_CONTROL_PINS = (271, 268, 258, 272)   # IN1-IN4 for pan motor (PI15, PI12, PI02, PI16)
     PAN_LIMIT_PIN = 264                         # Limit switch for pan end (TBD)
     
-    TILT_CONTROL_PINS = (224, 225, 257, 270)  # IN1-IN4 for tilt motor (PH0, PH1, PI01, PI14)
+    TILT_CONTROL_PINS = (262, 229, 233, 265)  # IN1-IN4 for tilt motor (PH0, PH1, PI01, PI14)
     TILT_LIMIT_PIN = 263                        # Limit switch for tilt end (TBD)
     
     def __init__(self, max_pan: float = 180.0, max_tilt: float = 180.0):
@@ -51,18 +60,19 @@ class PanTiltGimbal:
         """
         self.max_pan = max_pan
         self.max_tilt = max_tilt
-        
+        logger.info("PanTiltGimbal.__init__(max_pan=%.1f, max_tilt=%.1f)", max_pan, max_tilt)
+
         # Create motor controllers
         self.pan_motor = StepperMotor(
             control_pins=self.PAN_CONTROL_PINS,
-            limit_switch_pin=self.PAN_LIMIT_PIN,
+            # limit_switch_pin=self.PAN_LIMIT_PIN,
             max_angle=max_pan,
             motor_name="Pan",
         )
         
         self.tilt_motor = StepperMotor(
             control_pins=self.TILT_CONTROL_PINS,
-            limit_switch_pin=self.TILT_LIMIT_PIN,
+            # limit_switch_pin=self.TILT_LIMIT_PIN,
             max_angle=max_tilt,
             motor_name="Tilt",
         )
@@ -79,6 +89,7 @@ class PanTiltGimbal:
             pan_hz: Pan motor stepping frequency (500-2000 Hz recommended)
             tilt_hz: Tilt motor stepping frequency
         """
+        logger.info("set_speed(pan_hz=%.1f, tilt_hz=%.1f)", pan_hz, tilt_hz)
         with self._lock:
             self.pan_motor.set_speed(pan_hz)
             self.tilt_motor.set_speed(tilt_hz)
@@ -93,10 +104,11 @@ class PanTiltGimbal:
             pan_angle: Target pan angle in degrees (0 to max_pan)
             tilt_angle: Target tilt angle in degrees (0 to max_tilt)
         """
+        logger.info("move_to_angles(pan=%.1f, tilt=%.1f)", pan_angle, tilt_angle)
         with self._lock:
             pan_angle = max(0, min(pan_angle, self.max_pan))
             tilt_angle = max(0, min(tilt_angle, self.max_tilt))
-            
+
             self.pan_motor.move_to_angle(pan_angle)
             self.tilt_motor.move_to_angle(tilt_angle)
     
@@ -107,9 +119,10 @@ class PanTiltGimbal:
         Args:
             angle: Pan angle in degrees
         """
+        logger.info("pan(angle=%.1f)", angle)
         with self._lock:
             self.pan_motor.move_to_angle(angle)
-    
+
     def tilt(self, angle: float) -> None:
         """
         Move tilt motor to angle, leave pan unchanged.
@@ -117,9 +130,10 @@ class PanTiltGimbal:
         Args:
             angle: Tilt angle in degrees
         """
+        logger.info("tilt(angle=%.1f)", angle)
         with self._lock:
             self.tilt_motor.move_to_angle(angle)
-    
+
     def pan_step(self, direction: int, steps: int = 1) -> None:
         """
         Step pan motor incrementally.
@@ -128,10 +142,11 @@ class PanTiltGimbal:
             direction: 1 for clockwise, -1 for counterclockwise
             steps: Number of half-steps
         """
+        logger.info("pan_step(direction=%d, steps=%d)", direction, steps)
         with self._lock:
             motor_dir = MotorDirection.CLOCKWISE if direction > 0 else MotorDirection.COUNTERCLOCKWISE
             self.pan_motor.step(motor_dir, steps)
-    
+
     def tilt_step(self, direction: int, steps: int = 1) -> None:
         """
         Step tilt motor incrementally.
@@ -140,10 +155,11 @@ class PanTiltGimbal:
             direction: 1 for up, -1 for down
             steps: Number of half-steps
         """
+        logger.info("tilt_step(direction=%d, steps=%d)", direction, steps)
         with self._lock:
             motor_dir = MotorDirection.CLOCKWISE if direction > 0 else MotorDirection.COUNTERCLOCKWISE
             self.tilt_motor.step(motor_dir, steps)
-    
+
     def get_position(self) -> tuple:
         """
         Get current pan and tilt angles.
@@ -152,12 +168,16 @@ class PanTiltGimbal:
             (pan_angle, tilt_angle) in degrees
         """
         with self._lock:
-            return (self.pan_motor.get_angle(), self.tilt_motor.get_angle())
-    
+            position = (self.pan_motor.get_angle(), self.tilt_motor.get_angle())
+        logger.debug("get_position() -> (%.1f, %.1f)", position[0], position[1])
+        return position
+
     def is_moving(self) -> bool:
         """Check if either motor is currently moving."""
         with self._lock:
-            return self.pan_motor.is_moving or self.tilt_motor.is_moving
+            moving = self.pan_motor.is_moving or self.tilt_motor.is_moving
+        logger.debug("is_moving() -> %s", moving)
+        return moving
     
     def home(self) -> None:
         """
@@ -166,7 +186,7 @@ class PanTiltGimbal:
         
         Blocks until both motors are homed.
         """
-        print("[Gimbal] Homing...")
+        logger.info("home() starting")
         with self._lock:
             self._is_calibrated = False
         
@@ -179,23 +199,26 @@ class PanTiltGimbal:
         with self._lock:
             self._is_calibrated = True
         
-        print("[Gimbal] Homing complete: (0°, 0°)")
-    
+        logger.info("home() complete (0°, 0°)")
+
     def is_calibrated(self) -> bool:
         """Check if gimbal has been calibrated."""
         with self._lock:
-            return self._is_calibrated
-    
+            calibrated = self._is_calibrated
+        logger.debug("is_calibrated() -> %s", calibrated)
+        return calibrated
+
     def stop(self) -> None:
         """Stop both motors and hold current position."""
+        logger.info("stop()")
         with self._lock:
             self.pan_motor.stop()
             self.tilt_motor.stop()
     
     def cleanup(self) -> None:
         """Clean up GPIO resources and stop motors."""
-        print("[Gimbal] Cleaning up...")
+        logger.info("cleanup()")
         with self._lock:
             self.pan_motor.cleanup()
             self.tilt_motor.cleanup()
-        print("[Gimbal] Cleanup complete")
+        logger.info("cleanup() complete")
