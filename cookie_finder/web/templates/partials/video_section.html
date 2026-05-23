@@ -1,0 +1,31 @@
+        <div class="video-section">
+            <img id="videoStream" src="/video" alt="Thermal camera feed" class="video-stream">
+            <div class="status">
+                <div id="statusText">Connecting...</div>
+            </div>
+            <!-- Palette Controls (shown when Palette mode is active) -->
+            <div class="palette-panel" id="palettePanel">
+                <div style="display: flex; gap: 5px; margin-bottom: 10px;">
+                    <button class="btn" id="btn_palette_prev" style="flex: 1; font-size: 11px;">← Prev</button>
+                    <button class="btn" id="btn_palette_next" style="flex: 1; font-size: 11px;">Next →</button>
+                </div>
+                <div id="currentPaletteInfo" style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color); font-size: 11px; text-align: center; color: var(--text-secondary); transition: all var(--transition-normal);">
+                    <span id="currentPaletteName">Ironbow</span>
+                </div>
+            </div>
+            <!-- Parameters (shown when Isotherm mode is active) -->
+            <div class="parameters-panel" id="parametersPanel">
+                <div class="slider-group">
+                    <div class="slider-label">Threshold: <span id="val_threshold">127</span></div>
+                    <input type="range" min="0" max="255" value="127" id="slider_threshold_value">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">Isotherm Min: <span id="val_isotherm_min">100</span></div>
+                    <input type="range" min="0" max="255" value="100" id="slider_isotherm_min">
+                </div>
+                <div class="slider-group">
+                    <div class="slider-label">Isotherm Max: <span id="val_isotherm_max">200</span></div>
+                    <input type="range" min="0" max="255" value="200" id="slider_isotherm_max">
+                </div>
+            </div>
+        </div>

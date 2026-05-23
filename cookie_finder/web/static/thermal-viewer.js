@@ -44,6 +44,9 @@ const PAN_MAX = 150;
 const TILT_MAX = 60;
 const PAN_STEP = 5;
 const TILT_STEP = 5;
+const MOTOR_SPEED_MIN_HZ = 100;
+const MOTOR_SPEED_MAX_HZ = 2000;
+const MOTOR_SPEED_DEFAULT_HZ = 500;
 const GAMEPAD_DEADZONE = 0.15;
 const GAMEPAD_SENSITIVITY = 100;
 
@@ -80,6 +83,43 @@ const gamepadPresets = {
 
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
+}
+
+function sliderToHz(value) {
+    const t = parseInt(value, 10) / 100;
+    return Math.round(MOTOR_SPEED_MIN_HZ + t * (MOTOR_SPEED_MAX_HZ - MOTOR_SPEED_MIN_HZ));
+}
+
+function hzToSlider(hz) {
+    const t = (hz - MOTOR_SPEED_MIN_HZ) / (MOTOR_SPEED_MAX_HZ - MOTOR_SPEED_MIN_HZ);
+    return Math.round(clamp(t, 0, 1) * 100);
+}
+
+function getMotorSpeeds() {
+    const panSlider = document.getElementById('slider_pan_speed');
+    const tiltSlider = document.getElementById('slider_tilt_speed');
+    return {
+        pan_hz: sliderToHz(panSlider ? panSlider.value : hzToSlider(MOTOR_SPEED_DEFAULT_HZ)),
+        tilt_hz: sliderToHz(tiltSlider ? tiltSlider.value : hzToSlider(MOTOR_SPEED_DEFAULT_HZ)),
+    };
+}
+
+function updateMotorSpeedLabels() {
+    const speeds = getMotorSpeeds();
+    const panLabel = document.getElementById('val_pan_speed');
+    const tiltLabel = document.getElementById('val_tilt_speed');
+    if (panLabel) panLabel.textContent = speeds.pan_hz + ' Hz';
+    if (tiltLabel) tiltLabel.textContent = speeds.tilt_hz + ' Hz';
+}
+
+function sendMotorSpeed() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const speeds = getMotorSpeeds();
+    ws.send(JSON.stringify({
+        action: 'set_motor_speed',
+        pan_hz: speeds.pan_hz,
+        tilt_hz: speeds.tilt_hz,
+    }));
 }
 
 function updateCameraSelector() {
@@ -341,6 +381,7 @@ function connectWebSocket() {
     ws.onopen = () => {
         document.getElementById('statusText').innerHTML = 'Connected';
         updateCameraSelector();
+        sendMotorSpeed();
         // Fetch connected devices immediately and multiple times
         fetchConnectedDevices();
         setTimeout(fetchConnectedDevices, 500);
@@ -623,6 +664,22 @@ document.getElementById('btn_palette_next').addEventListener('click', () => {
         }));
     }
 });
+
+const sliderPanSpeed = document.getElementById('slider_pan_speed');
+const sliderTiltSpeed = document.getElementById('slider_tilt_speed');
+if (sliderPanSpeed) {
+    sliderPanSpeed.addEventListener('input', () => {
+        updateMotorSpeedLabels();
+        sendMotorSpeed();
+    });
+}
+if (sliderTiltSpeed) {
+    sliderTiltSpeed.addEventListener('input', () => {
+        updateMotorSpeedLabels();
+        sendMotorSpeed();
+    });
+}
+updateMotorSpeedLabels();
 
 // Motor control
 const motorCommands = {

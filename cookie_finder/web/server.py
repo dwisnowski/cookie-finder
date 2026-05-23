@@ -687,6 +687,14 @@ def create_app(camera_id=None):
                             await client.send_json({"type": "state", "data": state})
                         except:
                             pass
+
+                elif action == "set_motor_speed":
+                    if gimbal is None:
+                        await websocket.send_json({"type": "error", "message": "Gimbal not initialized"})
+                    else:
+                        pan_hz = float(command.get("pan_hz", 500))
+                        tilt_hz = float(command.get("tilt_hz", 500))
+                        gimbal.set_speed(pan_hz=pan_hz, tilt_hz=tilt_hz)
                 
                 elif action == "motor_command":
                     motor_cmd = command.get("command")
@@ -727,7 +735,6 @@ def create_app(camera_id=None):
                                         gimbal.pan_step(1, steps=2)
 
                                     broadcast_gimbal_position_threadsafe()
-                                    time.sleep(0.1)  # Small delay between steps
                             
                             motor_thread = threading.Thread(target=step_motor, daemon=True)
                             motor_thread.start()

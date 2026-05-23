@@ -1,0 +1,30 @@
+{% macro section(title) %}
+<div class="section">
+    <div class="section-title">{{ title }}</div>
+    {{ caller() }}
+</div>
+{% endmacro %}
+
+{% macro button_grid(buttons) %}
+<div class="button-grid">
+    {% for id, label, title in buttons %}
+    <button class="btn" id="{{ id }}" title="{{ title }}">{{ label }}</button>
+    {% endfor %}
+</div>
+{% endmacro %}
+
+{% macro shortcut_items(items) %}
+    {% for key, desc in items %}
+    <div class="shortcut-item">
+        <div class="shortcut-key">{{ key }}</div>
+        <div class="shortcut-desc">{{ desc }}</div>
+    </div>
+    {% endfor %}
+{% endmacro %}
+
+{% macro shortcut_section(title, items) %}
+<div class="modal-section">
+    <div class="modal-section-title">{{ title }}</div>
+    {{ shortcut_items(items) }}
+</div>
+{% endmacro %}

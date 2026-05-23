@@ -1,0 +1,81 @@
+{% from "macros/ui.html" import button_grid %}
+        <div class="controls">
+            <div class="section">
+                <div class="section-title">Detection Modes</div>
+                {{ button_grid([
+                    ("btn_h", "H: Heat Seeker", "Heat Seeker Mode"),
+                    ("btn_c", "C: Cluster", "Heat Cluster Mode"),
+                    ("btn_m", "M: Motion", "Motion Detection"),
+                    ("btn_p", "P: Palette", "Palette/Thermal Colors"),
+                    ("btn_t", "T: Threshold", "Threshold"),
+                    ("btn_y", "Y: YOLO", "YOLO AI"),
+                    ("btn_f", "F: Flow", "Optical Flow"),
+                    ("btn_i", "I: Isotherm", "Isotherm"),
+                ]) }}
+            </div>
+
+            <div class="section">
+                <div class="section-title">Enhancements</div>
+                {{ button_grid([
+                    ("btn_d", "D: Denoise", "Denoise"),
+                    ("btn_o", "O: Normalize", "Normalize"),
+                    ("btn_e", "E: Enhance", "Enhance"),
+                    ("btn_u", "U: Upscale", "Upscale"),
+                ]) }}
+            </div>
+
+            <div class="section">
+                <div class="section-title">Stabilization</div>
+                {{ button_grid([
+                    ("btn_s", "S: Stabilize", "Stabilize"),
+                    ("btn_x", "X: Super Stab", "Super Stab"),
+                ]) }}
+
+                <div class="slider-group">
+                    <div class="slider-label">Strength: <span id="stab_strength">1.0</span></div>
+                    <input type="range" min="0" max="100" value="100" id="slider_stabilize_strength">
+                </div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Display</div>
+                <button class="btn" id="btn_w" style="width: 100%; margin-bottom: 8px;">W: Show Text</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Bluetooth Devices</div>
+<!-- Connected Devices Section -->
+                <div style="margin-bottom: 12px;">
+                    <div style="font-size: 10px; color: var(--accent); font-weight: bold; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Active Connections</div>
+                    <div id="btConnectedList" style="border: 1px solid rgba(0, 255, 136, 0.2); border-radius: var(--radius-sm); background: rgba(0, 255, 136, 0.05); padding: var(--spacing-sm);">
+                        <div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">
+                            No devices connected
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Scanning Controls -->
+                <div style="margin-bottom: 8px;">
+                    <button class="btn" id="btn_bt_scan" style="width: 100%; margin-bottom: 8px;" title="Scan for devices">🔍 Scan Devices</button>
+                    <button class="btn" id="btn_bt_stop" style="width: 100%; margin-bottom: 8px; display: none;" title="Stop scanning">⏹ Stop Scan</button>
+                </div>
+                
+                <div id="btStatusDisplay" style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 8px; text-align: center;">
+                    Ready to scan
+                </div>
+                
+                <!-- Discovered Devices List -->
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                    <div style="font-size: 10px; color: var(--text-secondary); font-weight: bold;">Found Devices</div>
+                    <label style="font-size: 9px; color: var(--text-tertiary); display: flex; align-items: center; gap: 4px; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="chk_hide_unknown" checked style="width: 12px; height: 12px; cursor: pointer;">
+                        Hide Unknown
+                    </label>
+                </div>
+                <div id="btDevicesList" style="max-height: 280px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: rgba(45, 55, 72, 0.3); padding: var(--spacing-sm);">
+                    <div style="color: var(--text-tertiary); font-size: 11px; text-align: center; padding: var(--spacing-md);">
+                        No devices found. Click "Scan Devices" to start.
+                    </div>
+                </div>
+            </div>
+        </div>

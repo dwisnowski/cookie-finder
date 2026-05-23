@@ -1,0 +1,55 @@
+{% from "macros/ui.html" import shortcut_section, shortcut_items %}
+    <!-- Help Modal -->
+    <div id="helpOverlay" class="modal-overlay">
+        <div class="modal-content">
+            <button class="modal-close" id="closeHelpBtn">&times;</button>
+            <div class="modal-header">⌨️ Keyboard Shortcuts</div>
+
+            {{ shortcut_section("Detection Modes", [
+                ("H", "Heat Seeker Mode"),
+                ("C", "Heat Cluster Mode"),
+                ("M", "Motion Detection"),
+                ("P", "Palette / Thermal Colors"),
+                ("T", "Threshold Mode"),
+                ("Y", "YOLO AI Detection"),
+                ("F", "Optical Flow"),
+                ("I", "Isotherm Mode"),
+            ]) }}
+
+            {{ shortcut_section("Enhancements", [
+                ("D", "Denoise"),
+                ("O", "Normalize"),
+                ("E", "Enhance"),
+                ("U", "Upscale"),
+            ]) }}
+
+            {{ shortcut_section("Stabilization & Display", [
+                ("S", "Stabilize"),
+                ("X", "Super Stabilize"),
+                ("W", "Show Text Overlay"),
+            ]) }}
+
+            {{ shortcut_section("Color Palette", [
+                ("[", "Previous Palette"),
+                ("]", "Next Palette"),
+            ]) }}
+
+            <div class="modal-section">
+                <div class="modal-section-title">Motor / Pan-Tilt Control</div>
+                {{ shortcut_items([
+                    ("↑", "Tilt Up (max +60°)"),
+                    ("↓", "Tilt Down (max -60°)"),
+                    ("←", "Pan Left (max -150°)"),
+                    ("→", "Pan Right (max +150°)"),
+                    ("HOME", "Return to Center Position"),
+                ]) }}
+                <div style="margin-top: 10px; padding: 10px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-md); font-size: 11px; color: var(--text-tertiary); border: 1px solid var(--border-color);">
+                    Visual crosshair indicator shows current pan/tilt position. Camera resets to center when powered on.
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 20px; font-size: 12px; color: var(--text-tertiary);">
+                <p>Press <strong>?</strong> or click "Help" to close this overlay</p>
+            </div>
+        </div>
+    </div>
