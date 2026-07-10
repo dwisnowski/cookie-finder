@@ -20,7 +20,21 @@ Started with `make run` (or `uv run main.py --web`). Serves on `http://0.0.0.0:8
 
 ## WebSocket — `/control`
 
-A persistent WebSocket for real-time bidirectional control.
+A persistent WebSocket for real-time bidirectional control. The server pushes status updates so the UI does not need to poll HTTP endpoints.
+
+### Server → client push messages
+
+| `type` | `data` | When sent |
+|--------|--------|-----------|
+| `state` | Processor state object | On connect, mode/param changes |
+| `gimbal_position` | `{pan, tilt}` | Motor/gamepad/BT input |
+| `camera_status` | `{connected, camera_id, message}` | On connect/disconnect/switch |
+| `available_cameras` | `{available, current}` | When camera list or selection changes |
+| `bluetooth` | `{status, data}` | Scan and device events |
+| `bluetooth_state` | `{devices, scanning}` | On WebSocket connect |
+| `bluetooth_connected` | `{connected_devices, active_device}` | On connect/disconnect/scan/active change |
+
+HTTP `GET /camera-status`, `/available-cameras`, and `/bluetooth/connected` remain available for debugging but are not polled by the UI.
 
 ### Toggle a mode
 

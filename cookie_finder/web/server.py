@@ -49,6 +49,108 @@ gimbal_position = {"pan": 0.0, "tilt": 0.0}  # Current gimbal angles
 gimbal_lock = threading.Lock()  # Thread-safe access to gimbal_position
 bt_device_connected = False  # Track if BT device is connected for input
 control_loop = None  # Event loop used for cross-thread WebSocket broadcasts
+_last_camera_broadcast = {"connected": None, "camera_id": None}
+_last_cameras_broadcast = None  # (tuple(available), current_id)
+_last_bt_connected_broadcast = None  # hashable snapshot for dedupe
+
+
+def get_camera_status_payload() -> dict:
+    return {
+        "connected": camera_connected,
+        "camera_id": camera_id_current,
+        "message": "Camera connected" if camera_connected else "Camera disconnected",
+    }
+
+
+def get_available_cameras_payload() -> dict:
+    return {
+        "available": list(available_cameras),
+        "current": camera_id_current,
+    }
+
+
+def get_bluetooth_connected_payload() -> dict | None:
+    if bluetooth_controller is None:
+        return {"connected_devices": [], "active_device": None}
+
+    all_devices = bluetooth_controller.get_devices_list()
+    connected = [d for d in all_devices if d.get("connected", False)]
+    active_addr = bluetooth_controller.get_connected_device()
+    for device in connected:
+        device["is_active"] = device.get("address", "").upper() == (
+            active_addr.upper() if active_addr else ""
+        )
+    return {
+        "connected_devices": connected,
+        "active_device": active_addr,
+    }
+
+
+async def broadcast_to_clients(message: dict) -> None:
+    """Broadcast a JSON message to all connected WebSocket clients."""
+    disconnected_clients = []
+    for client in list(active_clients):
+        try:
+            await client.send_json(message)
+        except Exception:
+            disconnected_clients.append(client)
+
+    for client in disconnected_clients:
+        active_clients.discard(client)
+        bt_active_clients.discard(client)
+
+
+def broadcast_to_clients_threadsafe(message: dict) -> None:
+    if control_loop is None:
+        return
+    try:
+        asyncio.run_coroutine_threadsafe(broadcast_to_clients(message), control_loop)
+    except Exception:
+        pass
+
+
+def broadcast_camera_status_threadsafe(force: bool = False) -> None:
+    global _last_camera_broadcast
+    payload = get_camera_status_payload()
+    if (
+        not force
+        and payload["connected"] == _last_camera_broadcast["connected"]
+        and payload["camera_id"] == _last_camera_broadcast["camera_id"]
+    ):
+        return
+    _last_camera_broadcast = {
+        "connected": payload["connected"],
+        "camera_id": payload["camera_id"],
+    }
+    broadcast_to_clients_threadsafe({"type": "camera_status", "data": payload})
+
+
+def broadcast_available_cameras_threadsafe(force: bool = False) -> None:
+    global _last_cameras_broadcast
+    payload = get_available_cameras_payload()
+    key = (tuple(payload["available"]), payload["current"])
+    if not force and key == _last_cameras_broadcast:
+        return
+    _last_cameras_broadcast = key
+    broadcast_to_clients_threadsafe({"type": "available_cameras", "data": payload})
+
+
+def broadcast_bluetooth_connected_threadsafe(force: bool = False) -> None:
+    global _last_bt_connected_broadcast
+    payload = get_bluetooth_connected_payload()
+    if payload is None:
+        return
+    key = (
+        tuple(d.get("address") for d in payload["connected_devices"]),
+        payload.get("active_device"),
+        tuple(
+            d.get("is_active") for d in payload["connected_devices"]
+        ),
+    )
+    if not force and key == _last_bt_connected_broadcast:
+        return
+    _last_bt_connected_broadcast = key
+    broadcast_to_clients_threadsafe({"type": "bluetooth_connected", "data": payload})
 
 
 def sync_gimbal_position() -> dict:
@@ -69,16 +171,7 @@ async def broadcast_gimbal_position(pos_data: dict | None = None) -> None:
         with gimbal_lock:
             pos_data = gimbal_position.copy()
 
-    disconnected_clients = []
-    for client in list(bt_active_clients):
-        try:
-            await client.send_json({"type": "gimbal_position", "data": pos_data})
-        except Exception:
-            disconnected_clients.append(client)
-
-    for client in disconnected_clients:
-        bt_active_clients.discard(client)
-        active_clients.discard(client)
+    await broadcast_to_clients({"type": "gimbal_position", "data": pos_data})
 
 
 def broadcast_gimbal_position_threadsafe(pos_data: dict | None = None) -> None:
@@ -135,7 +228,8 @@ def capture_frames(camera_id=None):
             test_cap.release()
     
     available_cameras = working_cameras
-    
+    broadcast_available_cameras_threadsafe(force=True)
+
     if not working_cameras:
         print(f"  ✗ No working cameras detected")
         if camera_id is None:
@@ -162,6 +256,9 @@ def capture_frames(camera_id=None):
                 test_cap = try_open_camera(test_id)
                 if test_cap is not None:
                     camera_id = test_id
+                    working_cameras.append(test_id)
+                    available_cameras = working_cameras
+                    broadcast_available_cameras_threadsafe(force=True)
                     print(f"✓ Detected camera at /dev/video{test_id}")
                     test_cap.release()
                     break
@@ -187,9 +284,12 @@ def capture_frames(camera_id=None):
                     print(f"✓ Camera connected (device {camera_id})")
                     retry_count = 0
                     last_log_retry = 0
+                    broadcast_camera_status_threadsafe()
+                    broadcast_available_cameras_threadsafe()
                 else:
                     camera_connected = False
                     camera_id_current = camera_id
+                    broadcast_camera_status_threadsafe()
                     retry_count += 1
                     # Only log every 5 retries to reduce noise
                     if retry_count == 1 or retry_count % 5 == 0:
@@ -213,6 +313,8 @@ def capture_frames(camera_id=None):
                 cap.release()
                 cap = None
                 prev_frame = None
+                camera_connected = False
+                broadcast_camera_status_threadsafe()
                 time.sleep(0.5)
                 continue
             
@@ -236,6 +338,8 @@ def capture_frames(camera_id=None):
                 cap.release()
             cap = None
             prev_frame = None
+            camera_connected = False
+            broadcast_camera_status_threadsafe()
             time.sleep(0.5)
     
     if cap is not None:
@@ -383,13 +487,17 @@ def create_app(camera_id=None):
             
             def bt_status_callback(update):
                 """Broadcast Bluetooth status to all connected WebSocket clients."""
-                for client in bt_active_clients:
-                    try:
-                        import asyncio
-                        asyncio.create_task(client.send_json({"type": "bluetooth", "data": update}))
-                    except:
-                        pass
-            
+                broadcast_to_clients_threadsafe({"type": "bluetooth", "data": update})
+                status = update.get("status")
+                if status in (
+                    "scan_complete",
+                    "scan_stopped",
+                    "device_connected",
+                    "device_disconnected",
+                    "device_removed",
+                ):
+                    broadcast_bluetooth_connected_threadsafe()
+
             bluetooth_controller.set_status_callback(bt_status_callback)
             print(f"✓ Bluetooth controller initialized")
         except Exception as e:
@@ -595,7 +703,8 @@ def create_app(camera_id=None):
             
             # Device is now active
             print(f"[BT] Set active input device: {device_address} ({device.name})")
-            
+            broadcast_bluetooth_connected_threadsafe(force=True)
+
             return {
                 "status": "success",
                 "address": device_address,
@@ -660,7 +769,22 @@ def create_app(camera_id=None):
                         "scanning": bluetooth_controller.scanning
                     }
                 })
-            
+                bt_payload = get_bluetooth_connected_payload()
+                if bt_payload is not None:
+                    await websocket.send_json({
+                        "type": "bluetooth_connected",
+                        "data": bt_payload,
+                    })
+
+            await websocket.send_json({
+                "type": "camera_status",
+                "data": get_camera_status_payload(),
+            })
+            await websocket.send_json({
+                "type": "available_cameras",
+                "data": get_available_cameras_payload(),
+            })
+
             while True:
                 data = await websocket.receive_text()
                 command = json.loads(data)
@@ -783,6 +907,7 @@ def create_app(camera_id=None):
                                 "address": address,
                                 "success": success
                             })
+                            broadcast_bluetooth_connected_threadsafe(force=True)
                         except Exception as e:
                             await websocket.send_json({
                                 "type": "error",
@@ -799,6 +924,7 @@ def create_app(camera_id=None):
                                 "address": address,
                                 "success": True
                             })
+                            broadcast_bluetooth_connected_threadsafe(force=True)
                         except Exception as e:
                             await websocket.send_json({
                                 "type": "error",
@@ -833,4 +959,16 @@ def run_webserver(host="0.0.0.0", port=8000, camera_id=None):
     print(f"Starting web server on {host}:{port}")
     print(f"Open browser: http://{host}:{port}")
     
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    access_log = os.environ.get("COOKIE_FINDER_ACCESS_LOG", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    log_level = "info" if access_log else "warning"
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level=log_level,
+        access_log=access_log,
+    )

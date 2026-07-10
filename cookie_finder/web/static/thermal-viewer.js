@@ -122,46 +122,42 @@ function sendMotorSpeed() {
     }));
 }
 
-function updateCameraSelector() {
-    fetch('/available-cameras')
-        .then(r => r.json())
-        .then(data => {
-            availableCameras = data.available;
-            currentCamera = data.current;
+function updateCameraSelector(data) {
+    if (!data) return;
+    availableCameras = data.available;
+    currentCamera = data.current;
 
-            const selector = document.getElementById('cameraSelector');
-            if (selector) {
-                selector.innerHTML = '';
+    const selector = document.getElementById('cameraSelector');
+    if (selector) {
+        selector.innerHTML = '';
 
-                if (availableCameras.length === 0) {
-                    selector.innerHTML = '<p style="font-size: 11px; color: #aaa;">No cameras available</p>';
-                } else {
-                    availableCameras.forEach(cameraId => {
-                        const btn = document.createElement('button');
-                        btn.className = 'btn';
-                        btn.style.width = '100%';
-                        btn.style.marginBottom = '5px';
-                        btn.textContent = `/dev/video${cameraId}`;
+        if (availableCameras.length === 0) {
+            selector.innerHTML = '<p style="font-size: 11px; color: #aaa;">No cameras available</p>';
+        } else {
+            availableCameras.forEach(cameraId => {
+                const btn = document.createElement('button');
+                btn.className = 'btn';
+                btn.style.width = '100%';
+                btn.style.marginBottom = '5px';
+                btn.textContent = `/dev/video${cameraId}`;
 
-                        if (cameraId === currentCamera) {
-                            btn.classList.add('active');
-                        }
-
-                        btn.addEventListener('click', () => {
-                            switchCamera(cameraId);
-                        });
-
-                        selector.appendChild(btn);
-                    });
+                if (cameraId === currentCamera) {
+                    btn.classList.add('active');
                 }
-            }
 
-            const currentCameraIdEl = document.getElementById('currentCameraId');
-            if (currentCameraIdEl) {
-                currentCameraIdEl.textContent = currentCamera !== null ? currentCamera : '--';
-            }
-        })
-        .catch(e => console.error('Failed to fetch cameras:', e));
+                btn.addEventListener('click', () => {
+                    switchCamera(cameraId);
+                });
+
+                selector.appendChild(btn);
+            });
+        }
+    }
+
+    const currentCameraIdEl = document.getElementById('currentCameraId');
+    if (currentCameraIdEl) {
+        currentCameraIdEl.textContent = currentCamera !== null ? currentCamera : '--';
+    }
 }
 
 function updatePanTiltIndicator() {
@@ -380,12 +376,7 @@ function connectWebSocket() {
 
     ws.onopen = () => {
         document.getElementById('statusText').innerHTML = 'Connected';
-        updateCameraSelector();
         sendMotorSpeed();
-        // Fetch connected devices immediately and multiple times
-        fetchConnectedDevices();
-        setTimeout(fetchConnectedDevices, 500);
-        setTimeout(fetchConnectedDevices, 1000);
     };
 
     ws.onmessage = (event) => {
@@ -399,6 +390,12 @@ function connectWebSocket() {
             currentPan = clamp(Number(pos.pan) || 0, 0, PAN_MAX);
             currentTilt = clamp(Number(pos.tilt) || 0, 0, TILT_MAX);
             updatePanTiltIndicator();
+        } else if (msg.type === 'camera_status') {
+            updateCameraStatus(msg.data);
+        } else if (msg.type === 'available_cameras') {
+            updateCameraSelector(msg.data);
+        } else if (msg.type === 'bluetooth_connected') {
+            applyBluetoothConnected(msg.data);
         } else if (msg.type === 'bluetooth') {
             // Handle Bluetooth status updates from controller
             const btUpdate = msg.data;
@@ -409,31 +406,21 @@ function connectWebSocket() {
             } else if (btUpdate.status === 'scan_update') {
                 bluetoothDevices = btUpdate.data.devices || [];
                 updateBluetoothUI();
-                // Refresh connected devices in case any newly scanned devices are connected
-                fetchConnectedDevices();
             } else if (btUpdate.status === 'scan_complete') {
                 bluetoothScanning = false;
                 bluetoothDevices = btUpdate.data.devices || [];
                 updateBluetoothUI();
-                // Refresh connected devices after scan completes
-                fetchConnectedDevices();
             } else if (btUpdate.status === 'device_connected' || btUpdate.status === 'device_disconnected' || btUpdate.status === 'device_removed') {
-                // Refresh device list after connection/disconnection
-                fetch('/bluetooth/devices')
-                    .then(r => r.json())
-                    .then(data => {
-                        bluetoothDevices = data.devices;
-                        bluetoothScanning = data.scanning;
-                        updateBluetoothUI();
-                        fetchConnectedDevices();
-                    });
+                if (btUpdate.data && btUpdate.data.devices) {
+                    bluetoothDevices = btUpdate.data.devices;
+                }
+                updateBluetoothUI();
             }
         } else if (msg.type === 'bluetooth_state') {
             // Initial Bluetooth state on connection
             bluetoothDevices = msg.data.devices || [];
             bluetoothScanning = msg.data.scanning || false;
             updateBluetoothUI();
-            fetchConnectedDevices();
         } else if (msg.type === 'bluetooth_scan_started') {
             bluetoothScanning = true;
             bluetoothDevices = [];
@@ -442,7 +429,6 @@ function connectWebSocket() {
             console.log('[BT] Connect result incoming:', msg);
             bluetoothConnectingDevices.delete(msg.address);
             updateBluetoothUI();
-            fetchConnectedDevices();
             if (!msg.success) {
                 const statusDisplay = document.getElementById('btStatusDisplay');
                 if (statusDisplay) {
@@ -457,7 +443,6 @@ function connectWebSocket() {
         } else if (msg.type === 'bluetooth_scan_stopped') {
             bluetoothScanning = false;
             updateBluetoothUI();
-            fetchConnectedDevices();
         }
     };
 
@@ -583,7 +568,10 @@ function switchCamera(newCameraId) {
         .then(r => r.json())
         .then(data => {
             currentCamera = newCameraId;
-            updateCameraSelector();
+            updateCameraSelector({
+                available: availableCameras,
+                current: newCameraId,
+            });
             setTimeout(updateUI, 100);
         })
         .catch(e => console.error('Switch error:', e));
@@ -822,25 +810,20 @@ document.addEventListener('keyup', (e) => {
     }
 });
 
-// Camera status polling
-function updateCameraStatus() {
-    fetch('/camera-status')
-        .then(r => r.json())
-        .then(data => {
-            const indicator = document.getElementById('statusIndicator');
-            const message = document.getElementById('statusMessage');
+function updateCameraStatus(data) {
+    if (!data) return;
+    const indicator = document.getElementById('statusIndicator');
+    const message = document.getElementById('statusMessage');
 
-            if (indicator && message) {
-                if (data.connected) {
-                    indicator.style.background = '#00aa00';
-                    message.textContent = '✓ Camera Connected';
-                } else {
-                    indicator.style.background = '#ff4444';
-                    message.textContent = '✗ Camera Disconnected';
-                }
-            }
-        })
-        .catch(e => console.error('Status fetch error:', e));
+    if (indicator && message) {
+        if (data.connected) {
+            indicator.style.background = '#00aa00';
+            message.textContent = '✓ Camera Connected';
+        } else {
+            indicator.style.background = '#ff4444';
+            message.textContent = '✗ Camera Disconnected';
+        }
+    }
 }
 
 // Settings modal
@@ -887,10 +870,6 @@ helpOverlay.addEventListener('click', (e) => {
     }
 });
 
-// Polling
-setInterval(updateCameraStatus, 1000);
-setInterval(updateCameraSelector, 3000);
-
 updatePanTiltIndicator();
 
 // Cycle gamepad button in settings modal
@@ -904,12 +883,6 @@ const reconnectBtnSettings = document.getElementById('btn_reconnect_settings');
 if (reconnectBtnSettings) {
     reconnectBtnSettings.addEventListener('click', () => {
         fetch('/reconnect', { method: 'POST' })
-            .then(r => r.json())
-            .then(data => {
-                for (let i = 0; i < 10; i++) {
-                    setTimeout(updateCameraStatus, i * 500);
-                }
-            })
             .catch(e => console.error('Reconnect error:', e));
     });
 }
@@ -1107,15 +1080,10 @@ function updateConnectedBluetoothUI() {
     }).join('');
 }
 
-function fetchConnectedDevices() {
-    fetch('/bluetooth/connected')
-        .then(r => r.json())
-        .then(data => {
-            bluetoothConnectedDevices = data.connected_devices || [];
-            console.log('[BT] Connected devices fetched:', bluetoothConnectedDevices.length, bluetoothConnectedDevices);
-            updateConnectedBluetoothUI();
-        })
-        .catch(e => console.error('Error fetching connected devices:', e));
+function applyBluetoothConnected(data) {
+    if (!data) return;
+    bluetoothConnectedDevices = data.connected_devices || [];
+    updateConnectedBluetoothUI();
 }
 
 function bluetoothConnect(address) {
@@ -1138,10 +1106,7 @@ function bluetoothConnect(address) {
 function bluetoothSetActive(address) {
     fetch(`/bluetooth/set-active/${address}`, { method: 'POST' })
         .then(r => r.json())
-        .then(data => {
-            console.log('[BT] Set active response:', data);
-            fetchConnectedDevices();
-        })
+        .then(data => console.log('[BT] Set active response:', data))
         .catch(e => console.error('Error setting active device:', e));
 }
 
@@ -1151,8 +1116,6 @@ function bluetoothDisconnect(address) {
             action: 'bluetooth_disconnect',
             address: address
         }));
-        // Fetch connected devices after a short delay
-        setTimeout(fetchConnectedDevices, 500);
     }
 }
 
@@ -1163,8 +1126,6 @@ function bluetoothRemove(address) {
                 action: 'bluetooth_remove',
                 address: address
             }));
-            // Fetch connected devices after removal
-            setTimeout(fetchConnectedDevices, 500);
         }
     }
 }
@@ -1209,14 +1170,5 @@ if (chkHideUnknown) {
         updateBluetoothUI();
     });
 }
-
-// Periodic polling of connected Bluetooth devices (more frequently initially)
-// Fetch immediately on page load
-fetchConnectedDevices();
-setTimeout(fetchConnectedDevices, 300);
-setTimeout(fetchConnectedDevices, 600);
-
-// Then poll every 5 seconds (more relaxed for Orange Pi)
-setInterval(fetchConnectedDevices, 5000);
 
 connectWebSocket();
