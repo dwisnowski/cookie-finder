@@ -1,0 +1,95 @@
+"""Unix-socket IPC client for the Rust gimbal daemon."""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+from typing import Any, Optional
+
+DEFAULT_SOCKET = "/tmp/cookie-finder.sock"
+
+
+class RustGimbalClient:
+    """Drop-in replacement for PanTiltGimbal over IPC."""
+
+    def __init__(self, socket_path: str, max_pan: float, max_tilt: float):
+        self._socket_path = socket_path
+        self.max_pan = max_pan
+        self.max_tilt = max_tilt
+
+    @classmethod
+    def connect(
+        cls,
+        socket_path: Optional[str] = None,
+        max_pan: float = 150.0,
+        max_tilt: float = 60.0,
+        timeout: float = 1.0,
+    ) -> Optional["RustGimbalClient"]:
+        path = socket_path or os.environ.get("COOKIE_FINDER_SOCKET", DEFAULT_SOCKET)
+        client = cls(path, max_pan, max_tilt)
+        try:
+            resp = client._request({"cmd": "ping"}, timeout=timeout)
+            if resp.get("ok"):
+                print(f"✓ Connected to Rust gimbal daemon ({path})")
+                return client
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            print(f"⚠ Rust gimbal daemon not available ({path}): {e}")
+        return None
+
+    def _request(self, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout)
+            sock.connect(self._socket_path)
+            sock.sendall((json.dumps(payload) + "\n").encode())
+            data = b""
+            while b"\n" not in data:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                data += chunk
+        line = data.split(b"\n", 1)[0]
+        return json.loads(line.decode())
+
+    def set_speed(self, pan_hz: float = 500, tilt_hz: float = 500) -> None:
+        self._request({"cmd": "set_speed", "pan_hz": pan_hz, "tilt_hz": tilt_hz})
+
+    def move_to_angles(self, pan_angle: float, tilt_angle: float) -> None:
+        self._request({"cmd": "move_to_angles", "pan": pan_angle, "tilt": tilt_angle})
+
+    def pan(self, angle: float) -> None:
+        pan, tilt = self.get_position()
+        self.move_to_angles(angle, tilt)
+
+    def tilt(self, angle: float) -> None:
+        pan, tilt = self.get_position()
+        self.move_to_angles(pan, angle)
+
+    def pan_step(self, direction: int, steps: int = 1) -> None:
+        self._request({"cmd": "pan_step", "direction": direction, "steps": steps})
+
+    def tilt_step(self, direction: int, steps: int = 1) -> None:
+        self._request({"cmd": "tilt_step", "direction": direction, "steps": steps})
+
+    def get_position(self) -> tuple[float, float]:
+        resp = self._request({"cmd": "get_position"})
+        return float(resp["pan"]), float(resp["tilt"])
+
+    def is_moving(self) -> bool:
+        resp = self._request({"cmd": "get_status"})
+        return bool(resp.get("is_moving", False))
+
+    def home(self) -> None:
+        self._request({"cmd": "home"})
+
+    def is_calibrated(self) -> bool:
+        return True
+
+    def stop(self) -> None:
+        self._request({"cmd": "stop"})
+
+    def set_input_enabled(self, enabled: bool) -> None:
+        self._request({"cmd": "set_input_enabled", "enabled": enabled})
+
+    def cleanup(self) -> None:
+        pass

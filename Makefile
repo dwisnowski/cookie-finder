@@ -44,6 +44,13 @@ help:
 	@echo "  make test-pan-step     Manual pan motor stepping"
 	@echo "  make test-all-gpio     Scan and test all GPIO pins"
 	@echo ""
+	@echo "Rust Gimbal Daemon:"
+	@echo "  make rust-help         List Rust build/deploy targets"
+	@echo "  make rust-build-mac    Cross-compile for Pi from Mac"
+	@echo "  make rust-build-pi     Native build on Orange Pi"
+	@echo "  make rust-deploy       Deploy binary to Pi (PI_HOST=...)"
+	@echo "  make run-with-rust     Daemon + web server on Pi"
+	@echo ""
 	@echo "Camera Probing (Debug):"
 	@echo "  make probe             Run all probing tests"
 	@echo "  make probe-install     Install libusb (macOS)"
@@ -216,6 +223,56 @@ probe-xu:
 	uv run tools/probing_thermal_camera/probe_uvc_xu.py
 
 probe: probe-usb probe-cdc probe-serial probe-resolution probe-xu
+
+# --- Rust gimbal daemon (Orange Pi Zero 2W, aarch64) ---
+RUST_DIR     := cookie_finder_rust
+RUST_BIN     := cookie-finder-ctl
+RUST_TARGET  := aarch64-unknown-linux-gnu
+RUST_CROSS   := $(RUST_DIR)/target/$(RUST_TARGET)/release/$(RUST_BIN)
+RUST_NATIVE  := $(RUST_DIR)/target/release/$(RUST_BIN)
+PI_HOST      ?= orangepi@192.168.1.100
+PI_DEST      ?= ~/cookie-finder/$(RUST_BIN)
+RUST_SOCKET  ?= /tmp/cookie-finder.sock
+
+.PHONY: rust-help rust-check rust-build-mac rust-build-pi rust-build-pi-remote \
+        rust-deploy rust-daemon rust-run run-with-rust rust-home
+
+rust-help:
+	@echo "Rust targets:"
+	@echo "  make rust-check            cargo check (Mac or Pi)"
+	@echo "  make rust-build-mac        cross-compile for Pi from Mac"
+	@echo "  make rust-build-pi         native build on Pi"
+	@echo "  make rust-build-pi-remote  build on Pi via SSH (PI_HOST=$(PI_HOST))"
+	@echo "  make rust-deploy           scp cross-built binary to Pi"
+	@echo "  make rust-daemon           deploy + start daemon on Pi"
+	@echo "  make run-with-rust         deploy + daemon + web server on Pi"
+
+rust-check:
+	cd $(RUST_DIR) && cargo check
+
+rust-build-mac:
+	cd $(RUST_DIR) && cross build --release --target $(RUST_TARGET)
+
+rust-build-pi:
+	cd $(RUST_DIR) && cargo build --release
+
+rust-build-pi-remote:
+	ssh $(PI_HOST) "cd ~/cookie-finder/$(RUST_DIR) && cargo build --release"
+
+rust-deploy: rust-build-mac
+	scp $(RUST_CROSS) $(PI_HOST):$(PI_DEST)
+
+rust-daemon: rust-deploy
+	ssh -t $(PI_HOST) "sudo $(PI_DEST) daemon --socket $(RUST_SOCKET)"
+
+rust-run: rust-deploy
+	ssh -t $(PI_HOST) "sudo $(PI_DEST) run"
+
+rust-home:
+	ssh -t $(PI_HOST) "sudo $(PI_DEST) home --socket $(RUST_SOCKET)"
+
+run-with-rust: rust-deploy
+	ssh -t $(PI_HOST) "sudo $(PI_DEST) daemon --socket $(RUST_SOCKET) & sleep 1; cd ~/cookie-finder && uv run main.py --web"
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
