@@ -21,8 +21,9 @@ impl GamepadInput {
     }
 
     pub fn poll(&mut self) -> anyhow::Result<()> {
-        for ev in self.device.fetch_events()? {
-            if let InputEventKind::Absolute(axis) = ev.kind() {
+        let events: Vec<_> = self.device.fetch_events()?.collect();
+        for ev in events {
+            if let InputEventKind::AbsAxis(axis) = ev.kind() {
                 let val = ev.value() as f64;
                 match axis {
                     AbsoluteAxisType::ABS_X | AbsoluteAxisType::ABS_RX => {
@@ -54,7 +55,8 @@ impl GamepadInput {
 }
 
 fn norm_axis(val: f64, dev: &Device, axis: AbsoluteAxisType) -> f64 {
-    if let Some(abs) = dev.abs_info(axis) {
+    if let Ok(state) = dev.get_abs_state() {
+        let abs = &state[axis.0 as usize];
         let mid = (abs.minimum + abs.maximum) as f64 / 2.0;
         let half = (abs.maximum - abs.minimum) as f64 / 2.0;
         if half > 0.0 {
