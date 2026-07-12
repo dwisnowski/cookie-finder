@@ -39,7 +39,7 @@ help:
         _run-standalone _run-web _run-web-custom \
         _test-motors _test-motors-pan-cw _test-motors-pan-ccw _test-motors-tilt-cw \
         _test-motors-tilt-ccw _test-motors-home _test-bluetooth-input _test-gimbal-gamepad \
-        _test-pan-step _test-all-gpio \
+        _test-pan-step _test-all-gpio _keyboard-gimbal \
         _find-camera _list-devices _list-controls _get-control _set-control \
         _install-ffmpeg _install-libusb _list-cameras _list-camera-formats \
         _probe-install _probe-usb _probe-cdc _probe-serial _probe-resolution _probe-xu _probe \
@@ -116,6 +116,10 @@ _test-bluetooth-input:
 _test-gimbal-gamepad:
 	@echo "Gimbal + Gamepad test: control gimbal with joystick input..."
 	@uv run tools/test_gimbal_gamepad.py
+
+_keyboard-gimbal:
+	@echo "Keyboard gimbal control (arrow keys pan/tilt, 1-9 speed, q quit)..."
+	@uv run tools/keyboard_gimbal.py
 
 _test-pan-step:
 	@echo "Freeing GPIO pins..."
@@ -412,7 +416,8 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-find-camera on-the-pi-list-devices on-the-pi-list-controls \
         on-the-pi-get-control on-the-pi-set-control \
         on-the-pi-tool-setup on-the-pi-tool-setup-rust \
-        on-the-pi-rust-check on-the-pi-rust-build on-the-pi-rust-daemon
+        on-the-pi-rust-check on-the-pi-rust-build on-the-pi-rust-daemon \
+        on-the-pi-rust-keyboard
 
 on-the-pi-help:
 	@echo "On-the-Pi targets (run on Orange Pi only):"
@@ -453,6 +458,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-rust-check            Typecheck without building"
 	@echo "  make on-the-pi-rust-build            Native release build"
 	@echo "  make on-the-pi-rust-daemon           Start daemon locally (requires sudo)"
+	@echo "  make on-the-pi-rust-keyboard         Interactive keyboard pan/tilt (daemon must be running)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make on-the-pi-clean                 Remove Python cache files"
@@ -496,6 +502,8 @@ on-the-pi-rust-build:
 on-the-pi-rust-daemon:
 	sudo $(RUST_NATIVE) daemon --socket $(RUST_SOCKET)
 
+on-the-pi-rust-keyboard: _keyboard-gimbal
+
 # =============================================================================
 # Backward-compatible aliases (prefer on-the-mac-* / on-the-pi-*)
 # =============================================================================
@@ -511,7 +519,7 @@ on-the-pi-rust-daemon:
         serial-help serial-list serial-connect serial-run serial-deploy serial-deploy-rust \
         rust-help rust-check rust-build-mac rust-build-pi rust-build-pi-remote \
         rust-deploy rust-deploy-cookie rust-deploy-remote rust-deploy-cookie-remote \
-        rust-daemon rust-run run-with-rust rust-home
+        rust-daemon rust-run run-with-rust rust-home rust-keyboard
 
 # Installation
 install: on-the-pi-install
@@ -583,3 +591,4 @@ rust-daemon: on-the-mac-rust-daemon
 rust-run: on-the-mac-rust-run
 rust-home: on-the-mac-rust-home
 run-with-rust: on-the-mac-run-with-rust
+rust-keyboard: on-the-pi-rust-keyboard
