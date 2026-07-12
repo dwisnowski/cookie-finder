@@ -44,7 +44,7 @@ help:
         _install-ffmpeg _install-libusb _list-cameras _list-camera-formats \
         _probe-install _probe-usb _probe-cdc _probe-serial _probe-resolution _probe-xu _probe \
         _serial-help _serial-list _serial-connect _serial-run _serial-deploy _serial-deploy-rust \
-        _rust-install-rustup _rust-check
+        _rust-install-rustup _rust-install-cross-toolchain _rust-check
 
 _install:
 	uv sync
@@ -253,6 +253,12 @@ _rust-install-rustup:
 _rust-check:
 	cd $(RUST_DIR) && cargo check
 
+# cross on macOS needs a Linux host toolchain for metadata before it runs Docker.
+# crates.io cross 0.2.5 omits --force-non-host; install it explicitly as a fallback.
+_rust-install-cross-toolchain:
+	@rustup toolchain list | grep -q 'stable-x86_64-unknown-linux-gnu' || \
+		rustup toolchain install stable-x86_64-unknown-linux-gnu --force-non-host --profile minimal
+
 # =============================================================================
 # On the Mac (run from your MacBook)
 # =============================================================================
@@ -345,14 +351,19 @@ on-the-mac-serial-run: _serial-run
 on-the-mac-serial-deploy: _serial-deploy
 on-the-mac-serial-deploy-rust: _serial-deploy-rust
 
-on-the-mac-tool-setup: on-the-mac-tool-setup-rust
+on-the-mac-tool-setup: on-the-mac-tool-setup-rust _rust-install-cross-toolchain
+	@if command -v docker >/dev/null && docker info >/dev/null 2>&1; then \
+		echo "Docker OK: $$(docker --version)"; \
+	else \
+		echo "ERROR: Docker Desktop must be installed and running for on-the-mac-rust-build."; \
+		exit 1; \
+	fi
 	@if command -v cross >/dev/null; then \
 		echo "cross already installed: $$(cross --version)"; \
 	else \
-		echo "Installing cross..."; \
-		cargo install cross; \
+		echo "Installing cross from cross-rs main (crates.io 0.2.5 breaks on macOS)..."; \
+		cargo install cross --git https://github.com/cross-rs/cross; \
 	fi
-	@echo "Docker Desktop must be running for on-the-mac-rust-build."
 
 on-the-mac-tool-setup-rust: _rust-install-rustup
 
