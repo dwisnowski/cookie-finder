@@ -4,26 +4,31 @@ Interactive terminal control for the Rust gimbal daemon.
 
 Arrow keys pan/tilt while held (press Space or s to stop and disable coils).
 Keys 1-9 set step rate for 28BYJ-48 motors on the Orange Pi (1 = slow, 9 = fast).
-Press d to disable motors without quitting.
+P/T select motor for wiring permutation; [ / ] cycle; W writes mapping to config.
 """
 
 from __future__ import annotations
 
 import argparse
 import curses
+import itertools
 import os
 import sys
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from cookie_finder.gimbal.config import (
+    format_phase_order_snippet,
+    resolve_config_path,
+    save_phase_order,
+)
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 
 # 28BYJ-48 @ 5V: ~340 Hz nominal max; 4076 steps/rev (~0.0883 deg/step).
-# Presets stay reliable at low speeds and allow faster motion on 7-9 for short moves.
 SPEED_PRESETS: dict[int, int] = {
     1: 150,
     2: 250,
@@ -36,11 +41,106 @@ SPEED_PRESETS: dict[int, int] = {
     9: 1500,
 }
 
+PERMUTATIONS: list[tuple[int, ...]] = list(itertools.permutations((0, 1, 2, 3)))
+
 DEFAULT_PRESET = 5
 STEP_SIZE = 2
 REFRESH_MS = 200
+STATUS_CLEAR_SEC = 4.0
 
 Direction = Optional[str]
+MotorName = Literal["pan", "tilt"]
+
+
+def _perm_index(order: list[int]) -> int:
+    key = tuple(order)
+    try:
+        return PERMUTATIONS.index(key)
+    except ValueError:
+        return 0
+
+
+def _format_wiring_line(
+    label: str,
+    order: list[int],
+    perm_idx: int,
+    selected: bool,
+) -> str:
+    mapping = "  ".join(f"IN{i + 1}→ph{order[i]}" for i in range(4))
+    marker = " <<" if selected else ""
+    return f"{label:4} wiring: {mapping}   [{perm_idx + 1}/{len(PERMUTATIONS)}]{marker}"
+
+
+class WiringState:
+    """Tracks and applies phase-order permutations via the daemon."""
+
+    def __init__(self, client: RustGimbalClient) -> None:
+        self.client = client
+        self.selected: MotorName = "pan"
+        self.pan_order: list[int] = [0, 1, 2, 3]
+        self.tilt_order: list[int] = [0, 1, 2, 3]
+        self.pan_perm_idx = 0
+        self.tilt_perm_idx = 0
+        self.status_message: Optional[str] = None
+        self._status_until = 0.0
+        self._sync_from_daemon()
+
+    def _sync_from_daemon(self) -> None:
+        try:
+            resp = self.client.get_phase_order()
+            if resp.get("ok"):
+                self.pan_order = list(resp["pan"])
+                self.tilt_order = list(resp["tilt"])
+                self.pan_perm_idx = _perm_index(self.pan_order)
+                self.tilt_perm_idx = _perm_index(self.tilt_order)
+        except (OSError, ValueError, KeyError):
+            pass
+
+    def _apply_order(self, motor: MotorName, order: list[int]) -> None:
+        self.client.set_phase_order(motor, order)
+        if motor == "pan":
+            self.pan_order = order
+            self.pan_perm_idx = _perm_index(order)
+        else:
+            self.tilt_order = order
+            self.tilt_perm_idx = _perm_index(order)
+
+    def select_motor(self, motor: MotorName) -> None:
+        self.selected = motor
+
+    def next_permutation(self) -> None:
+        motor = self.selected
+        idx = self.pan_perm_idx if motor == "pan" else self.tilt_perm_idx
+        idx = (idx + 1) % len(PERMUTATIONS)
+        self._apply_order(motor, list(PERMUTATIONS[idx]))
+
+    def prev_permutation(self) -> None:
+        motor = self.selected
+        idx = self.pan_perm_idx if motor == "pan" else self.tilt_perm_idx
+        idx = (idx - 1) % len(PERMUTATIONS)
+        self._apply_order(motor, list(PERMUTATIONS[idx]))
+
+    def preview_selected(self) -> str:
+        order = self.pan_order if self.selected == "pan" else self.tilt_order
+        return format_phase_order_snippet(self.selected, order)
+
+    def write_selected(self, config_path: Path) -> None:
+        order = self.pan_order if self.selected == "pan" else self.tilt_order
+        saved = save_phase_order(self.selected, order, config_path)
+        self.status_message = (
+            f"Saved {self.selected}_phase_order = {order} → {saved}"
+        )
+        self._status_until = time.monotonic() + STATUS_CLEAR_SEC
+
+    def write_selected_error(self, message: str) -> None:
+        self.status_message = f"Save failed: {message}"
+        self._status_until = time.monotonic() + STATUS_CLEAR_SEC
+
+    def active_status(self) -> Optional[str]:
+        if self.status_message and time.monotonic() < self._status_until:
+            return self.status_message
+        self.status_message = None
+        return None
 
 
 class MotorController:
@@ -132,7 +232,13 @@ def _deg_per_sec(hz: int) -> float:
     return hz * (360.0 / 4076.0)
 
 
-def _draw(stdscr: curses.window, motor: MotorController, client: RustGimbalClient) -> None:
+def _draw(
+    stdscr: curses.window,
+    motor: MotorController,
+    client: RustGimbalClient,
+    wiring: WiringState,
+    config_path: Path,
+) -> None:
     stdscr.erase()
     height, width = stdscr.getmaxyx()
 
@@ -149,9 +255,27 @@ def _draw(stdscr: curses.window, motor: MotorController, client: RustGimbalClien
         f"Speed:     preset {motor.preset}  ({hz} Hz, ~{_deg_per_sec(hz):.1f}°/s)",
         f"Moving:    {motor.direction or 'stopped'}",
         "",
+        _format_wiring_line(
+            "Pan",
+            wiring.pan_order,
+            wiring.pan_perm_idx,
+            wiring.selected == "pan",
+        ),
+        _format_wiring_line(
+            "Tilt",
+            wiring.tilt_order,
+            wiring.tilt_perm_idx,
+            wiring.selected == "tilt",
+        ),
+        f"Config:    {config_path}",
+        "",
         "Controls:",
         "  Arrow keys     Pan / tilt (hold; press Space or s to stop)",
         "  1-9            Set step rate (1=slow, 9=fast)",
+        "  P / T          Select pan or tilt for wiring permutation",
+        "  [ / ]          Previous / next wiring permutation",
+        "  Y              Preview TOML snippet for selected motor",
+        "  W              Write selected motor mapping to config file",
         "  h              Home (0°, 0°)",
         "  d              Disable motors (de-energize coils)",
         "  s / Space      Stop motion and disable motors",
@@ -159,6 +283,10 @@ def _draw(stdscr: curses.window, motor: MotorController, client: RustGimbalClien
         "",
         "Requires: cookie-finder-ctl daemon (make on-the-pi-rust-daemon)",
     ]
+
+    status = wiring.active_status()
+    if status:
+        lines.extend(["", status])
 
     if motor.error:
         lines.extend(["", f"Error: {motor.error}"])
@@ -171,16 +299,22 @@ def _draw(stdscr: curses.window, motor: MotorController, client: RustGimbalClien
     stdscr.refresh()
 
 
-def _run(stdscr: curses.window, client: RustGimbalClient, preset: int) -> int:
+def _run(
+    stdscr: curses.window,
+    client: RustGimbalClient,
+    preset: int,
+    config_path: Path,
+) -> int:
     curses.curs_set(0)
     stdscr.keypad(True)
     stdscr.timeout(REFRESH_MS)
 
     motor = MotorController(client, preset)
+    wiring = WiringState(client)
 
     try:
         while True:
-            _draw(stdscr, motor, client)
+            _draw(stdscr, motor, client, wiring, config_path)
 
             if motor.error:
                 stdscr.timeout(2000)
@@ -212,6 +346,35 @@ def _run(stdscr: curses.window, client: RustGimbalClient, preset: int) -> int:
                 motor.set_preset(key - ord("0"))
                 continue
 
+            if key in (ord("p"), ord("P")):
+                wiring.select_motor("pan")
+                continue
+
+            if key in (ord("t"), ord("T")):
+                wiring.select_motor("tilt")
+                continue
+
+            if key == ord("]"):
+                wiring.next_permutation()
+                continue
+
+            if key == ord("["):
+                wiring.prev_permutation()
+                continue
+
+            if key in (ord("y"), ord("Y")):
+                print(wiring.preview_selected(), file=sys.stderr)
+                wiring.status_message = f"Preview: {wiring.preview_selected()}"
+                wiring._status_until = time.monotonic() + STATUS_CLEAR_SEC
+                continue
+
+            if key in (ord("w"), ord("W")):
+                try:
+                    wiring.write_selected(config_path)
+                except (OSError, ValueError) as exc:
+                    wiring.write_selected_error(str(exc))
+                continue
+
             if key == curses.KEY_LEFT:
                 motor.start("left")
             elif key == curses.KEY_RIGHT:
@@ -236,6 +399,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Unix socket path (default: /tmp/cookie-finder.sock or COOKIE_FINDER_SOCKET)",
     )
     parser.add_argument(
+        "--config",
+        default=None,
+        help="Gimbal config path (default: COOKIE_FINDER_CONFIG or config/gimbal.toml)",
+    )
+    parser.add_argument(
         "--preset",
         type=int,
         choices=sorted(SPEED_PRESETS),
@@ -243,6 +411,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         help=f"Initial speed preset 1-9 (default: {DEFAULT_PRESET})",
     )
     args = parser.parse_args(argv)
+    config_path = resolve_config_path(args.config)
 
     client = RustGimbalClient.connect(socket_path=args.socket)
     if client is None:
@@ -258,7 +427,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     except (OSError, ValueError):
         pass
 
-    return curses.wrapper(lambda stdscr: _run(stdscr, client, args.preset))
+    return curses.wrapper(
+        lambda stdscr: _run(stdscr, client, args.preset, config_path)
+    )
 
 
 if __name__ == "__main__":

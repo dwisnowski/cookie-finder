@@ -86,6 +86,8 @@ make test-pan-step
 
 This runs 20 full-step cycles directly via `gpioset` on the confirmed pin offsets.
 
+If the motor buzzes or does not spin smoothly, run the [Stepper Wiring Test](stepper-wiring-test.md) to find the correct `pan_phase_order`.
+
 ---
 
 ## Pan Limit Switch
@@ -100,14 +102,24 @@ This runs 20 full-step cycles directly via `gpioset` on the confirmed pin offset
 
 ## Tilt Motor (28BYJ-48 + ULN2003)
 
-> **TBD** — Tilt motor wiring not yet mapped from hardware testing.
-
 | Signal   | gpiochip1 Offset | Orange Pi GPIO Label | ULN2003 Pin | Wire Color (typical) |
 |----------|------------------|----------------------|-------------|----------------------|
-| TILT IN1 | 224              | PH0                  | IN1         | Orange               |
-| TILT IN2 | 225              | PH1                  | IN2         | Yellow               |
-| TILT IN3 | 257              | PI01                 | IN3         | Pink                 |
-| TILT IN4 | 270              | PI14                 | IN4         | Blue                 |
+| TILT IN1 | 262              | RXD.2 / PH0          | IN1         | Orange               |
+| TILT IN2 | 229              | CE.0 / PH1           | IN2         | Yellow               |
+| TILT IN3 | 233              | CE.1 / PI01          | IN3         | Pink                 |
+| TILT IN4 | 265              | SCL.2 / PI14         | IN4         | Blue                 |
+
+### Phase order (coil mapping)
+
+GPIO pins above are fixed. The four motor wires on IN1–IN4 may be in any order. Set the correct mapping in `config/gimbal.toml`:
+
+```toml
+[gimbal]
+pan_phase_order  = [0, 1, 2, 3]   # IN1..IN4 → logical phases 0..3
+tilt_phase_order = [0, 1, 2, 3]
+```
+
+To discover the right values without rewiring, see [Stepper Wiring Test](stepper-wiring-test.md) (`make on-the-pi-rust-keyboard`, keys `P`/`T`, `[`/`]`, `W` to save).
 
 ---
 
@@ -136,5 +148,5 @@ The thermal camera connects via **USB 2.0** — no GPIO required.
 ## Notes
 
 - All GPIO access requires `sudo` or appropriate group permissions on Armbian.
-- The logical pin numbers in `cookie_finder/gimbal/pan_tilt.py` (`PAN_CONTROL_PINS = (23, 24, 25, 26)`) are **not the hardware offsets**. The actual offsets used by the stepper driver are the values listed in this guide.
-- When tilt and limit switch pins are confirmed, update both this file and the constants in `cookie_finder/gimbal/stepper.py`.
+- GPIO offsets are defined in `cookie_finder_rust/cookie-finder-ctl/src/config.rs` and `cookie_finder/gimbal/pan_tilt.py`. Phase order is in `config/gimbal.toml`.
+- When limit switch pins are confirmed, update this file and the constants in the gimbal modules.

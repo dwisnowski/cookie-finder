@@ -1,6 +1,6 @@
-use crate::config::VERSION;
+use crate::config::{PAN_CONTROL_PINS, TILT_CONTROL_PINS, VERSION};
 use crate::control_loop::ControlState;
-use crate::gimbal::PanTiltGimbal;
+use crate::gimbal::{MotorId, PanTiltGimbal};
 use anyhow::Context;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -26,6 +26,10 @@ struct Request {
     steps: Option<u32>,
     #[serde(default)]
     enabled: Option<bool>,
+    #[serde(default)]
+    motor: Option<String>,
+    #[serde(default)]
+    order: Option<Vec<usize>>,
 }
 
 fn ok_position(gimbal: &PanTiltGimbal) -> Value {
@@ -92,6 +96,43 @@ fn handle_request(req: &Request, state: &ControlState) -> Value {
             let enabled = req.enabled.unwrap_or(false);
             state.input_enabled.store(enabled, Ordering::Relaxed);
             json!({"ok": true, "input_enabled": enabled})
+        }
+        "get_phase_order" => {
+            let (pan, tilt) = g.get_phase_orders();
+            json!({
+                "ok": true,
+                "pan": pan,
+                "tilt": tilt,
+                "pan_pins": PAN_CONTROL_PINS,
+                "tilt_pins": TILT_CONTROL_PINS,
+            })
+        }
+        "set_phase_order" => {
+            let motor = req.motor.as_deref().unwrap_or("");
+            let order_vec = req.order.clone().unwrap_or_default();
+            let order: [usize; 4] = match order_vec.as_slice() {
+                [a, b, c, d] => [*a, *b, *c, *d],
+                _ => {
+                    return json!({
+                        "ok": false,
+                        "error": "order must be an array of exactly 4 integers (0-3)"
+                    });
+                }
+            };
+            let motor_id = match motor {
+                "pan" => MotorId::Pan,
+                "tilt" => MotorId::Tilt,
+                _ => {
+                    return json!({
+                        "ok": false,
+                        "error": "motor must be \"pan\" or \"tilt\""
+                    });
+                }
+            };
+            match g.set_phase_order(motor_id, order) {
+                Ok(()) => json!({"ok": true, "motor": motor, "order": order}),
+                Err(e) => json!({"ok": false, "error": e.to_string()}),
+            }
         }
         other => json!({"ok": false, "error": format!("unknown cmd: {other}")}),
     }

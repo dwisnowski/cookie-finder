@@ -1,6 +1,15 @@
 use super::stepper::StepperMotor;
-use crate::config::{DEFAULT_PAN_HZ, DEFAULT_TILT_HZ, MAX_PAN, MAX_TILT, PAN_CONTROL_PINS, TILT_CONTROL_PINS};
+use crate::config::{
+    validate_phase_order, DEFAULT_PAN_HZ, DEFAULT_TILT_HZ, GimbalConfig, MAX_PAN, MAX_TILT,
+    PAN_CONTROL_PINS, TILT_CONTROL_PINS,
+};
 use std::sync::Mutex;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MotorId {
+    Pan,
+    Tilt,
+}
 
 pub struct PanTiltGimbal {
     pub max_pan: f64,
@@ -16,13 +25,13 @@ struct Inner {
 }
 
 impl PanTiltGimbal {
-    pub fn new() -> Self {
+    pub fn new(config: &GimbalConfig) -> Self {
         Self {
             max_pan: MAX_PAN,
             max_tilt: MAX_TILT,
             inner: Mutex::new(Inner {
-                pan: StepperMotor::new("Pan", PAN_CONTROL_PINS, MAX_PAN),
-                tilt: StepperMotor::new("Tilt", TILT_CONTROL_PINS, MAX_TILT),
+                pan: StepperMotor::new("Pan", PAN_CONTROL_PINS, config.pan_phase_order, MAX_PAN),
+                tilt: StepperMotor::new("Tilt", TILT_CONTROL_PINS, config.tilt_phase_order, MAX_TILT),
                 commanded_pan: 0.0,
                 commanded_tilt: 0.0,
             }),
@@ -65,6 +74,25 @@ impl PanTiltGimbal {
     pub fn get_commanded(&self) -> (f64, f64) {
         let g = self.inner.lock().unwrap();
         (g.commanded_pan, g.commanded_tilt)
+    }
+
+    pub fn get_phase_orders(&self) -> ([usize; 4], [usize; 4]) {
+        let g = self.inner.lock().unwrap();
+        (g.pan.phase_order(), g.tilt.phase_order())
+    }
+
+    pub fn set_phase_order(&self, motor: MotorId, order: [usize; 4]) -> anyhow::Result<()> {
+        let name = match motor {
+            MotorId::Pan => "pan",
+            MotorId::Tilt => "tilt",
+        };
+        validate_phase_order(&order, &format!("{name}_phase_order"))?;
+        let mut g = self.inner.lock().unwrap();
+        match motor {
+            MotorId::Pan => g.pan.set_phase_order(order),
+            MotorId::Tilt => g.tilt.set_phase_order(order),
+        }
+        Ok(())
     }
 
     pub fn is_moving(&self) -> bool {
@@ -123,7 +151,7 @@ impl PanTiltGimbal {
 
 impl Default for PanTiltGimbal {
     fn default() -> Self {
-        let g = Self::new();
+        let g = Self::new(&GimbalConfig::default());
         g.set_speed(DEFAULT_PAN_HZ, DEFAULT_TILT_HZ);
         g
     }

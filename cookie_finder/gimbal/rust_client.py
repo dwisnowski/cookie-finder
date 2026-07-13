@@ -95,5 +95,11 @@ class RustGimbalClient:
     def set_input_enabled(self, enabled: bool) -> None:
         self._request({"cmd": "set_input_enabled", "enabled": enabled})
 
+    def get_phase_order(self) -> dict:
+        return self._request({"cmd": "get_phase_order"})
+
+    def set_phase_order(self, motor: str, order: list[int]) -> None:
+        self._request({"cmd": "set_phase_order", "motor": motor, "order": order})
+
     def cleanup(self) -> None:
         pass

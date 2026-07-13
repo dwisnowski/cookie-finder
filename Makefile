@@ -17,7 +17,7 @@ RUST_BIN     := cookie-finder-ctl
 RUST_TARGET  := aarch64-unknown-linux-gnu
 RUST_CROSS   := $(RUST_DIR)/target/$(RUST_TARGET)/release/$(RUST_BIN)
 RUST_NATIVE  := $(RUST_DIR)/target/release/$(RUST_BIN)
-PI_HOST      ?= orangepi@192.168.1.100
+PI_HOST      ?= cookie@192.168.68.106
 PI_SSH_HOST  ?= cookie
 PI_DEST      ?= ~/cookie-finder/$(RUST_BIN)
 RUST_SOCKET  ?= /tmp/cookie-finder.sock
@@ -118,7 +118,7 @@ _test-gimbal-gamepad:
 	@uv run tools/test_gimbal_gamepad.py
 
 _keyboard-gimbal:
-	@echo "Keyboard gimbal control (arrow keys pan/tilt, 1-9 speed, q quit)..."
+	@echo "Keyboard gimbal control (arrows pan/tilt, 1-9 speed, P/T [ ] wiring, W save config, q quit)..."
 	@uv run tools/keyboard_gimbal.py
 
 _test-pan-step:
@@ -458,7 +458,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-rust-check            Typecheck without building"
 	@echo "  make on-the-pi-rust-build            Native release build"
 	@echo "  make on-the-pi-rust-daemon           Start daemon locally (requires sudo)"
-	@echo "  make on-the-pi-rust-keyboard         Interactive keyboard pan/tilt (daemon must be running)"
+	@echo "  make on-the-pi-rust-keyboard         Keyboard pan/tilt + wiring test ([ ] cycle, W saves config)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make on-the-pi-clean                 Remove Python cache files"

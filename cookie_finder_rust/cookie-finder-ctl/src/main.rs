@@ -5,10 +5,11 @@ mod input;
 mod ipc;
 
 use clap::{Parser, Subcommand};
-use config::DEFAULT_SOCKET;
+use config::{load_gimbal_config, DEFAULT_SOCKET};
 use control_loop::{run_control_loop, ControlState};
 use gimbal::PanTiltGimbal;
 use ipc::run_ipc_server;
+use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -25,9 +26,14 @@ enum Commands {
     Daemon {
         #[arg(long, default_value = DEFAULT_SOCKET)]
         socket: String,
+        #[arg(long, value_name = "PATH")]
+        config: Option<PathBuf>,
     },
     /// Standalone gamepad → gimbal (no IPC)
-    Run,
+    Run {
+        #[arg(long, value_name = "PATH")]
+        config: Option<PathBuf>,
+    },
     /// Home gimbal via one-shot IPC call
     Home {
         #[arg(long, default_value = DEFAULT_SOCKET)]
@@ -49,8 +55,13 @@ async fn main() -> anyhow::Result<()> {
         Commands::Home { socket } => {
             send_ipc(&socket, r#"{"cmd":"home"}"#).await?;
         }
-        Commands::Run => {
-            let gimbal = Arc::new(PanTiltGimbal::default());
+        Commands::Run { config } => {
+            let gimbal_config = load_gimbal_config(config.as_deref())?;
+            let gimbal = Arc::new(PanTiltGimbal::new(&gimbal_config));
+            gimbal.set_speed(
+                config::DEFAULT_PAN_HZ,
+                config::DEFAULT_TILT_HZ,
+            );
             let state = Arc::new(ControlState {
                 gimbal: Arc::clone(&gimbal),
                 input_enabled: Arc::new(AtomicBool::new(true)),
@@ -63,8 +74,13 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Commands::Daemon { socket } => {
-            let gimbal = Arc::new(PanTiltGimbal::default());
+        Commands::Daemon { socket, config } => {
+            let gimbal_config = load_gimbal_config(config.as_deref())?;
+            let gimbal = Arc::new(PanTiltGimbal::new(&gimbal_config));
+            gimbal.set_speed(
+                config::DEFAULT_PAN_HZ,
+                config::DEFAULT_TILT_HZ,
+            );
             let state = Arc::new(ControlState {
                 gimbal: Arc::clone(&gimbal),
                 input_enabled: Arc::new(AtomicBool::new(false)),

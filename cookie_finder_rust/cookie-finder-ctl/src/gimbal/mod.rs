@@ -1,7 +1,7 @@
 mod stepper;
 mod pan_tilt;
 
-pub use pan_tilt::PanTiltGimbal;
+pub use pan_tilt::{MotorId, PanTiltGimbal};
 
 #[cfg(not(target_os = "linux"))]
 #[allow(dead_code)]

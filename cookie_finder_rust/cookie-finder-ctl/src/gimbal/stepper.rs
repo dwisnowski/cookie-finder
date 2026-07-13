@@ -10,6 +10,7 @@ const FULL_STEP: [[u8; 4]; 4] = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0
 pub struct StepperMotor {
     name: String,
     pins: [u32; 4],
+    phase_order: [usize; 4],
     max_angle: f64,
     speed_hz: f64,
     current_angle: f64,
@@ -21,10 +22,11 @@ pub struct StepperMotor {
 }
 
 impl StepperMotor {
-    pub fn new(name: &str, pins: [u32; 4], max_angle: f64) -> Self {
+    pub fn new(name: &str, pins: [u32; 4], phase_order: [usize; 4], max_angle: f64) -> Self {
         let mut motor = Self {
             name: name.to_string(),
             pins,
+            phase_order,
             max_angle,
             speed_hz: 500.0,
             current_angle: 0.0,
@@ -80,8 +82,8 @@ impl StepperMotor {
         let idx = step.rem_euclid(4) as usize;
         let vals = FULL_STEP[idx];
         if let Ok(guard) = handles.lock() {
-            for (h, &v) in guard.iter().zip(vals.iter()) {
-                let _ = h.set_value(v);
+            for (i, h) in guard.iter().enumerate() {
+                let _ = h.set_value(vals[self.phase_order[i]]);
             }
         }
     }
@@ -114,6 +116,14 @@ impl StepperMotor {
 
     pub fn speed_hz(&self) -> f64 {
         self.speed_hz
+    }
+
+    pub fn phase_order(&self) -> [usize; 4] {
+        self.phase_order
+    }
+
+    pub fn set_phase_order(&mut self, order: [usize; 4]) {
+        self.phase_order = order;
     }
 
     pub fn set_target(&mut self, angle: f64) {
