@@ -500,7 +500,17 @@ on-the-pi-rust-build:
 	cd $(RUST_DIR) && cargo build --release
 
 on-the-pi-rust-daemon:
-	sudo $(RUST_NATIVE) daemon --socket $(RUST_SOCKET)
+	echo "Starting daemon in the background..."
+# 	sudo $(RUST_NATIVE) daemon --socket $(RUST_SOCKET) &
+	sudo ~/cookie-finder/cookie-finder-ctl daemon --socket /tmp/cookie-finder.sock &
+	echo "Daemon started. You can check its status with: sudo systemctl status cookie-finder"
+	echo "To stop the daemon, run: sudo systemctl stop cookie-finder"
+	echo "To restart the daemon, run: sudo systemctl restart cookie-finder"
+	echo "To enable the daemon to start on boot, run: sudo systemctl enable cookie-finder"
+	echo "To disable the daemon from starting on boot, run: sudo systemctl disable cookie-finder"
+	echo "To view the daemon's logs, run: sudo journalctl -u cookie-finder -f"
+	echo "To view the daemon's logs, run: sudo journalctl -u cookie-finder -f"
+	
 
 on-the-pi-rust-keyboard: _keyboard-gimbal
 
