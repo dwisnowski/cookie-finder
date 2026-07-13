@@ -88,6 +88,10 @@ class RustGimbalClient:
     def stop(self) -> None:
         self._request({"cmd": "stop"})
 
+    def disable_motors(self) -> None:
+        """De-energize stepper coils (all control pins LOW) to reduce heating."""
+        self._request({"cmd": "disable_motors"})
+
     def set_input_enabled(self, enabled: bool) -> None:
         self._request({"cmd": "set_input_enabled", "enabled": enabled})
 

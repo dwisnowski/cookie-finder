@@ -88,6 +88,14 @@ impl PanTiltGimbal {
         g.commanded_tilt = g.tilt.get_angle();
     }
 
+    pub fn disable_motors(&self) {
+        let mut g = self.inner.lock().unwrap();
+        g.pan.disable_coils();
+        g.tilt.disable_coils();
+        g.commanded_pan = g.pan.get_angle();
+        g.commanded_tilt = g.tilt.get_angle();
+    }
+
     pub fn tick(&self) {
         let mut g = self.inner.lock().unwrap();
         if g.pan.is_moving() {

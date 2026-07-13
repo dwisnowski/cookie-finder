@@ -84,6 +84,10 @@ fn handle_request(req: &Request, state: &ControlState) -> Value {
             g.stop();
             json!({"ok": true})
         }
+        "disable_motors" => {
+            g.disable_motors();
+            json!({"ok": true})
+        }
         "set_input_enabled" => {
             let enabled = req.enabled.unwrap_or(false);
             state.input_enabled.store(enabled, Ordering::Relaxed);

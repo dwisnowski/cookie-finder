@@ -89,6 +89,25 @@ impl StepperMotor {
     #[cfg(not(target_os = "linux"))]
     fn write_step(&self, _step: i32) {}
 
+    /// De-energize all coils (all pins LOW) to reduce heating when idle.
+    #[cfg(target_os = "linux")]
+    fn set_pins_low(&self) {
+        let Some(handles) = &self.handles else { return };
+        if let Ok(guard) = handles.lock() {
+            for h in guard.iter() {
+                let _ = h.set_value(0);
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    fn set_pins_low(&self) {}
+
+    pub fn disable_coils(&mut self) {
+        self.moving = false;
+        self.set_pins_low();
+    }
+
     pub fn set_speed(&mut self, hz: f64) {
         self.speed_hz = hz.clamp(10.0, 5000.0);
     }
@@ -119,7 +138,7 @@ impl StepperMotor {
         let diff = self.target_angle - self.current_angle;
         if diff.abs() < 0.5 {
             self.moving = false;
-            self.write_step(self.current_step);
+            self.set_pins_low();
             return false;
         }
         let dir: i32 = if diff > 0.0 { 1 } else { -1 };
@@ -142,6 +161,7 @@ impl StepperMotor {
         }
         self.target_angle = self.current_angle;
         self.moving = false;
+        self.set_pins_low();
     }
 
     pub fn home(&mut self) {
@@ -150,7 +170,7 @@ impl StepperMotor {
         self.target_angle = 0.0;
         self.current_step = 0;
         self.moving = false;
-        self.write_step(0);
+        self.set_pins_low();
     }
 
     pub fn stop(&mut self) {

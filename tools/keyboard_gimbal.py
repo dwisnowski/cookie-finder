@@ -2,8 +2,9 @@
 """
 Interactive terminal control for the Rust gimbal daemon.
 
-Arrow keys pan/tilt while held (press Space or s to stop). Keys 1-9 set
-step rate for 28BYJ-48 motors on the Orange Pi (1 = slow, 9 = fast).
+Arrow keys pan/tilt while held (press Space or s to stop and disable coils).
+Keys 1-9 set step rate for 28BYJ-48 motors on the Orange Pi (1 = slow, 9 = fast).
+Press d to disable motors without quitting.
 """
 
 from __future__ import annotations
@@ -76,6 +77,15 @@ class MotorController:
             self._direction = None
         try:
             self.client.stop()
+            self.client.disable_motors()
+        except (OSError, ValueError):
+            pass
+
+    def disable_motors(self) -> None:
+        with self._lock:
+            self._direction = None
+        try:
+            self.client.disable_motors()
         except (OSError, ValueError):
             pass
 
@@ -143,7 +153,8 @@ def _draw(stdscr: curses.window, motor: MotorController, client: RustGimbalClien
         "  Arrow keys     Pan / tilt (hold; press Space or s to stop)",
         "  1-9            Set step rate (1=slow, 9=fast)",
         "  h              Home (0°, 0°)",
-        "  s / Space      Stop motion",
+        "  d              Disable motors (de-energize coils)",
+        "  s / Space      Stop motion and disable motors",
         "  q              Quit",
         "",
         "Requires: cookie-finder-ctl daemon (make on-the-pi-rust-daemon)",
@@ -191,6 +202,10 @@ def _run(stdscr: curses.window, client: RustGimbalClient, preset: int) -> int:
             if key in (ord("h"), ord("H")):
                 motor.stop()
                 client.home()
+                continue
+
+            if key in (ord("d"), ord("D")):
+                motor.disable_motors()
                 continue
 
             if ord("1") <= key <= ord("9"):
