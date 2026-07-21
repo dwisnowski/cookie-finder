@@ -29,6 +29,7 @@ from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
+from cookie_finder.wifi import get_switch_instructions, get_wifi_status, set_wifi_mode
 
 
 # Global state
@@ -619,6 +620,26 @@ def create_app(camera_id=None):
         if processor is None:
             return {"error": "Processor not initialized"}
         return processor.get_state()
+
+    @app.get("/wifi/status")
+    def wifi_status():
+        """Return current WiFi client/AP mode details."""
+        return get_wifi_status()
+
+    @app.get("/wifi/instructions/{mode}")
+    def wifi_instructions(mode: str):
+        """Return confirmation-dialog copy for switching to ap or client."""
+        return get_switch_instructions(mode)
+
+    @app.post("/wifi/mode/{mode}")
+    def wifi_set_mode(mode: str):
+        """
+        Switch WiFi to ap or client mode.
+
+        Returns immediately, then performs the radio change in the background
+        so the browser can show instructions before the link drops.
+        """
+        return set_wifi_mode(mode)
     
     @app.post("/bluetooth/scan")
     async def bluetooth_scan():
@@ -816,6 +837,10 @@ def create_app(camera_id=None):
             await websocket.send_json({
                 "type": "available_cameras",
                 "data": get_available_cameras_payload(),
+            })
+            await websocket.send_json({
+                "type": "wifi_status",
+                "data": get_wifi_status(),
             })
 
             while True:

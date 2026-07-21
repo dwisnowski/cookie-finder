@@ -34,6 +34,12 @@ sudo nano /etc/wpa_supplicant/wpa_supplicant.conf
 # 
 # Save with Ctrl+X, Y, Enter
 
+# 2.c Optional: enable WiFi AP fallback (SSID: cookie-finder)
+# After cloning the repo:
+#   make init-wifi
+# Then use Settings → WiFi Mode in the web UI to switch between
+# client WiFi and the cookie-finder access point.
+
 # 3. Install uv (Python)
 curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.cargo/env

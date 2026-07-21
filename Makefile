@@ -70,6 +70,24 @@ _init:
 	sudo usermod -aG bluetooth cookie
 	@echo "Bluetooth group permissions added. Please log out and log back in for changes to take effect."
 
+_init-wifi:
+	@echo "Installing WiFi AP dependencies (hostapd, dnsmasq, iw)..."
+	sudo apt-get update
+	sudo apt-get install -y hostapd dnsmasq iw network-manager || true
+	@if ! command -v create_ap >/dev/null 2>&1; then \
+		echo "Installing create_ap helper script..."; \
+		sudo curl -fsSL https://raw.githubusercontent.com/oblique/create_ap/master/create_ap \
+			-o /usr/local/bin/create_ap; \
+		sudo chmod +x /usr/local/bin/create_ap; \
+	fi
+	@SCRIPT_PATH="$$(cd "$(CURDIR)" && pwd)/scripts/wifi-mode.sh"; \
+	echo "Configuring passwordless sudo for $$SCRIPT_PATH..."; \
+	echo "cookie ALL=(root) NOPASSWD: $$SCRIPT_PATH" | sudo tee /etc/sudoers.d/cookie-finder-wifi >/dev/null; \
+	sudo chmod 440 /etc/sudoers.d/cookie-finder-wifi; \
+	sudo visudo -cf /etc/sudoers.d/cookie-finder-wifi
+	@echo "WiFi AP setup complete. SSID will be cookie-finder (password: cookie-finder)."
+	@echo "Toggle AP/client mode from the Cookie Finder Settings panel."
+
 _run-standalone:
 	@echo "Starting Thermal Camera Viewer (Standalone GUI mode)..."
 	uv run main.py
@@ -421,7 +439,7 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-check on-the-pi-rust-build \
         on-the-pi-rust-daemon-install on-the-pi-rust-daemon \
         on-the-pi-rust-daemon-stop on-the-pi-rust-daemon-status \
-        on-the-pi-rust-keyboard
+        on-the-pi-rust-keyboard on-the-pi-init-wifi
 
 on-the-pi-help:
 	@echo "On-the-Pi targets (run on Orange Pi only):"
@@ -432,6 +450,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-init                  Bluetooth group permissions"
 	@echo "  make on-the-pi-tool-setup            apt build deps + Rust/cargo (rustup)"
 	@echo "  make on-the-pi-tool-setup-rust       Rust/cargo only (skip apt packages)"
+	@echo "  make on-the-pi-init-wifi              Install WiFi AP dependencies + sudo script"
 	@echo ""
 	@echo "Running the application:"
 	@echo "  make on-the-pi-run                   Start web server (default)"
@@ -473,6 +492,7 @@ on-the-pi-help:
 on-the-pi-install: _install
 on-the-pi-install-yolo: _install-yolo
 on-the-pi-init: _init
+on-the-pi-init-wifi: _init-wifi
 on-the-pi-clean: _clean
 on-the-pi-run: on-the-pi-run-web
 on-the-pi-run-standalone: _run-standalone

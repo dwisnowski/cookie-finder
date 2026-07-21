@@ -71,6 +71,24 @@ To manually reconnect or cycle cameras at runtime:
 
 ---
 
+## WiFi Access Point Mode
+
+On the Orange Pi, run once:
+
+```bash
+make init-wifi
+```
+
+The home screen badge shows **Client · …** or **AP · cookie-finder**.
+
+In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspot. A confirmation dialog lists reconnect steps before the radio switches.
+
+- AP SSID: `cookie-finder`
+- AP password: `cookie-finder`
+- AP URL: `http://192.168.12.1:8000`
+
+---
+
 ## YOLO
 
 YOLO is loaded lazily on first use. The `yolo` extra must be installed:

@@ -38,6 +38,18 @@
                     <button class="btn-toggle" id="btn_invert_tilt" style="font-size: 10px; padding: 4px; margin-top: 4px; width: 100%;">Invert Tilt: OFF</button>
                 </div>
             </div>
+
+            <!-- WiFi Mode Section -->
+            <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">WiFi Mode</div>
+                <div id="wifiModeSummary" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.4;">
+                    Detecting WiFi mode…
+                </div>
+                <button class="btn" id="btn_wifi_toggle" style="font-size: 11px; width: 100%;">Switch WiFi Mode</button>
+                <div id="wifiModeHint" style="margin-top: 8px; font-size: 10px; color: var(--text-tertiary); line-height: 1.4;">
+                    AP network name: <strong>cookie-finder</strong>
+                </div>
+            </div>
             
             <!-- Device Controls Section -->
             <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
@@ -46,6 +58,21 @@
                     <button class="btn" id="btn_reconnect_settings" style="font-size: 11px; background: linear-gradient(135deg, rgba(170, 102, 0, 0.8) 0%, rgba(200, 120, 0, 0.6) 100%);">Reconnect</button>
                     <button class="btn" id="btn_cycle_gamepad_settings" style="font-size: 11px;">🎮 Cycle Device</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WiFi Mode Confirm Modal -->
+    <div id="wifiConfirmOverlay" class="modal-overlay wifi-confirm-overlay">
+        <div class="modal-content wifi-confirm-content">
+            <button class="modal-close" id="closeWifiConfirmBtn">&times;</button>
+            <div class="modal-header" id="wifiConfirmTitle">Switch WiFi Mode?</div>
+            <p id="wifiConfirmSummary" class="wifi-confirm-summary"></p>
+            <ol id="wifiConfirmSteps" class="wifi-confirm-steps"></ol>
+            <div id="wifiConfirmCreds" class="wifi-confirm-creds" hidden></div>
+            <div class="wifi-confirm-actions">
+                <button class="btn" id="btn_wifi_cancel" type="button">Cancel</button>
+                <button class="btn btn-wifi-confirm" id="btn_wifi_confirm" type="button">Switch Mode</button>
             </div>
         </div>
     </div>

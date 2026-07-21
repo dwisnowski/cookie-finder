@@ -13,6 +13,8 @@ All available `make` targets.
 | `make install-docs` | `uv sync --extra docs` — add MkDocs + Material theme |
 | `make install-ffmpeg` | `brew install ffmpeg` (macOS) |
 | `make install-libusb` | `brew install libusb` (macOS, needed for USB probing) |
+| `make init` | Add user to Bluetooth group (Orange Pi) |
+| `make init-wifi` | Install WiFi AP tools + passwordless sudo for `scripts/wifi-mode.sh` |
 
 ---
 

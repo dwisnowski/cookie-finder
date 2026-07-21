@@ -139,6 +139,27 @@ body {
     box-shadow: 0 0 4px var(--accent);
 }
 
+.badge-wifi-ap {
+    border-color: #ffb020;
+    color: #ffb020;
+    background: rgba(255, 176, 32, 0.12);
+}
+
+.badge-wifi-ap .badge-dot.active {
+    background: #ffb020;
+    box-shadow: 0 0 4px rgba(255, 176, 32, 0.7);
+}
+
+.badge-wifi-client {
+    border-color: var(--accent);
+}
+
+.badge-wifi-unknown {
+    border-color: var(--text-tertiary);
+    color: var(--text-tertiary);
+    background: rgba(113, 128, 150, 0.12);
+}
+
 h1 {
     margin: 0 0 var(--spacing-lg) 0;
     font-size: 28px;
@@ -588,6 +609,70 @@ input[type="range"]:focus {
 
 #helpOverlay.modal-overlay {
     z-index: 999;
+}
+
+.wifi-confirm-overlay.modal-overlay {
+    z-index: 1000;
+}
+
+.wifi-confirm-content {
+    max-width: 520px;
+}
+
+.wifi-confirm-summary {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 var(--spacing-lg) 0;
+}
+
+.wifi-confirm-steps {
+    margin: 0 0 var(--spacing-lg) 0;
+    padding-left: 1.25rem;
+    color: var(--text-primary);
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.wifi-confirm-steps li {
+    margin-bottom: 8px;
+}
+
+.wifi-confirm-creds {
+    display: grid;
+    gap: 8px;
+    margin-bottom: var(--spacing-lg);
+    padding: var(--spacing-md);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    background: rgba(45, 55, 72, 0.45);
+    font-size: 12px;
+}
+
+.wifi-confirm-creds div {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.wifi-confirm-creds span {
+    color: var(--text-tertiary);
+}
+
+.wifi-confirm-creds strong {
+    color: var(--accent);
+    text-align: right;
+    word-break: break-all;
+}
+
+.wifi-confirm-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.btn-wifi-confirm {
+    background: linear-gradient(135deg, rgba(170, 102, 0, 0.9) 0%, rgba(200, 120, 0, 0.7) 100%) !important;
 }
 
 @keyframes fadeIn {
