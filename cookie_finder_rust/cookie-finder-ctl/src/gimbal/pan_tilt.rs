@@ -1,4 +1,4 @@
-use super::stepper::StepperMotor;
+use super::stepper::{DriveMode, StepperMotor};
 use crate::config::{
     validate_phase_order, DEFAULT_PAN_HZ, DEFAULT_TILT_HZ, GimbalConfig, MAX_PAN, MAX_TILT,
     PAN_CONTROL_PINS, TILT_CONTROL_PINS,
@@ -93,6 +93,17 @@ impl PanTiltGimbal {
             MotorId::Tilt => g.tilt.set_phase_order(order),
         }
         Ok(())
+    }
+
+    /// Drive mode is shared by pan and tilt (same energization algorithm).
+    pub fn get_drive_mode(&self) -> DriveMode {
+        self.inner.lock().unwrap().pan.drive_mode()
+    }
+
+    pub fn set_drive_mode(&self, mode: DriveMode) {
+        let mut g = self.inner.lock().unwrap();
+        g.pan.set_drive_mode(mode);
+        g.tilt.set_drive_mode(mode);
     }
 
     pub fn is_moving(&self) -> bool {

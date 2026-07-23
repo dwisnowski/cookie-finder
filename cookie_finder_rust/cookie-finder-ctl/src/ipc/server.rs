@@ -1,6 +1,6 @@
 use crate::config::{PAN_CONTROL_PINS, TILT_CONTROL_PINS, VERSION};
 use crate::control_loop::ControlState;
-use crate::gimbal::{MotorId, PanTiltGimbal};
+use crate::gimbal::{DriveMode, MotorId, PanTiltGimbal};
 use anyhow::Context;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -30,6 +30,9 @@ struct Request {
     motor: Option<String>,
     #[serde(default)]
     order: Option<Vec<usize>>,
+    /// Drive mode: "wave", "full", or "half".
+    #[serde(default)]
+    mode: Option<String>,
 }
 
 fn ok_position(gimbal: &PanTiltGimbal) -> Value {
@@ -44,6 +47,7 @@ fn handle_request(req: &Request, state: &ControlState) -> Value {
         "get_position" => ok_position(g),
         "get_status" => {
             let (pan, tilt) = g.get_position();
+            let drive = g.get_drive_mode();
             json!({
                 "ok": true,
                 "pan": pan,
@@ -54,6 +58,8 @@ fn handle_request(req: &Request, state: &ControlState) -> Value {
                 "max_tilt": g.max_tilt,
                 "pan_hz": g.pan_hz(),
                 "tilt_hz": g.tilt_hz(),
+                "drive_mode": drive.as_str(),
+                "drive_mode_label": drive.label(),
             })
         }
         "move_to_angles" => {
@@ -133,6 +139,37 @@ fn handle_request(req: &Request, state: &ControlState) -> Value {
                 Ok(()) => json!({"ok": true, "motor": motor, "order": order}),
                 Err(e) => json!({"ok": false, "error": e.to_string()}),
             }
+        }
+        "get_drive_mode" => {
+            let mode = g.get_drive_mode();
+            json!({
+                "ok": true,
+                "mode": mode.as_str(),
+                "label": mode.label(),
+                "modes": DriveMode::ALL.iter().map(|m| m.as_str()).collect::<Vec<_>>(),
+            })
+        }
+        "set_drive_mode" => {
+            let Some(raw) = req.mode.as_deref() else {
+                return json!({
+                    "ok": false,
+                    "error": "mode required (\"wave\", \"full\", or \"half\")"
+                });
+            };
+            let Some(mode) = DriveMode::parse(raw) else {
+                return json!({
+                    "ok": false,
+                    "error": format!(
+                        "unknown drive mode \"{raw}\" (expected wave, full, or half)"
+                    )
+                });
+            };
+            g.set_drive_mode(mode);
+            json!({
+                "ok": true,
+                "mode": mode.as_str(),
+                "label": mode.label(),
+            })
         }
         other => json!({"ok": false, "error": format!("unknown cmd: {other}")}),
     }

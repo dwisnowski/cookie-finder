@@ -101,5 +101,12 @@ class RustGimbalClient:
     def set_phase_order(self, motor: str, order: list[int]) -> None:
         self._request({"cmd": "set_phase_order", "motor": motor, "order": order})
 
+    def get_drive_mode(self) -> dict:
+        return self._request({"cmd": "get_drive_mode"})
+
+    def set_drive_mode(self, mode: str) -> dict:
+        """Set coil drive algorithm: 'wave', 'full', or 'half'."""
+        return self._request({"cmd": "set_drive_mode", "mode": mode})
+
     def cleanup(self) -> None:
         pass

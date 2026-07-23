@@ -1,20 +1,29 @@
 # Stepper Motor Wiring Test
 
-Discover the correct **phase order** for 28BYJ-48 stepper motors without rewiring. The software remaps which logical step phase drives each ULN2003 output (IN1–IN4).
+Discover the correct **phase order** and **drive mode** for 28BYJ-48 / 24BYJ stepper motors without rewiring. The software remaps which logical step phase drives each ULN2003 output (IN1–IN4), and can switch between wave, full-step, and half-step coil energization.
 
 ## When to use this
 
 Use this procedure when:
 
 - A motor buzzes, jitters, or barely moves
+- The motor only turns when you help it by hand (often wave drive + wrong mapping)
 - You connected the four motor wires to the ULN2003 in an unknown order
-- You replaced a motor or driver board
+- You replaced a motor or driver board (including 24BYJ variants)
 
-GPIO pins to the ULN2003 must already match [Wiring Guide](wiring.md). This test only finds the **coil phase mapping**, not which GPIO pin is which.
+GPIO pins to the ULN2003 must already match [Wiring Guide](wiring.md). This test only finds the **coil phase mapping** and **drive algorithm**, not which GPIO pin is which.
 
 ## How it works
 
-The driver uses a 4-step full-step sequence. There are **24** possible mappings from logical phases (0–3) to physical IN1–IN4 outputs. The keyboard tool cycles through them; you pick the one that spins smoothly.
+The daemon can energize coils three ways:
+
+| Mode | Pattern | Notes |
+|------|---------|-------|
+| **wave** | `1000 → 0100 → 0010 → 0001` | 1-coil; lowest torque (previous default) |
+| **full** | `1100 → 0110 → 0011 → 1001` | 2-coil; more starting torque |
+| **half** | 8-step mix of 1/2 coil | Smoothest; good torque |
+
+There are **24** possible mappings from logical phases (0–3) to physical IN1–IN4 outputs. The keyboard tool cycles through mappings and drive modes; you pick the combination that spins smoothly.
 
 You do **not** need to unplug and reorder wires for each try—the daemon permutes the mapping in software.
 
@@ -40,7 +49,7 @@ Or via systemd if configured. The daemon loads phase order from `config/gimbal.t
 make on-the-pi-rust-keyboard
 ```
 
-The screen shows the current wiring mapping for **both** pan and tilt motors.
+The screen shows the current wiring mapping for **both** pan and tilt motors, plus the active drive mode.
 
 ### 3. Test one motor at a time
 
@@ -49,19 +58,23 @@ The screen shows the current wiring mapping for **both** pan and tilt motors.
 | `P` | Select **pan** motor for permutation cycling |
 | `T` | Select **tilt** motor for permutation cycling |
 | `[` / `]` | Previous / next permutation (1–24) |
+| `M` / `Shift+M` | Next / previous drive mode (wave → full → half) |
 | Arrow keys | Spin motors (hold to test; `Space` or `s` to stop) |
-| `1`–`9` | Step speed (start with `1` or `2` for wiring tests) |
+| `1`–`9` | Step speed (`1` = 25 Hz / 40 ms, `2` = 50 Hz / 20 ms) |
 
 1. Press `P` (or `T`) to select the motor under test.
-2. Hold an arrow key to spin the motor.
-3. Press `]` to try the next permutation if motion is rough or wrong.
-4. Repeat until the motor spins smoothly with consistent torque.
+2. Start on speed preset `1` (slow).
+3. Hold an arrow key to spin the motor.
+4. Press `M` to try the next drive mode if it will not self-start.
+5. Press `]` to try the next wiring permutation if motion is rough or wrong.
+6. Repeat until the motor spins smoothly with consistent torque.
 
 **Tips:**
 
-- Use a low speed preset (`1` or `2`) while testing.
+- Use a low speed preset (`1` or `2`) while testing—especially for 24BYJ motors.
+- Prefer **full** or **half** drive if wave only moves when you nudge the shaft.
 - If the motor spins in the wrong direction, try the opposite arrow—or continue cycling; reverse mappings can overlap.
-- Only 12 unique behaviors exist if you ignore direction, but cycling all 24 is simplest.
+- Only 12 unique wiring behaviors exist if you ignore direction, but cycling all 24 is simplest.
 
 ### 4. Save the mapping
 

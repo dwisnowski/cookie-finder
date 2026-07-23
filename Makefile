@@ -118,7 +118,7 @@ _test-gimbal-gamepad:
 	@uv run tools/test_gimbal_gamepad.py
 
 _keyboard-gimbal:
-	@echo "Keyboard gimbal control (arrows pan/tilt, 1-9 speed, P/T [ ] wiring, W save config, q quit)..."
+	@echo "Keyboard gimbal: arrows pan/tilt, 1-9 speed, M drive mode, P/T [ ] wiring, W save, q quit..."
 	@uv run tools/keyboard_gimbal.py
 
 _test-pan-step:
@@ -458,7 +458,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-rust-check            Typecheck without building"
 	@echo "  make on-the-pi-rust-build            Native release build"
 	@echo "  make on-the-pi-rust-daemon           Start daemon locally (requires sudo)"
-	@echo "  make on-the-pi-rust-keyboard         Keyboard pan/tilt + wiring test ([ ] cycle, W saves config)"
+	@echo "  make on-the-pi-rust-keyboard         Keyboard pan/tilt + drive mode (M) + wiring ([ ] / W)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make on-the-pi-clean                 Remove Python cache files"

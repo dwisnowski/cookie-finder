@@ -3,7 +3,8 @@
 Interactive terminal control for the Rust gimbal daemon.
 
 Arrow keys pan/tilt while held (press Space or s to stop and disable coils).
-Keys 1-9 set step rate for 28BYJ-48 motors on the Orange Pi (1 = slow, 9 = fast).
+Keys 1-9 set step rate for 28BYJ-48 / 24BYJ motors on the Orange Pi (1 = slow, 9 = fast).
+M cycles coil drive mode (wave / full-step / half-step).
 P/T select motor for wiring permutation; [ / ] cycle; W writes mapping to config.
 """
 
@@ -28,22 +29,29 @@ from cookie_finder.gimbal.config import (
 )
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 
-# 28BYJ-48 @ 5V: ~340 Hz nominal max; 4076 steps/rev (~0.0883 deg/step).
+# Presets 1–2 are slow enough for start-up / drive-mode troubleshooting (20–50 ms/step).
+# Higher presets match typical 28BYJ-48 @ 5V operation.
 SPEED_PRESETS: dict[int, int] = {
-    1: 150,
-    2: 250,
-    3: 350,
-    4: 450,
-    5: 550,
-    6: 700,
-    7: 900,
-    8: 1200,
-    9: 1500,
+    1: 25,    # 40 ms/step
+    2: 50,    # 20 ms/step
+    3: 150,
+    4: 250,
+    5: 350,
+    6: 450,
+    7: 550,
+    8: 700,
+    9: 900,
 }
+
+DRIVE_MODES: list[tuple[str, str]] = [
+    ("wave", "wave (1-coil)"),
+    ("full", "full-step (2-coil)"),
+    ("half", "half-step"),
+]
 
 PERMUTATIONS: list[tuple[int, ...]] = list(itertools.permutations((0, 1, 2, 3)))
 
-DEFAULT_PRESET = 5
+DEFAULT_PRESET = 1
 STEP_SIZE = 2
 REFRESH_MS = 200
 STATUS_CLEAR_SEC = 4.0
@@ -69,6 +77,61 @@ def _format_wiring_line(
     mapping = "  ".join(f"IN{i + 1}→ph{order[i]}" for i in range(4))
     marker = " <<" if selected else ""
     return f"{label:4} wiring: {mapping}   [{perm_idx + 1}/{len(PERMUTATIONS)}]{marker}"
+
+
+class DriveModeState:
+    """Tracks and applies wave / full-step / half-step drive algorithms."""
+
+    def __init__(self, client: RustGimbalClient) -> None:
+        self.client = client
+        self.mode = "wave"
+        self.label = "wave (1-coil)"
+        self.mode_index = 0
+        self.status_message: Optional[str] = None
+        self._status_until = 0.0
+        self._sync_from_daemon()
+
+    def _sync_from_daemon(self) -> None:
+        try:
+            resp = self.client.get_drive_mode()
+            if resp.get("ok"):
+                mode = str(resp.get("mode", "wave"))
+                for i, (key, label) in enumerate(DRIVE_MODES):
+                    if key == mode:
+                        self.mode_index = i
+                        self.mode = key
+                        self.label = str(resp.get("label", label))
+                        return
+        except (OSError, ValueError, KeyError):
+            pass
+
+    def next_mode(self) -> None:
+        self.mode_index = (self.mode_index + 1) % len(DRIVE_MODES)
+        self._apply_current()
+
+    def prev_mode(self) -> None:
+        self.mode_index = (self.mode_index - 1) % len(DRIVE_MODES)
+        self._apply_current()
+
+    def _apply_current(self) -> None:
+        mode, label = DRIVE_MODES[self.mode_index]
+        resp = self.client.set_drive_mode(mode)
+        if not resp.get("ok"):
+            self.status_message = f"Drive mode failed: {resp.get('error', 'unknown')}"
+            self._status_until = time.monotonic() + STATUS_CLEAR_SEC
+            return
+        self.mode = str(resp.get("mode", mode))
+        self.label = str(resp.get("label", label))
+        self.status_message = (
+            f"Drive mode → {self.label}  [{self.mode_index + 1}/{len(DRIVE_MODES)}]"
+        )
+        self._status_until = time.monotonic() + STATUS_CLEAR_SEC
+
+    def active_status(self) -> Optional[str]:
+        if self.status_message and time.monotonic() < self._status_until:
+            return self.status_message
+        self.status_message = None
+        return None
 
 
 class WiringState:
@@ -237,6 +300,7 @@ def _draw(
     motor: MotorController,
     client: RustGimbalClient,
     wiring: WiringState,
+    drive: DriveModeState,
     config_path: Path,
 ) -> None:
     stdscr.erase()
@@ -248,11 +312,14 @@ def _draw(
         pan, tilt = 0.0, 0.0
 
     hz = SPEED_PRESETS[motor.preset]
+    ms_per_step = 1000.0 / hz
     lines = [
         "Cookie Finder – Keyboard Gimbal Control",
         "",
         f"Position:  pan {pan:6.1f}°   tilt {tilt:6.1f}°",
-        f"Speed:     preset {motor.preset}  ({hz} Hz, ~{_deg_per_sec(hz):.1f}°/s)",
+        f"Speed:     preset {motor.preset}  ({hz} Hz, {ms_per_step:.0f} ms/step, "
+        f"~{_deg_per_sec(hz):.1f}°/s)",
+        f"Drive:     {drive.label}   [{drive.mode_index + 1}/{len(DRIVE_MODES)}]",
         f"Moving:    {motor.direction or 'stopped'}",
         "",
         _format_wiring_line(
@@ -271,7 +338,8 @@ def _draw(
         "",
         "Controls:",
         "  Arrow keys     Pan / tilt (hold; press Space or s to stop)",
-        "  1-9            Set step rate (1=slow, 9=fast)",
+        "  1-9            Set step rate (1=slow ~40ms, 9=fast)",
+        "  M / Shift+M    Next / previous drive mode (wave → full → half)",
         "  P / T          Select pan or tilt for wiring permutation",
         "  [ / ]          Previous / next wiring permutation",
         "  Y              Preview TOML snippet for selected motor",
@@ -281,10 +349,11 @@ def _draw(
         "  s / Space      Stop motion and disable motors",
         "  q              Quit",
         "",
+        "Tip: for 24BYJ start-up tests use preset 1 + cycle M through drive modes.",
         "Requires: cookie-finder-ctl daemon (make on-the-pi-rust-daemon)",
     ]
 
-    status = wiring.active_status()
+    status = drive.active_status() or wiring.active_status()
     if status:
         lines.extend(["", status])
 
@@ -311,10 +380,11 @@ def _run(
 
     motor = MotorController(client, preset)
     wiring = WiringState(client)
+    drive = DriveModeState(client)
 
     try:
         while True:
-            _draw(stdscr, motor, client, wiring, config_path)
+            _draw(stdscr, motor, client, wiring, drive, config_path)
 
             if motor.error:
                 stdscr.timeout(2000)
@@ -344,6 +414,16 @@ def _run(
 
             if ord("1") <= key <= ord("9"):
                 motor.set_preset(key - ord("0"))
+                continue
+
+            if key == ord("m"):
+                motor.stop()
+                drive.next_mode()
+                continue
+
+            if key == ord("M"):
+                motor.stop()
+                drive.prev_mode()
                 continue
 
             if key in (ord("p"), ord("P")):
@@ -391,7 +471,10 @@ def _run(
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Keyboard control for the Rust gimbal daemon (arrow keys + 1-9 speed)."
+        description=(
+            "Keyboard control for the Rust gimbal daemon "
+            "(arrows, 1-9 speed, M drive mode, wiring permutations)."
+        )
     )
     parser.add_argument(
         "--socket",
