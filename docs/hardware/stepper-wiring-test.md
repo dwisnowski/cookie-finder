@@ -41,7 +41,7 @@ You do **not** need to unplug and reorder wires for each try—the daemon permut
 make on-the-pi-rust-daemon
 ```
 
-Or via systemd if configured. The daemon loads phase order from `config/gimbal.toml` on startup.
+This installs/starts `cookie-finder.service`. The daemon loads phase order from `config/gimbal.toml` on startup.
 
 ### 2. Open keyboard control
 

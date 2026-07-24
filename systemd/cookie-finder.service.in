@@ -1,0 +1,22 @@
+[Unit]
+Description=Cookie Finder gimbal control daemon
+Documentation=file://@REPO_ROOT@/README.md
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_ROOT@
+Environment=COOKIE_FINDER_CONFIG=@REPO_ROOT@/config/gimbal.toml
+ExecStart=@REPO_ROOT@/@RUST_BIN@ daemon --socket @RUST_SOCKET@
+Restart=on-failure
+RestartSec=2
+# GPIO + input devices
+SupplementaryGroups=input dialout
+
+# Soft stop, then hard kill if needed
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

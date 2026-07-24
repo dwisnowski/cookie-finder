@@ -21,6 +21,8 @@ PI_HOST      ?= cookie@192.168.68.106
 PI_SSH_HOST  ?= cookie
 PI_DEST      ?= ~/cookie-finder/$(RUST_BIN)
 RUST_SOCKET  ?= /tmp/cookie-finder.sock
+SYSTEMD_UNIT_IN := systemd/cookie-finder.service.in
+SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder.service
 
 help:
 	@echo "Cookie Finder – Makefile Targets"
@@ -416,7 +418,9 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-find-camera on-the-pi-list-devices on-the-pi-list-controls \
         on-the-pi-get-control on-the-pi-set-control \
         on-the-pi-tool-setup on-the-pi-tool-setup-rust \
-        on-the-pi-rust-check on-the-pi-rust-build on-the-pi-rust-daemon \
+        on-the-pi-rust-check on-the-pi-rust-build \
+        on-the-pi-rust-daemon-install on-the-pi-rust-daemon \
+        on-the-pi-rust-daemon-stop on-the-pi-rust-daemon-status \
         on-the-pi-rust-keyboard
 
 on-the-pi-help:
@@ -457,7 +461,10 @@ on-the-pi-help:
 	@echo "Rust gimbal daemon:"
 	@echo "  make on-the-pi-rust-check            Typecheck without building"
 	@echo "  make on-the-pi-rust-build            Native release build"
-	@echo "  make on-the-pi-rust-daemon           Start daemon locally (requires sudo)"
+	@echo "  make on-the-pi-rust-daemon-install   Install systemd unit (cookie-finder.service)"
+	@echo "  make on-the-pi-rust-daemon           Install unit (if needed) and start via systemd"
+	@echo "  make on-the-pi-rust-daemon-stop      Stop systemd service"
+	@echo "  make on-the-pi-rust-daemon-status    Show systemd status"
 	@echo "  make on-the-pi-rust-keyboard         Keyboard pan/tilt + drive mode (M) + wiring ([ ] / W)"
 	@echo ""
 	@echo "Maintenance:"
@@ -499,19 +506,45 @@ on-the-pi-rust-check: _rust-check
 on-the-pi-rust-build:
 	cd $(RUST_DIR) && cargo build --release
 
-on-the-pi-rust-daemon:
-	@echo "Starting daemon in the background..."
-	# Use $(CURDIR) — do not use ~; under `sudo make`, ~ expands to /root
-	@sudo nohup $(CURDIR)/$(RUST_BIN) daemon --socket $(RUST_SOCKET) >/tmp/cookie-finder-daemon.log 2>&1 &
-	@echo "Daemon started (socket $(RUST_SOCKET), log /tmp/cookie-finder-daemon.log)"
+# Install/refresh the systemd unit. Paths are baked from CURDIR (never ~ under sudo make).
+on-the-pi-rust-daemon-install:
+	@test -x "$(CURDIR)/$(RUST_BIN)" || { \
+		echo "error: missing executable $(CURDIR)/$(RUST_BIN)"; \
+		echo "hint: run 'make on-the-pi-rust-build' (or deploy a binary to that path)"; \
+		exit 1; \
+	}
+	@sed \
+		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
+		-e 's|@RUST_BIN@|$(RUST_BIN)|g' \
+		-e 's|@RUST_SOCKET@|$(RUST_SOCKET)|g' \
+		$(SYSTEMD_UNIT_IN) | sudo tee $(SYSTEMD_UNIT) >/dev/null
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable cookie-finder.service
+	@echo "Installed $(SYSTEMD_UNIT)"
+	@echo "  binary: $(CURDIR)/$(RUST_BIN)"
+	@echo "  socket: $(RUST_SOCKET)"
+
+# Stop any leftover nohup/manual daemon so GPIO pins are free, then start via systemd.
+on-the-pi-rust-daemon: on-the-pi-rust-daemon-install
+	@echo "Stopping any non-systemd cookie-finder-ctl daemon..."
+	@-sudo pkill -x $(RUST_BIN) 2>/dev/null || true
+	@sleep 0.5
+	@sudo systemctl restart cookie-finder.service
+	@sudo systemctl --no-pager --full status cookie-finder.service || true
+	@echo ""
+	@echo "Daemon managed by systemd (socket $(RUST_SOCKET))"
 	@echo "Check status:  sudo systemctl status cookie-finder"
-	@echo "Stop:          sudo systemctl stop cookie-finder"
+	@echo "Stop:          make on-the-pi-rust-daemon-stop"
 	@echo "Restart:       sudo systemctl restart cookie-finder"
-	@echo "Enable boot:   sudo systemctl enable cookie-finder"
 	@echo "Disable boot:  sudo systemctl disable cookie-finder"
 	@echo "Follow logs:   sudo journalctl -u cookie-finder -f"
-	@echo "             or: tail -f /tmp/cookie-finder-daemon.log"
 
+on-the-pi-rust-daemon-stop:
+	@sudo systemctl stop cookie-finder.service
+	@echo "Stopped cookie-finder.service"
+
+on-the-pi-rust-daemon-status:
+	@sudo systemctl --no-pager --full status cookie-finder.service
 
 on-the-pi-rust-keyboard: _keyboard-gimbal
 

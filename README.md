@@ -76,16 +76,25 @@ make on-the-mac-rust-build-remote PI_HOST=orangepi@<pi-ip>
 
 ### Run on the Pi
 
-Start the daemon (requires `sudo` for GPIO):
+Install the systemd unit and start the daemon (requires `sudo` for GPIO):
 
 ```bash
 make on-the-pi-rust-daemon
 ```
 
-Or manually:
+That installs `cookie-finder.service`, enables it on boot, and starts it. Useful commands:
 
 ```bash
-sudo ./cookie_finder_rust/target/release/cookie-finder-ctl daemon
+sudo systemctl status cookie-finder
+sudo journalctl -u cookie-finder -f
+make on-the-pi-rust-daemon-stop
+```
+
+Or run the binary manually (without systemd):
+
+```bash
+sudo ./cookie-finder-ctl daemon
+# or: sudo ./cookie_finder_rust/target/release/cookie-finder-ctl daemon
 ```
 
 Then start the web server in another terminal:
@@ -119,7 +128,8 @@ make on-the-mac-run-with-rust PI_HOST=orangepi@<pi-ip>
 |--------|-------------|
 | `make on-the-pi-rust-check` | Typecheck without building a binary |
 | `make on-the-pi-rust-build` | Native release build |
-| `make on-the-pi-rust-daemon` | Start daemon locally |
+| `make on-the-pi-rust-daemon` | Install systemd unit and start daemon |
+| `make on-the-pi-rust-daemon-status` | Show daemon systemd status |
 
 Override the Pi host when deploying from your Mac:
 
