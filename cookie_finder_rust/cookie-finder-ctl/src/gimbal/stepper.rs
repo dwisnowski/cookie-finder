@@ -4,13 +4,93 @@ use crate::config::STEPS_PER_REV;
 #[cfg(target_os = "linux")]
 use std::sync::Mutex;
 
-#[cfg(target_os = "linux")]
-const FULL_STEP: [[u8; 4]; 4] = [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]];
+/// Wave drive (1-coil): lowest torque; many 24BYJ motors will not self-start.
+const WAVE_DRIVE: [[u8; 4]; 4] = [
+    [1, 0, 0, 0],
+    [0, 1, 0, 0],
+    [0, 0, 1, 0],
+    [0, 0, 0, 1],
+];
+
+/// Full-step (2-coil): more starting torque than wave drive.
+const FULL_STEP: [[u8; 4]; 4] = [
+    [1, 1, 0, 0],
+    [0, 1, 1, 0],
+    [0, 0, 1, 1],
+    [1, 0, 0, 1],
+];
+
+/// Half-step (alternating 1/2 coil): smoothest; good torque.
+const HALF_STEP: [[u8; 4]; 8] = [
+    [1, 0, 0, 0],
+    [1, 1, 0, 0],
+    [0, 1, 0, 0],
+    [0, 1, 1, 0],
+    [0, 0, 1, 0],
+    [0, 0, 1, 1],
+    [0, 0, 0, 1],
+    [1, 0, 0, 1],
+];
+
+/// Coil energization algorithm for ULN2003 unipolar steppers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DriveMode {
+    /// Single-coil excitation (1000 → 0100 → 0010 → 0001).
+    /// Historically mislabeled "full-step" in this codebase.
+    #[default]
+    Wave,
+    /// Dual-coil excitation (1100 → 0110 → 0011 → 1001).
+    FullStep,
+    /// Alternating single/dual coil (8 patterns per cycle).
+    HalfStep,
+}
+
+impl DriveMode {
+    pub const ALL: [DriveMode; 3] = [DriveMode::Wave, DriveMode::FullStep, DriveMode::HalfStep];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DriveMode::Wave => "wave",
+            DriveMode::FullStep => "full",
+            DriveMode::HalfStep => "half",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            DriveMode::Wave => "wave (1-coil)",
+            DriveMode::FullStep => "full-step (2-coil)",
+            DriveMode::HalfStep => "half-step",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "wave" | "wave_drive" | "wave-drive" => Some(DriveMode::Wave),
+            "full" | "full_step" | "full-step" => Some(DriveMode::FullStep),
+            "half" | "half_step" | "half-step" => Some(DriveMode::HalfStep),
+            _ => None,
+        }
+    }
+
+    fn sequence(self) -> &'static [[u8; 4]] {
+        match self {
+            DriveMode::Wave => &WAVE_DRIVE,
+            DriveMode::FullStep => &FULL_STEP,
+            DriveMode::HalfStep => &HALF_STEP,
+        }
+    }
+
+    pub fn sequence_len(self) -> i32 {
+        self.sequence().len() as i32
+    }
+}
 
 pub struct StepperMotor {
     name: String,
     pins: [u32; 4],
     phase_order: [usize; 4],
+    drive_mode: DriveMode,
     max_angle: f64,
     speed_hz: f64,
     current_angle: f64,
@@ -27,6 +107,7 @@ impl StepperMotor {
             name: name.to_string(),
             pins,
             phase_order,
+            drive_mode: DriveMode::default(),
             max_angle,
             speed_hz: 500.0,
             current_angle: 0.0,
@@ -79,8 +160,9 @@ impl StepperMotor {
     #[cfg(target_os = "linux")]
     fn write_step(&self, step: i32) {
         let Some(handles) = &self.handles else { return };
-        let idx = step.rem_euclid(4) as usize;
-        let vals = FULL_STEP[idx];
+        let seq = self.drive_mode.sequence();
+        let idx = step.rem_euclid(seq.len() as i32) as usize;
+        let vals = seq[idx];
         if let Ok(guard) = handles.lock() {
             for (i, h) in guard.iter().enumerate() {
                 let _ = h.set_value(vals[self.phase_order[i]]);
@@ -126,6 +208,23 @@ impl StepperMotor {
         self.phase_order = order;
     }
 
+    pub fn drive_mode(&self) -> DriveMode {
+        self.drive_mode
+    }
+
+    pub fn set_drive_mode(&mut self, mode: DriveMode) {
+        if self.drive_mode != mode {
+            tracing::info!(
+                "[{}] drive mode {} → {}",
+                self.name,
+                self.drive_mode.as_str(),
+                mode.as_str()
+            );
+            self.drive_mode = mode;
+            self.current_step = 0;
+        }
+    }
+
     pub fn set_target(&mut self, angle: f64) {
         self.target_angle = angle.clamp(0.0, self.max_angle);
         self.moving = (self.target_angle - self.current_angle).abs() >= 0.5;
@@ -143,6 +242,20 @@ impl StepperMotor {
         std::time::Duration::from_secs_f64(1.0 / self.speed_hz)
     }
 
+    fn advance_step(&mut self, direction: i32) {
+        let len = self.drive_mode.sequence_len();
+        self.current_step = (self.current_step + direction).rem_euclid(len);
+        // Half-step advances half the mechanical angle of wave/full per index.
+        let steps_per_rev = match self.drive_mode {
+            DriveMode::HalfStep => STEPS_PER_REV * 2.0,
+            DriveMode::Wave | DriveMode::FullStep => STEPS_PER_REV,
+        };
+        let deg = 360.0 / steps_per_rev;
+        self.current_angle =
+            (self.current_angle + direction as f64 * deg).clamp(0.0, self.max_angle);
+        self.write_step(self.current_step);
+    }
+
     /// Step once toward target. Returns true if a step was taken.
     pub fn tick(&mut self) -> bool {
         let diff = self.target_angle - self.current_angle;
@@ -152,21 +265,14 @@ impl StepperMotor {
             return false;
         }
         let dir: i32 = if diff > 0.0 { 1 } else { -1 };
-        self.current_step = (self.current_step + dir).rem_euclid(4);
-        let deg = 360.0 / STEPS_PER_REV;
-        self.current_angle = (self.current_angle + dir as f64 * deg).clamp(0.0, self.max_angle);
-        self.write_step(self.current_step);
+        self.advance_step(dir);
         self.moving = (self.target_angle - self.current_angle).abs() >= 0.5;
         true
     }
 
     pub fn step_fixed(&mut self, direction: i32, steps: u32) {
         for _ in 0..steps {
-            self.current_step = (self.current_step + direction).rem_euclid(4);
-            let deg = 360.0 / STEPS_PER_REV;
-            self.current_angle =
-                (self.current_angle + direction as f64 * deg).clamp(0.0, self.max_angle);
-            self.write_step(self.current_step);
+            self.advance_step(direction);
             std::thread::sleep(self.step_interval());
         }
         self.target_angle = self.current_angle;
