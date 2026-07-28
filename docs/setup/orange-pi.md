@@ -113,6 +113,30 @@ Then open `http://<device-ip>:8000` in a browser from any device on the same net
 
 ---
 
+## Serial Console (USB-TTL UART)
+
+If WiFi is down, use a **3.3V USB-TTL cable** on UART0 (same pins as Raspberry Pi):
+
+| Pi pin | Signal | USB-TTL |
+|--------|--------|---------|
+| 8 | TXD.0 | RX |
+| 10 | RXD.0 | TX |
+| 9 | GND | GND |
+
+Baud rate: **115200**. On your Mac, copy `.serial.env.example` to `.serial.env` and set `SERIAL_DEVICE` and `SERIAL_PASSWORD`.
+
+```bash
+make serial-connect              # interactive screen session
+make serial-deploy               # sync project without WiFi
+make serial-run SERIAL_CMD='…'   # run a single command
+```
+
+See [Makefile reference](../reference/makefile.md#serial-console) for all serial targets.
+
+> **Note:** Pin 8 (PH0) is shared with the tilt motor IN1 wire in this project. Disconnect that wire for clean serial debugging if needed.
+
+---
+
 ## Verify Camera
 
 After plugging in the thermal camera:

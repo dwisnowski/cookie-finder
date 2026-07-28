@@ -1,0 +1,5 @@
+[gimbal]
+# Maps IN1..IN4 outputs to logical step phases 0..3.
+# Use make on-the-pi-rust-keyboard and press W to save after wiring discovery.
+pan_phase_order = [0, 1, 2, 3]
+tilt_phase_order = [0, 1, 2, 3]

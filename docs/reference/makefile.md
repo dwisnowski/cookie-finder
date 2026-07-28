@@ -83,3 +83,28 @@ All available `make` targets.
 | Target | Description |
 |--------|-------------|
 | `make clean` | Remove `__pycache__` directories and `.pyc` files |
+
+---
+
+## Serial Console
+
+USB-TTL UART access when WiFi is unavailable. Configure via `.serial.env` (copy from `.serial.env.example`).
+
+| Target | Description |
+|--------|-------------|
+| `make serial-help` | List serial targets and current config |
+| `make serial-list` | List `/dev/tty.usbserial*` devices on macOS |
+| `make serial-connect` | Open `screen` on `SERIAL_DEVICE` at `SERIAL_BAUD` |
+| `make serial-run SERIAL_CMD='…'` | Log in and run one shell command on the Pi |
+| `make serial-deploy` | Tarball project, transfer over serial, run `uv sync` on Pi |
+| `make serial-deploy-rust` | Cross-compile Rust binary and copy to Pi over serial |
+
+Variables (defaults in Makefile, override in `.serial.env`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERIAL_DEVICE` | `/dev/tty.usbserial-BG01PPKN` | USB-TTL device path |
+| `SERIAL_BAUD` | `115200` | UART baud rate |
+| `SERIAL_USER` | `cookie` | Pi login username |
+| `SERIAL_PASSWORD` | *(required)* | Pi login password |
+| `SERIAL_REMOTE_DIR` | `~/cookie-finder` | Remote project directory |

@@ -44,9 +44,10 @@ const PAN_MAX = 150;
 const TILT_MAX = 60;
 const PAN_STEP = 5;
 const TILT_STEP = 5;
-const MOTOR_SPEED_MIN_HZ = 100;
-const MOTOR_SPEED_MAX_HZ = 2000;
-const MOTOR_SPEED_DEFAULT_HZ = 500;
+const MOTOR_SPEED_MIN_HZ = 10;
+const MOTOR_SPEED_MAX_HZ = 250;
+const MOTOR_SPEED_DEFAULT_HZ = 100;
+const VIDEO_ROTATION_STORAGE_KEY = 'cookieFinder.videoRotationDeg';
 const GAMEPAD_DEADZONE = 0.15;
 const GAMEPAD_SENSITIVITY = 100;
 
@@ -110,6 +111,72 @@ function updateMotorSpeedLabels() {
     const tiltLabel = document.getElementById('val_tilt_speed');
     if (panLabel) panLabel.textContent = speeds.pan_hz + ' Hz';
     if (tiltLabel) tiltLabel.textContent = speeds.tilt_hz + ' Hz';
+}
+
+function normalizeRotationDeg(deg) {
+    return ((Math.round(Number(deg)) % 360) + 360) % 360;
+}
+
+function loadSavedVideoRotation() {
+    try {
+        const raw = localStorage.getItem(VIDEO_ROTATION_STORAGE_KEY);
+        if (raw == null || raw === '') return 0;
+        return normalizeRotationDeg(raw);
+    } catch (_) {
+        return 0;
+    }
+}
+
+function saveVideoRotation(deg) {
+    try {
+        localStorage.setItem(VIDEO_ROTATION_STORAGE_KEY, String(normalizeRotationDeg(deg)));
+    } catch (_) {
+        /* ignore quota / private mode */
+    }
+}
+
+function applyVideoRotation(deg) {
+    const degrees = normalizeRotationDeg(deg);
+    const img = document.getElementById('videoStream');
+    const frame = document.getElementById('videoStreamFrame');
+    const slider = document.getElementById('slider_video_rotation');
+    const label = document.getElementById('val_video_rotation');
+
+    if (slider && Number(slider.value) !== degrees) {
+        slider.value = String(degrees);
+    }
+    if (label) {
+        label.textContent = degrees + '°';
+    }
+    if (!img || !frame) return;
+
+    // Layout size before transform (transform does not affect flow).
+    const layoutW = img.clientWidth || frame.clientWidth;
+    const naturalW = img.naturalWidth || layoutW;
+    const naturalH = img.naturalHeight || layoutW;
+    const layoutH = layoutW > 0 && naturalW > 0
+        ? layoutW * (naturalH / naturalW)
+        : img.clientHeight || layoutW;
+
+    const rad = (degrees * Math.PI) / 180;
+    const boundW = Math.abs(layoutW * Math.cos(rad)) + Math.abs(layoutH * Math.sin(rad));
+    const boundH = Math.abs(layoutW * Math.sin(rad)) + Math.abs(layoutH * Math.cos(rad));
+    const scale = boundW > 0 ? Math.min(1, frame.clientWidth / boundW) : 1;
+
+    img.style.transform = `rotate(${degrees}deg) scale(${scale})`;
+    frame.style.height = Math.max(1, boundH * scale) + 'px';
+}
+
+function setVideoRotation(deg, { persist = true } = {}) {
+    const degrees = normalizeRotationDeg(deg);
+    applyVideoRotation(degrees);
+    if (persist) saveVideoRotation(degrees);
+}
+
+function nudgeVideoRotation(delta) {
+    const slider = document.getElementById('slider_video_rotation');
+    const current = slider ? Number(slider.value) : loadSavedVideoRotation();
+    setVideoRotation(current + delta);
 }
 
 function sendMotorSpeed() {
@@ -668,6 +735,37 @@ if (sliderTiltSpeed) {
     });
 }
 updateMotorSpeedLabels();
+
+const sliderVideoRotation = document.getElementById('slider_video_rotation');
+if (sliderVideoRotation) {
+    sliderVideoRotation.addEventListener('input', (e) => {
+        setVideoRotation(e.target.value);
+    });
+}
+const btnRotateCcw = document.getElementById('btn_rotate_ccw');
+if (btnRotateCcw) {
+    btnRotateCcw.addEventListener('click', () => nudgeVideoRotation(-90));
+}
+const btnRotateCw = document.getElementById('btn_rotate_cw');
+if (btnRotateCw) {
+    btnRotateCw.addEventListener('click', () => nudgeVideoRotation(90));
+}
+const btnRotate180 = document.getElementById('btn_rotate_180');
+if (btnRotate180) {
+    btnRotate180.addEventListener('click', () => nudgeVideoRotation(180));
+}
+const btnRotateReset = document.getElementById('btn_rotate_reset');
+if (btnRotateReset) {
+    btnRotateReset.addEventListener('click', () => setVideoRotation(0));
+}
+
+const videoStreamEl = document.getElementById('videoStream');
+if (videoStreamEl) {
+    const refreshRotation = () => setVideoRotation(loadSavedVideoRotation(), { persist: false });
+    videoStreamEl.addEventListener('load', refreshRotation);
+    window.addEventListener('resize', refreshRotation);
+    refreshRotation();
+}
 
 // Motor control
 const motorCommands = {

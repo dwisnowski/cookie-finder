@@ -66,6 +66,7 @@ class StepperMotor:
         limit_switch_pin: Optional[int] = None,
         max_angle: float = 180.0,
         motor_name: str = "Motor",
+        phase_order: Optional[tuple[int, int, int, int]] = None,
     ):
         """
         Initialize stepper motor controller.
@@ -75,9 +76,11 @@ class StepperMotor:
             limit_switch_pin: GPIO line offset for limit switch input, or None if not available
             max_angle: Maximum rotation angle (degrees)
             motor_name: Human-readable motor name
+            phase_order: Maps IN1..IN4 outputs to logical phases 0..3
         """
         self.motor_name = motor_name
         self.control_pins = control_pins
+        self.phase_order = phase_order or (0, 1, 2, 3)
         self.limit_switch_pin = limit_switch_pin
         self.max_angle = max_angle
         
@@ -148,7 +151,9 @@ class StepperMotor:
         try:
             # Build value dict for bulk set_values call
             values = {
-                offset: gpiod.line.Value.ACTIVE if step_values[i] else gpiod.line.Value.INACTIVE
+                offset: gpiod.line.Value.ACTIVE
+                if step_values[self.phase_order[i]]
+                else gpiod.line.Value.INACTIVE
                 for i, offset in enumerate(self.control_pins)
             }
             self.lines.set_values(values)

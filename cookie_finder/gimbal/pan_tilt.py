@@ -23,6 +23,7 @@ GPIO Pin Layout (Orange Pi Zero 2W, gpiochip0):
 import logging
 import threading
 from typing import Optional
+from cookie_finder.gimbal.config import load_gimbal_config
 from cookie_finder.gimbal.stepper import StepperMotor, MotorDirection
 
 logger = logging.getLogger(__name__)
@@ -62,12 +63,17 @@ class PanTiltGimbal:
         self.max_tilt = max_tilt
         logger.info("PanTiltGimbal.__init__(max_pan=%.1f, max_tilt=%.1f)", max_pan, max_tilt)
 
+        gimbal_config = load_gimbal_config()
+        pan_phase = tuple(gimbal_config["pan_phase_order"])
+        tilt_phase = tuple(gimbal_config["tilt_phase_order"])
+
         # Create motor controllers
         self.pan_motor = StepperMotor(
             control_pins=self.PAN_CONTROL_PINS,
             # limit_switch_pin=self.PAN_LIMIT_PIN,
             max_angle=max_pan,
             motor_name="Pan",
+            phase_order=pan_phase,
         )
         
         self.tilt_motor = StepperMotor(
@@ -75,6 +81,7 @@ class PanTiltGimbal:
             # limit_switch_pin=self.TILT_LIMIT_PIN,
             max_angle=max_tilt,
             motor_name="Tilt",
+            phase_order=tilt_phase,
         )
         
         # State tracking

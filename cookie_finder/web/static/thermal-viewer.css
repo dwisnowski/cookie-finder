@@ -227,23 +227,39 @@ h1 {
     gap: var(--spacing-lg);
 }
 
+.video-stream-frame {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-light);
+    background: #000;
+    box-shadow:
+        0 0 40px rgba(0, 255, 136, 0.1),
+        var(--shadow-xl);
+    transition: box-shadow var(--transition-normal), height 0.15s ease;
+}
+
+.video-stream-frame:hover {
+    box-shadow:
+        0 0 50px rgba(0, 255, 136, 0.15),
+        var(--shadow-xl);
+}
+
 .video-stream {
     width: 100%;
     height: auto;
     display: block;
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-light);
+    border: none;
     background: #000;
-    box-shadow: 
-        0 0 40px rgba(0, 255, 136, 0.1),
-        var(--shadow-xl);
-    transition: box-shadow var(--transition-normal);
+    transform-origin: center center;
+    transition: transform 0.15s ease;
 }
 
 .video-stream:hover {
-    box-shadow: 
-        0 0 50px rgba(0, 255, 136, 0.15),
-        var(--shadow-xl);
+    box-shadow: none;
 }
 
 .status {

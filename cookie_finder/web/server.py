@@ -27,6 +27,7 @@ from jinja2 import Environment, FileSystemLoader
 
 from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
+from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
 
 
@@ -41,7 +42,8 @@ reconnect_lock = threading.Lock()
 available_cameras = []  # List of working camera devices
 camera_switch_event = threading.Event()  # Signal to switch cameras
 camera_switch_id = 0  # Target camera ID to switch to
-gimbal = None  # PanTiltGimbal instance
+gimbal = None  # PanTiltGimbal or RustGimbalClient
+gimbal_uses_rust = False
 motor_moving = {}  # Track which motors are moving: {command: True/False}
 bluetooth_controller = None  # BluetoothController instance
 bt_active_clients = set()  # WebSocket clients listening to BT updates
@@ -382,31 +384,57 @@ def mjpeg_generator(jpeg_quality=65):
         time.sleep(0.02)
 
 
+def poll_gimbal_position():
+    """Poll hardware position and broadcast (used when Rust daemon drives motors)."""
+    global gimbal, gimbal_position, gimbal_lock
+    while True:
+        try:
+            if gimbal is not None and gimbal_uses_rust:
+                pan, tilt = gimbal.get_position()
+                with gimbal_lock:
+                    gimbal_position["pan"] = pan
+                    gimbal_position["tilt"] = tilt
+                    pos = gimbal_position.copy()
+                broadcast_gimbal_position_threadsafe(pos)
+        except Exception as e:
+            print(f"[Gimbal] Position poll error: {e}")
+        time.sleep(0.05)
+
+
 def poll_bluetooth_controller():
     """
     Background thread: Poll connected Bluetooth device for input and control gimbal.
-    Converts joystick input to gimbal angles and broadcasts to all connected WebSocket clients.
+    When Rust daemon is active, only gates evdev input via set_input_enabled.
     """
-    global gimbal, bluetooth_controller, gimbal_position, gimbal_lock, bt_device_connected, bt_active_clients
-    
+    global gimbal, gimbal_uses_rust, bluetooth_controller, gimbal_position, gimbal_lock
+    global bt_device_connected, bt_active_clients
+
     print("[BT] Input polling thread started")
     last_pan = 0.0
     last_tilt = 0.0
     last_update_time = time.time()
+    last_input_enabled = None
     deadzone = 0.15
     sensitivity = 100.0
-    
+
     while True:
         try:
-            # Check if we have a connected device
-            if not bluetooth_controller or not bluetooth_controller.get_connected_device():
-                bt_device_connected = False
+            connected = bool(
+                bluetooth_controller and bluetooth_controller.get_connected_device()
+            )
+            bt_device_connected = connected
+
+            if gimbal_uses_rust and gimbal is not None:
+                if connected != last_input_enabled:
+                    gimbal.set_input_enabled(connected)
+                    last_input_enabled = connected
+                time.sleep(0.05)
+                continue
+
+            if not connected:
                 time.sleep(0.5)
                 continue
-            
-            bt_device_connected = True
-            
-            # Read input from connected device
+
             input_data = bluetooth_controller.read_controller_input()
             pan_axis = input_data.get("pan_axis", 0.0)
             tilt_axis = input_data.get("tilt_axis", 0.0)
@@ -416,20 +444,18 @@ def poll_bluetooth_controller():
 
             pan_axis = pan_axis if abs(pan_axis) > deadzone else 0.0
             tilt_axis = tilt_axis if abs(tilt_axis) > deadzone else 0.0
-            
-            # Skip if input hasn't changed much (deadzone)
+
             if abs(pan_axis - last_pan) < 0.05 and abs(tilt_axis - last_tilt) < 0.05:
                 time.sleep(0.05)
                 continue
-            
+
             last_pan = pan_axis
             last_tilt = tilt_axis
-            
+
             if gimbal is None:
                 time.sleep(0.05)
                 continue
 
-            # Apply joystick input as incremental movement so neutral does not force center.
             current_pan, current_tilt = gimbal.get_position()
             new_pan = max(0.0, min(gimbal.max_pan, current_pan + (pan_axis * sensitivity * time_delta)))
             new_tilt = max(0.0, min(gimbal.max_tilt, current_tilt + (-tilt_axis * sensitivity * time_delta)))
@@ -438,21 +464,17 @@ def poll_bluetooth_controller():
                 time.sleep(0.05)
                 continue
 
-            # Move gimbal to new angles
             gimbal.move_to_angles(new_pan, new_tilt)
-            
-            # Update global position and broadcast to connected clients
+
             with gimbal_lock:
                 gimbal_position["pan"] = new_pan
                 gimbal_position["tilt"] = new_tilt
                 current_position = gimbal_position.copy()
 
             broadcast_gimbal_position_threadsafe(current_position)
-            
             print(f"[BT] Gimbal moved via BT device: pan={new_pan:.1f}°, tilt={new_tilt:.1f}°")
-            
-            time.sleep(0.05)  # Poll at 20Hz
-        
+            time.sleep(0.05)
+
         except Exception as e:
             print(f"[BT] Polling error: {e}")
             time.sleep(0.5)
@@ -463,19 +485,27 @@ def create_app(camera_id=None):
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global camera_thread, processor, gimbal, bluetooth_controller, control_loop
+        global camera_thread, processor, gimbal, gimbal_uses_rust, bluetooth_controller, control_loop
         
         # Startup
         print(f"Initializing processor...")
         control_loop = asyncio.get_running_loop()
         processor = ThermalProcessor()
         
-        # Initialize gimbal for motor control
+        # Initialize gimbal: prefer Rust daemon, fall back to Python GPIO
+        gimbal_uses_rust = False
         try:
-            print(f"Initializing gimbal (pan/tilt motors)...")
-            gimbal = PanTiltGimbal(max_pan=150.0, max_tilt=60.0)
-            gimbal.set_speed(pan_hz=500, tilt_hz=500)
-            print(f"✓ Gimbal initialized")
+            print(f"Initializing gimbal...")
+            rust_gimbal = RustGimbalClient.connect(max_pan=150.0, max_tilt=60.0)
+            if rust_gimbal is not None:
+                rust_gimbal.set_speed(pan_hz=500, tilt_hz=500)
+                gimbal = rust_gimbal
+                gimbal_uses_rust = True
+                print(f"✓ Gimbal via Rust daemon")
+            else:
+                gimbal = PanTiltGimbal(max_pan=150.0, max_tilt=60.0)
+                gimbal.set_speed(pan_hz=500, tilt_hz=500)
+                print(f"✓ Gimbal via Python GPIO")
         except Exception as e:
             print(f"⚠ Gimbal initialization failed (GPIO may require root): {e}")
             gimbal = None
@@ -513,6 +543,9 @@ def create_app(camera_id=None):
         print(f"Starting Bluetooth input polling thread...")
         bt_polling_thread = threading.Thread(target=poll_bluetooth_controller, daemon=True)
         bt_polling_thread.start()
+
+        if gimbal_uses_rust:
+            threading.Thread(target=poll_gimbal_position, daemon=True).start()
         
         print("✓ Web server started")
         

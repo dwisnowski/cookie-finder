@@ -21,3 +21,9 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
+# Rust build artifacts
+cookie_finder_rust/target/
+
+# Local serial console credentials (copy from .serial.env.example)
+.serial.env

@@ -37,6 +37,7 @@ Then open `http://<device-ip>:8000` in a browser.
 
 - [Hardware — Camera](hardware/camera.md)
 - [Hardware — Wiring](hardware/wiring.md)
+- [Hardware — Stepper Wiring Test](hardware/stepper-wiring-test.md)
 - [Setup — Orange Pi](setup/orange-pi.md)
 - [Setup — Development](setup/development.md)
 - [Usage — Running](usage/running.md)

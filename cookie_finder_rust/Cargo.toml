@@ -1,0 +1,3 @@
+[workspace]
+members = ["cookie-finder-ctl"]
+resolver = "2"
