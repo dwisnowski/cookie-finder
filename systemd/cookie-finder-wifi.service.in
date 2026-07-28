@@ -1,0 +1,20 @@
+[Unit]
+Description=Cookie Finder WiFi mode button + LED
+Documentation=file://@REPO_ROOT@/docs/hardware/wiring.md
+After=network.target local-fs.target
+Wants=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_ROOT@
+Environment=PYTHONPATH=@REPO_ROOT@
+ExecStart=@PYTHON@ -m cookie_finder.wifi.gpio_daemon
+Restart=on-failure
+RestartSec=2
+
+# Soft stop, then hard kill if needed
+KillMode=mixed
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

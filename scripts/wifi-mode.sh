@@ -17,9 +17,22 @@ RUNTIME_DIR="${COOKIE_FINDER_WIFI_RUNTIME:-/run/cookie-finder-wifi}"
 HOSTAPD_CONF="${RUNTIME_DIR}/hostapd.conf"
 DNSMASQ_CONF="${RUNTIME_DIR}/dnsmasq.conf"
 PID_FILE="${RUNTIME_DIR}/create_ap.pid"
+LOCK_FILE="${RUNTIME_DIR}/wifi-mode.lock"
 
 log() { echo "[wifi-mode] $*"; }
 die() { echo "[wifi-mode] ERROR: $*" >&2; exit 1; }
+
+# Serialize ap/client switches so the GPIO button service and web UI cannot race.
+acquire_mode_lock() {
+  mkdir -p "${RUNTIME_DIR}"
+  exec 9>"${LOCK_FILE}"
+  if ! flock -n 9; then
+    die "another wifi-mode switch is in progress"
+  fi
+  # Marker so the GPIO LED daemon (separate process) can show fast-blink.
+  echo "$$" > "${RUNTIME_DIR}/switching"
+  trap 'rm -f "${RUNTIME_DIR}/switching"' EXIT
+}
 
 require_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -249,6 +262,7 @@ cmd_status() {
 
 cmd_ap() {
   require_root
+  acquire_mode_lock
   local iface
   iface="$(find_iface)" || die "no wireless interface found"
 
@@ -279,6 +293,7 @@ cmd_ap() {
 
 cmd_client() {
   require_root
+  acquire_mode_lock
   local iface
   iface="$(find_iface)" || die "no wireless interface found"
 

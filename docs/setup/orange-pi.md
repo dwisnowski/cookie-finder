@@ -68,13 +68,17 @@ Save with `Ctrl+X`, `Y`, `Enter`.
 
 When home/office WiFi is unavailable, the Orange Pi can host its own network named **`cookie-finder`**.
 
+After cloning the repo and running `make install`:
+
 ```bash
 make init-wifi
 ```
 
-This installs `hostapd` / `dnsmasq` / `create_ap` (when missing) and grants passwordless sudo for `scripts/wifi-mode.sh`.
+This installs `hostapd` / `dnsmasq` / `create_ap` (when missing), grants passwordless sudo for `scripts/wifi-mode.sh`, and enables the **`cookie-finder-wifi`** systemd service (GPIO button + LED on boot).
 
-Then, in the Cookie Finder web UI:
+**Physical button:** press to toggle client ↔ AP (works without the web app). See [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led).
+
+**Web UI:**
 
 1. Open **Settings**
 2. Under **WiFi Mode**, choose **Switch to AP Mode**

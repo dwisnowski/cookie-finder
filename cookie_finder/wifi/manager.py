@@ -24,6 +24,10 @@ AP_URL = f"http://{AP_GATEWAY}:8000"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "wifi-mode.sh"
+_RUNTIME_DIR = Path(
+    os.environ.get("COOKIE_FINDER_WIFI_RUNTIME", "/run/cookie-finder-wifi")
+)
+_SWITCHING_MARKER = _RUNTIME_DIR / "switching"
 
 _switch_lock = threading.Lock()
 _pending_mode: str | None = None
@@ -132,6 +136,14 @@ def _supported() -> tuple[bool, str]:
     return True, "ok"
 
 
+def _external_switch_in_progress() -> bool:
+    """True when wifi-mode.sh (any process) is mid-switch."""
+    try:
+        return _SWITCHING_MARKER.is_file()
+    except OSError:
+        return False
+
+
 def get_wifi_status() -> dict[str, Any]:
     """Return current WiFi mode and connection details."""
     supported, reason = _supported()
@@ -157,6 +169,8 @@ def get_wifi_status() -> dict[str, Any]:
         else:
             mode = itype
 
+    switching = _pending_mode is not None or _external_switch_in_progress()
+
     return {
         "supported": supported,
         "reason": reason if not supported else None,
@@ -168,7 +182,7 @@ def get_wifi_status() -> dict[str, Any]:
         "ap_passphrase": AP_PASSPHRASE,
         "ap_gateway": AP_GATEWAY,
         "ap_url": AP_URL,
-        "switching": _pending_mode is not None,
+        "switching": switching,
     }
 
 
@@ -177,8 +191,13 @@ def _sudo_script(mode: str) -> subprocess.CompletedProcess[str]:
     env["COOKIE_FINDER_AP_SSID"] = AP_SSID
     env["COOKIE_FINDER_AP_PASSPHRASE"] = AP_PASSPHRASE
     env["COOKIE_FINDER_AP_GATEWAY"] = AP_GATEWAY
+    # Daemon runs as root via systemd; web app uses passwordless sudo.
+    if os.geteuid() == 0:
+        cmd = [str(_SCRIPT), mode]
+    else:
+        cmd = ["sudo", "-n", str(_SCRIPT), mode]
     result = subprocess.run(
-        ["sudo", "-n", str(_SCRIPT), mode],
+        cmd,
         capture_output=True,
         text=True,
         timeout=90,

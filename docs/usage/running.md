@@ -73,19 +73,24 @@ To manually reconnect or cycle cameras at runtime:
 
 ## WiFi Access Point Mode
 
-On the Orange Pi, run once:
+On the Orange Pi, run once (after `make install`):
 
 ```bash
 make init-wifi
 ```
 
+This installs AP tooling, passwordless sudo for `scripts/wifi-mode.sh`, and the always-on **WiFi button + LED** systemd service (`cookie-finder-wifi`). The physical button works even when the web app is not running.
+
 The home screen badge shows **Client · …** or **AP · cookie-finder**.
 
-In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspot. A confirmation dialog lists reconnect steps before the radio switches.
+In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspot. A confirmation dialog lists reconnect steps before the radio switches. The GPIO button does the same toggle.
 
 - AP SSID: `cookie-finder`
 - AP password: `cookie-finder`
 - AP URL: `http://192.168.12.1:8000`
+- LED: solid = client, slow blink (~1 Hz) = AP, fast blink (~5 Hz) = switching
+
+Wiring details: [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led).
 
 ---
 
