@@ -96,7 +96,7 @@ _init-wifi:
 		echo "  make on-the-pi-wifi-gpio-daemon"; \
 	fi
 	@echo "WiFi AP setup complete. SSID will be cookie-finder (password: cookie-finder)."
-	@echo "Toggle AP/client via Settings panel, or the GPIO button (LED on pin 29)."
+	@echo "Toggle AP/client via Settings panel, or the GPIO button (LED on pin 7)."
 	@echo "Button service: sudo systemctl status cookie-finder-wifi"
 
 _run-standalone:

@@ -153,15 +153,17 @@ Momentary push-button + red LED for toggling WiFi **client** ↔ **AP** modes. D
 
 | Signal | gpiochip1 Offset | Physical | Name | Notes |
 |--------|------------------|----------|------|-------|
-| LED | 256 | 29 | PI00 | Active-high output |
-| LED GND | — | 30 | GND | Adjacent ground |
-| Button | 259 | 40 | PI03 | Active-low input (internal pull-up) |
-| Button GND | — | 39 | GND | Adjacent ground |
+| LED | 269 | 7 | PWM3 | Active-high output |
+| LED GND | — | 9 | GND | Nearby ground |
+| Button | 226 | 11 | TXD.5 | Active-low input (internal pull-up) |
+| Button GND | — | 9 or 14 | GND | Nearby ground |
+
+These pins are unused by the pan/tilt motors (Rust daemon uses physical 22/24/26/28 and 31/33/35/37).
 
 ### LED circuit (3.3 V GPIO + 330 Ω)
 
 ```
-GPIO 29 (PI00) ──► 330Ω ──► LED anode (+) ──► LED cathode (−) ──► GND (pin 30)
+GPIO 7 (PWM3) ──► 330Ω ──► LED anode (+) ──► LED cathode (−) ──► GND (pin 9)
 ```
 
 - Longer LED leg = anode (+); shorter / flat side = cathode (−).
@@ -178,7 +180,7 @@ GPIO 29 (PI00) ──► 330Ω ──► LED anode (+) ──► LED cathode (�
           └──┴──┘
 ```
 
-Wire one side to **GPIO 40 (PI03)** and the other side to **GND (pin 39)** (e.g. pin 1 → GPIO, pin 4 → GND). Do not also connect 3.3 V — the pull-up is enabled in software.
+Wire one side to **GPIO 11 (TXD.5)** and the other side to **GND (pin 9 or 14)** (e.g. pin 1 → GPIO, pin 4 → GND). Do not also connect 3.3 V — the pull-up is enabled in software.
 
 ### LED blink legend
 
