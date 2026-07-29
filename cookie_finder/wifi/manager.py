@@ -294,14 +294,32 @@ def apply_boot_wifi_policy() -> dict[str, Any]:
 
     AP mode is runtime-only: a reboot always returns to home/office WiFi so a
     crashed or partial AP switch cannot leave the Pi unreachable.
+
+    Fast path: if already associated as a client, do nothing (keeps
+    ``systemctl restart`` / make targets snappy while you're online).
     """
     global _pending_mode
 
-    print("[wifi] boot policy: restoring client mode (AP does not persist across reboot)")
     supported, reason = _supported()
     if not supported:
         print(f"[wifi] boot policy skipped: {reason}")
         return {"status": "skipped", "message": reason, "wifi": get_wifi_status()}
+
+    current = get_wifi_status()
+    if current.get("mode") == "client" and current.get("ssid"):
+        print(
+            f"[wifi] boot policy: already client on {current['ssid']}; skip restore"
+        )
+        return {
+            "status": "noop",
+            "message": f"Already connected as client to {current['ssid']}",
+            "wifi": current,
+        }
+
+    print(
+        "[wifi] boot policy: restoring client mode "
+        "(AP does not persist across reboot)"
+    )
 
     if not _switch_lock.acquire(blocking=True, timeout=120):
         return {

@@ -118,6 +118,22 @@ stop_nm_hotspot() {
   done < <(nmcli -t -f NAME,TYPE,DEVICE connection show --active 2>/dev/null || true)
 }
 
+client_already_associated() {
+  local iface="$1"
+  local ssid=""
+  if command -v iw >/dev/null 2>&1; then
+    ssid="$(iw dev "${iface}" link 2>/dev/null | awk '/SSID:/ {$1=""; sub(/^ /,""); print; exit}')"
+  fi
+  if [[ -z "${ssid}" ]] && command -v nmcli >/dev/null 2>&1; then
+    ssid="$(nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | awk -F: '$1=="yes"{print $2; exit}')"
+  fi
+  if [[ -n "${ssid}" ]]; then
+    log "already associated with ${ssid}; leaving client networking alone"
+    return 0
+  fi
+  return 1
+}
+
 restore_client_networking() {
   local iface="$1"
 
@@ -128,22 +144,29 @@ restore_client_networking() {
     nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
     nmcli radio wifi on >/dev/null 2>&1 || true
 
+    if client_already_associated "${iface}"; then
+      return 0
+    fi
+
     local state
     state="$(nmcli -t -f GENERAL.STATE device show "${iface}" 2>/dev/null || true)"
     if [[ "${state}" == *unmanaged* ]] \
         && systemctl list-unit-files NetworkManager.service >/dev/null 2>&1; then
       log "wlan still unmanaged; restarting NetworkManager once"
-      systemctl restart NetworkManager >/dev/null 2>&1 || true
-      sleep 2
+      # --no-block: never deadlock systemd from inside another unit's start
+      systemctl restart --no-block NetworkManager >/dev/null 2>&1 || true
+      sleep 3
       nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
     fi
 
-    # Try every saved WiFi profile until one associates (not just the first).
-    local conn brought_up=0
+    # Try saved WiFi profiles (short waits; cap attempts so we cannot hang for minutes).
+    local conn brought_up=0 attempts=0
     while IFS= read -r conn; do
       [[ -z "${conn}" ]] && continue
+      attempts=$((attempts + 1))
+      [[ "${attempts}" -gt 3 ]] && break
       log "trying nmcli connection up: ${conn}"
-      if nmcli -w 25 connection up "${conn}" ifname "${iface}" >/dev/null 2>&1; then
+      if nmcli -w 10 connection up "${conn}" ifname "${iface}" >/dev/null 2>&1; then
         log "connected via ${conn}"
         brought_up=1
         break
@@ -152,7 +175,7 @@ restore_client_networking() {
       | awk -F: '$2 ~ /wireless|wifi/ {print $1}')
 
     if [[ "${brought_up}" -eq 0 ]]; then
-      nmcli device connect "${iface}" >/dev/null 2>&1 || true
+      nmcli -w 10 device connect "${iface}" >/dev/null 2>&1 || true
     fi
     return 0
   fi
@@ -314,6 +337,19 @@ cmd_client() {
   acquire_mode_lock
   local iface
   iface="$(find_iface)" || die "no wireless interface found"
+
+  local type
+  type="$(iface_type "${iface}" || echo unknown)"
+  # Already a healthy client — do not flush addresses / force nmcli reconnect
+  # (that was making `make on-the-pi-wifi-gpio-daemon` hang for a long time).
+  if [[ "${type}" == "managed" || "${type}" == "station" ]] \
+      && client_already_associated "${iface}"; then
+    stop_create_ap "${iface}"
+    stop_hostapd_dnsmasq
+    stop_nm_hotspot
+    log "client mode already active; nothing to do"
+    exit 0
+  fi
 
   log "switching ${iface} to client mode"
   stop_create_ap "${iface}"

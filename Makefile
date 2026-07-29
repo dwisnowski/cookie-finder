@@ -612,6 +612,7 @@ on-the-pi-wifi-gpio-daemon-install:
 
 on-the-pi-wifi-gpio-daemon: on-the-pi-wifi-gpio-daemon-install
 	@sudo systemctl restart cookie-finder-wifi.service
+	@sleep 1
 	@sudo systemctl --no-pager --full status cookie-finder-wifi.service || true
 	@echo ""
 	@echo "WiFi button+LED managed by systemd"
