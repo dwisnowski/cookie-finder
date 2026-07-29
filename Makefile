@@ -76,7 +76,7 @@ _init:
 _init-wifi:
 	@echo "Installing WiFi AP dependencies (hostapd, dnsmasq, iw)..."
 	sudo apt-get update
-	sudo apt-get install -y hostapd dnsmasq iw network-manager || true
+	sudo apt-get install -y hostapd dnsmasq iw iwconfig wireless-tools network-manager || true
 	@if ! command -v create_ap >/dev/null 2>&1; then \
 		echo "Installing create_ap helper script..."; \
 		sudo curl -fsSL https://raw.githubusercontent.com/oblique/create_ap/master/create_ap \

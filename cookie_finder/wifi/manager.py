@@ -43,9 +43,21 @@ def _run(cmd: list[str], timeout: float = 8.0) -> subprocess.CompletedProcess[st
     )
 
 
+def _which(name: str) -> str | None:
+    """Locate a binary, including /usr/sbin (often missing from non-root PATH)."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for prefix in ("/usr/sbin", "/sbin", "/usr/bin", "/bin"):
+        candidate = Path(prefix) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return str(candidate)
+    return None
+
+
 def _find_wlan_iface() -> str | None:
     """Return the primary wireless interface name, if any."""
-    iw = shutil.which("iw")
+    iw = _which("iw")
     if iw:
         result = _run([iw, "dev"])
         match = re.search(r"Interface\s+(\S+)", result.stdout or "")
@@ -63,7 +75,7 @@ def _find_wlan_iface() -> str | None:
 
 def _iface_type(iface: str) -> str | None:
     """Return iw interface type: 'AP', 'managed', etc."""
-    iw = shutil.which("iw")
+    iw = _which("iw")
     if not iw:
         return None
     result = _run([iw, "dev", iface, "info"])
@@ -75,7 +87,7 @@ def _iface_type(iface: str) -> str | None:
 
 def _client_ssid(iface: str) -> str | None:
     """Best-effort connected SSID when in client/managed mode."""
-    iw = shutil.which("iw")
+    iw = _which("iw")
     if iw:
         result = _run([iw, "dev", iface, "link"])
         match = re.search(r"SSID:\s*(.+)", result.stdout or "")
@@ -84,7 +96,7 @@ def _client_ssid(iface: str) -> str | None:
             if ssid:
                 return ssid
 
-    nmcli = shutil.which("nmcli")
+    nmcli = _which("nmcli")
     if nmcli:
         result = _run([nmcli, "-t", "-f", "ACTIVE,SSID", "dev", "wifi"])
         for line in (result.stdout or "").splitlines():
@@ -108,7 +120,7 @@ def _hostapd_running(iface: str) -> bool:
 
 
 def _nm_hotspot_active() -> bool:
-    nmcli = shutil.which("nmcli")
+    nmcli = _which("nmcli")
     if not nmcli:
         return False
     result = _run([nmcli, "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"])
@@ -121,6 +133,12 @@ def _nm_hotspot_active() -> bool:
     return False
 
 
+def _iface_has_ap_gateway(iface: str) -> bool:
+    """True if the iface has our AP gateway address assigned."""
+    result = _run(["ip", "-4", "-o", "addr", "show", "dev", iface])
+    return AP_GATEWAY in (result.stdout or "")
+
+
 def _supported() -> tuple[bool, str]:
     if platform.system() != "Linux":
         return False, "WiFi AP mode is only available on Linux (Orange Pi)"
@@ -129,7 +147,7 @@ def _supported() -> tuple[bool, str]:
     if not _SCRIPT.is_file():
         return False, f"Missing helper script: {_SCRIPT}"
     has_tool = any(
-        shutil.which(name) for name in ("create_ap", "nmcli", "hostapd")
+        _which(name) for name in ("create_ap", "nmcli", "hostapd")
     )
     if not has_tool:
         return False, "Install create_ap, NetworkManager (nmcli), or hostapd"
@@ -159,11 +177,16 @@ def get_wifi_status() -> dict[str, Any]:
             or _create_ap_running(iface)
             or _hostapd_running(iface)
             or _nm_hotspot_active()
+            or _iface_has_ap_gateway(iface)
         ):
             mode = "ap"
             ssid = AP_SSID
             gateway = AP_GATEWAY
-        elif itype in ("managed", "station") or itype is None:
+        elif itype in ("managed", "station"):
+            mode = "client"
+            ssid = _client_ssid(iface)
+        elif itype is None:
+            # No iw available — assume client unless AP backends above matched.
             mode = "client"
             ssid = _client_ssid(iface)
         else:
