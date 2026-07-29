@@ -171,8 +171,9 @@ class WifiGpioController:
         """Return True when button is not pressed (line high)."""
         if self._lines is None or not GPIO_AVAILABLE:
             return True
+        # gpiod returns a list ordered like the offsets we pass — not a pin-keyed dict.
         values = self._lines.get_values([self.button_pin])
-        return values[self.button_pin] == Value.ACTIVE
+        return values[0] == Value.ACTIVE
 
     def _refresh_status(self, now: float) -> dict:
         if now >= self._status_deadline:
