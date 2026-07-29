@@ -39,7 +39,7 @@ GPIO_CHIP = "/dev/gpiochip1"
 
 POLL_INTERVAL_S = 0.025
 DEBOUNCE_S = 0.05
-STATUS_REFRESH_S = 0.5
+STATUS_REFRESH_S = 2.0
 SLOW_BLINK_HALF_S = 0.5  # ~1 Hz
 FAST_BLINK_HALF_S = 0.1  # ~5 Hz
 
@@ -208,7 +208,20 @@ class WifiGpioController:
             return
 
         mode = status.get("mode")
-        target = "client" if mode == "ap" else "ap"
+        ssid = status.get("ssid")
+        # Only enter AP when already associated as a client. Otherwise repair
+        # client mode (common after a failed/partial AP switch left wlan0
+        # "managed" with no SSID — toggling to AP would strand you again).
+        if mode == "ap":
+            target = "client"
+        elif mode == "client" and ssid:
+            target = "ap"
+        else:
+            target = "client"
+            print(
+                f"[wifi-gpio] button → repair client "
+                f"(mode={mode!r} ssid={ssid!r})"
+            )
         print(f"[wifi-gpio] button → switch to {target}")
         result = set_wifi_mode(target, delay_seconds=0.0)
         self._cached_status = result.get("wifi") or get_wifi_status()

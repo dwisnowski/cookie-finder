@@ -1,16 +1,19 @@
 [Unit]
 Description=Cookie Finder WiFi mode button + LED
 Documentation=file://@REPO_ROOT@/docs/hardware/wiring.md
-After=network.target local-fs.target
-Wants=network.target
+After=local-fs.target network-online.target NetworkManager.service NetworkManager-wait-online.service
+Wants=network-online.target
 
 [Service]
 Type=simple
 WorkingDirectory=@REPO_ROOT@
 Environment=PYTHONPATH=@REPO_ROOT@
+# Boot always restores client WiFi first (AP is runtime-only)
 ExecStart=@PYTHON@ -m cookie_finder.wifi.gpio_daemon
 Restart=on-failure
 RestartSec=2
+# Client restore + nmcli can take a while on cold boot
+TimeoutStartSec=120
 
 # Soft stop, then hard kill if needed
 KillMode=mixed

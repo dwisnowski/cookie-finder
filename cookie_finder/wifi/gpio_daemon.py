@@ -14,9 +14,17 @@ import signal
 import sys
 
 from cookie_finder.wifi.gpio_control import WifiGpioController
+from cookie_finder.wifi.manager import apply_boot_wifi_policy
 
 
 def main() -> int:
+    # Reboot / service restart always restores home WiFi first. AP is
+    # runtime-only so a partial switch cannot leave the Pi unreachable.
+    try:
+        apply_boot_wifi_policy()
+    except Exception as e:
+        print(f"[wifi-gpio-daemon] boot WiFi restore failed: {e}", file=sys.stderr)
+
     controller = WifiGpioController()
 
     def _handle_signal(signum: int, _frame) -> None:

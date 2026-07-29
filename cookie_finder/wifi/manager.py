@@ -33,14 +33,23 @@ _switch_lock = threading.Lock()
 _pending_mode: str | None = None
 
 
-def _run(cmd: list[str], timeout: float = 8.0) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+def _run(cmd: list[str], timeout: float = 2.0) -> subprocess.CompletedProcess[str]:
+    """Run a command; keep status-probe timeouts short so GPIO loop stays responsive."""
+    try:
+        return subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=124,
+            stdout=exc.stdout or "",
+            stderr=(exc.stderr or "") + f"\ntimeout after {timeout}s",
+        )
 
 
 def _which(name: str) -> str | None:
@@ -279,6 +288,40 @@ def _perform_switch(mode: str) -> dict[str, Any]:
         _pending_mode = None
 
 
+def apply_boot_wifi_policy() -> dict[str, Any]:
+    """
+    Restore client WiFi when the GPIO daemon starts (typically at boot).
+
+    AP mode is runtime-only: a reboot always returns to home/office WiFi so a
+    crashed or partial AP switch cannot leave the Pi unreachable.
+    """
+    global _pending_mode
+
+    print("[wifi] boot policy: restoring client mode (AP does not persist across reboot)")
+    supported, reason = _supported()
+    if not supported:
+        print(f"[wifi] boot policy skipped: {reason}")
+        return {"status": "skipped", "message": reason, "wifi": get_wifi_status()}
+
+    if not _switch_lock.acquire(blocking=True, timeout=120):
+        return {
+            "status": "busy",
+            "message": "A WiFi mode switch is already in progress",
+            "wifi": get_wifi_status(),
+        }
+
+    _pending_mode = "client"
+    try:
+        result = _perform_switch("client")
+        print(
+            f"[wifi] boot policy result: {result.get('status')} "
+            f"{result.get('message')}"
+        )
+        return result
+    finally:
+        _switch_lock.release()
+
+
 def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
     """
     Request a WiFi mode change.
@@ -305,7 +348,14 @@ def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
         }
 
     current = get_wifi_status()
-    if current.get("mode") == mode and not current.get("switching"):
+    # Client without an SSID looks like "already client" but is not associated —
+    # force a restore so we don't noop while offline.
+    already = (
+        current.get("mode") == mode
+        and not current.get("switching")
+        and not (mode == "client" and not current.get("ssid"))
+    )
+    if already:
         return {
             "status": "noop",
             "message": f"Already in {mode} mode",

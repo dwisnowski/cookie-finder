@@ -121,22 +121,40 @@ stop_nm_hotspot() {
 restore_client_networking() {
   local iface="$1"
 
-  # Prefer NetworkManager when present
+  # Prefer NetworkManager when present. Avoid unconditional NM restarts —
+  # they drop all interfaces and were a common cause of "stuck offline"
+  # after leaving AP mode.
   if command -v nmcli >/dev/null 2>&1; then
     nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
-    if systemctl list-unit-files NetworkManager.service >/dev/null 2>&1; then
+    nmcli radio wifi on >/dev/null 2>&1 || true
+
+    local state
+    state="$(nmcli -t -f GENERAL.STATE device show "${iface}" 2>/dev/null || true)"
+    if [[ "${state}" == *unmanaged* ]] \
+        && systemctl list-unit-files NetworkManager.service >/dev/null 2>&1; then
+      log "wlan still unmanaged; restarting NetworkManager once"
       systemctl restart NetworkManager >/dev/null 2>&1 || true
       sleep 2
-      # Try to reconnect to the first available saved WiFi connection
-      local conn
-      conn="$(nmcli -t -f NAME,TYPE connection show 2>/dev/null | awk -F: '$2 ~ /wireless|wifi/ {print $1; exit}')"
-      if [[ -n "${conn}" ]]; then
-        nmcli connection up "${conn}" >/dev/null 2>&1 || true
-      else
-        nmcli device connect "${iface}" >/dev/null 2>&1 || true
-      fi
-      return 0
+      nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
     fi
+
+    # Try every saved WiFi profile until one associates (not just the first).
+    local conn brought_up=0
+    while IFS= read -r conn; do
+      [[ -z "${conn}" ]] && continue
+      log "trying nmcli connection up: ${conn}"
+      if nmcli -w 25 connection up "${conn}" ifname "${iface}" >/dev/null 2>&1; then
+        log "connected via ${conn}"
+        brought_up=1
+        break
+      fi
+    done < <(nmcli -t -f NAME,TYPE connection show 2>/dev/null \
+      | awk -F: '$2 ~ /wireless|wifi/ {print $1}')
+
+    if [[ "${brought_up}" -eq 0 ]]; then
+      nmcli device connect "${iface}" >/dev/null 2>&1 || true
+    fi
+    return 0
   fi
 
   # Fallback: wpa_supplicant + dhcp
