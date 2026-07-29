@@ -452,7 +452,8 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-daemon-stop on-the-pi-rust-daemon-status \
         on-the-pi-rust-keyboard on-the-pi-init-wifi \
         on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
-        on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status
+        on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
+        on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
 on-the-pi-help:
 	@echo "On-the-Pi targets (run on Orange Pi only):"
@@ -467,6 +468,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-wifi-gpio-daemon       Install/start WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
+	@echo "  make on-the-pi-wifi-status            Show WiFi mode + IP addresses"
 	@echo ""
 	@echo "Running the application:"
 	@echo "  make on-the-pi-run                   Start web server (default)"
@@ -503,6 +505,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-rust-keyboard         Keyboard pan/tilt + drive mode (M) + wiring ([ ] / W)"
 	@echo ""
 	@echo "Maintenance:"
+	@echo "  make on-the-pi-armbian-home-screen   Print Armbian MOTD / home screen"
 	@echo "  make on-the-pi-clean                 Remove Python cache files"
 
 on-the-pi-install: _install
@@ -510,6 +513,12 @@ on-the-pi-install-yolo: _install-yolo
 on-the-pi-init: _init
 on-the-pi-init-wifi: _init-wifi
 on-the-pi-clean: _clean
+on-the-pi-armbian-home-screen:
+	@sudo run-parts /etc/update-motd.d/
+on-the-pi-wifi-status:
+	@"$(CURDIR)/scripts/wifi-mode.sh" status
+	@echo "---"
+	@ip -4 -br addr show 2>/dev/null || hostname -I
 on-the-pi-run: on-the-pi-run-web
 on-the-pi-run-standalone: _run-standalone
 on-the-pi-run-web: _run-web
@@ -633,7 +642,8 @@ on-the-pi-wifi-gpio-daemon-status:
         rust-help rust-check rust-build-mac rust-build-pi rust-build-pi-remote \
         rust-deploy rust-deploy-cookie rust-deploy-remote rust-deploy-cookie-remote \
         rust-daemon rust-run run-with-rust rust-home rust-keyboard \
-        wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status
+        wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status \
+        wifi-status
 
 # Installation
 install: on-the-pi-install
@@ -713,3 +723,4 @@ wifi-gpio-daemon: on-the-pi-wifi-gpio-daemon
 wifi-gpio-daemon-install: on-the-pi-wifi-gpio-daemon-install
 wifi-gpio-daemon-stop: on-the-pi-wifi-gpio-daemon-stop
 wifi-gpio-daemon-status: on-the-pi-wifi-gpio-daemon-status
+wifi-status: on-the-pi-wifi-status
