@@ -92,19 +92,65 @@ ap_backend_running() {
   return 1
 }
 
-# Take the radio away from NetworkManager before hostapd/create_ap.
+NM_AP_CONN="cookie-finder-ap"
+
+# Release station/wpa hold and (optionally) hand the iface to hostapd/create_ap.
 prepare_iface_for_ap() {
   local iface="$1"
+  local set_ap_type="${2:-0}"
+
+  command -v rfkill >/dev/null 2>&1 && rfkill unblock wifi >/dev/null 2>&1 || true
+  command -v rfkill >/dev/null 2>&1 && rfkill unblock all >/dev/null 2>&1 || true
+
+  # wpa_supplicant holding the nl80211 socket is the usual cause of:
+  #   "Failed to set beacon parameters" / "Could not connect to kernel driver"
+  pkill -x wpa_supplicant >/dev/null 2>&1 || true
+  sleep 0.5
+
   if command -v nmcli >/dev/null 2>&1; then
     nmcli device disconnect "${iface}" >/dev/null 2>&1 || true
     nmcli device set "${iface}" managed no >/dev/null 2>&1 || true
   fi
+
   if [[ -n "${IP_BIN}" ]]; then
     "${IP_BIN}" link set "${iface}" down >/dev/null 2>&1 || true
     "${IP_BIN}" addr flush dev "${iface}" >/dev/null 2>&1 || true
+  fi
+
+  if [[ "${set_ap_type}" == "1" ]] && [[ -n "${IW_BIN}" ]]; then
+    # Explicit SoftAP type helps UWE5622/sprdwl before hostapd attaches.
+    "${IW_BIN}" dev "${iface}" set type __ap >/dev/null 2>&1 \
+      || "${IW_BIN}" dev "${iface}" set type ap >/dev/null 2>&1 \
+      || log "WARNING: could not set ${iface} type to AP via iw"
+  elif [[ -n "${IW_BIN}" ]]; then
+    "${IW_BIN}" dev "${iface}" set type managed >/dev/null 2>&1 || true
+  fi
+
+  if [[ -n "${IP_BIN}" ]]; then
     "${IP_BIN}" link set "${iface}" up >/dev/null 2>&1 || true
   fi
   sleep 1
+}
+
+# After a failed hostapd/create_ap attempt, put the iface back so NM can use it.
+recover_iface_for_nm() {
+  local iface="$1"
+  stop_hostapd_dnsmasq
+  pkill -x wpa_supplicant >/dev/null 2>&1 || true
+  if [[ -n "${IP_BIN}" ]]; then
+    "${IP_BIN}" link set "${iface}" down >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${IW_BIN}" ]]; then
+    "${IW_BIN}" dev "${iface}" set type managed >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${IP_BIN}" ]]; then
+    "${IP_BIN}" link set "${iface}" up >/dev/null 2>&1 || true
+  fi
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
+    nmcli radio wifi on >/dev/null 2>&1 || true
+  fi
+  sleep 2
 }
 
 stop_create_ap() {
@@ -152,6 +198,8 @@ stop_nm_hotspot() {
   if ! command -v nmcli >/dev/null 2>&1; then
     return 0
   fi
+  nmcli connection down "${NM_AP_CONN}" >/dev/null 2>&1 || true
+  nmcli connection delete "${NM_AP_CONN}" >/dev/null 2>&1 || true
   local ssid_lc
   ssid_lc="$(printf '%s' "${SSID}" | tr '[:upper:]' '[:lower:]')"
   # Bring down any active hotspot-style connections
@@ -252,20 +300,26 @@ start_ap_create_ap() {
   local iface="$1"
   command -v create_ap >/dev/null 2>&1 || return 1
   mkdir -p "${RUNTIME_DIR}"
+  local logf="${RUNTIME_DIR}/create_ap.log"
+  rm -f "${logf}"
+
+  prepare_iface_for_ap "${iface}" 0
 
   # -n: no internet sharing (local AP only); --daemon keeps it in background
-  if create_ap --daemon -n --no-virt -g "${GATEWAY}" \
-      "${iface}" "${SSID}" "${PASSPHRASE}"; then
-    # Best-effort PID capture for cleanup
+  if create_ap --daemon -n --no-virt -c 6 -g "${GATEWAY}" \
+      "${iface}" "${SSID}" "${PASSPHRASE}" >"${logf}" 2>&1; then
     pgrep -n -f "create_ap .*${iface}" > "${PID_FILE}" 2>/dev/null || true
-    sleep 2
+    sleep 3
     if ! ap_backend_running "${iface}" && ! iface_has_gateway "${iface}"; then
-      log "create_ap exited immediately; trying next backend"
+      log "create_ap exited immediately; log:"
+      tail -n 30 "${logf}" 2>/dev/null || true
       return 1
     fi
     log "started AP via create_ap (ssid=${SSID} gateway=${GATEWAY})"
     return 0
   fi
+  log "create_ap failed; log:"
+  tail -n 30 "${logf}" 2>/dev/null || true
   return 1
 }
 
@@ -273,79 +327,99 @@ start_ap_nmcli() {
   local iface="$1"
   command -v nmcli >/dev/null 2>&1 || return 1
 
-  nmcli device wifi hotspot ifname "${iface}" ssid "${SSID}" password "${PASSPHRASE}" \
-    || return 1
+  recover_iface_for_nm "${iface}"
+  stop_nm_hotspot
 
-  # Try to pin gateway/address when possible (NM versions vary)
-  local hs
-  hs="$(nmcli -t -f NAME,TYPE connection show --active 2>/dev/null | awk -F: 'tolower($1) ~ /hotspot/ {print $1; exit}')"
-  if [[ -n "${hs}" ]]; then
-    nmcli connection modify "${hs}" ipv4.addresses "${GATEWAY}/24" >/dev/null 2>&1 || true
-    nmcli connection modify "${hs}" ipv4.method shared >/dev/null 2>&1 || true
-    nmcli connection up "${hs}" >/dev/null 2>&1 || true
+  # Explicit AP profile is more reliable on UWE5622 than `wifi hotspot`.
+  if ! nmcli connection add type wifi ifname "${iface}" con-name "${NM_AP_CONN}" \
+      autoconnect no ssid "${SSID}" >/dev/null 2>&1; then
+    # Profile may already exist from a partial run
+    nmcli connection delete "${NM_AP_CONN}" >/dev/null 2>&1 || true
+    nmcli connection add type wifi ifname "${iface}" con-name "${NM_AP_CONN}" \
+      autoconnect no ssid "${SSID}" >/dev/null || return 1
   fi
-  log "started AP via nmcli hotspot (ssid=${SSID})"
+
+  nmcli connection modify "${NM_AP_CONN}" \
+    802-11-wireless.mode ap \
+    802-11-wireless.band bg \
+    802-11-wireless.channel 6 \
+    ipv4.method shared \
+    ipv4.addresses "${GATEWAY}/24" \
+    wifi-sec.key-mgmt wpa-psk \
+    wifi-sec.psk "${PASSPHRASE}" \
+    connection.autoconnect no >/dev/null || return 1
+
+  if ! nmcli -w 25 connection up "${NM_AP_CONN}" ifname "${iface}"; then
+    log "nmcli connection up ${NM_AP_CONN} failed; trying wifi hotspot fallback"
+    nmcli connection delete "${NM_AP_CONN}" >/dev/null 2>&1 || true
+    nmcli device wifi hotspot ifname "${iface}" ssid "${SSID}" password "${PASSPHRASE}" \
+      || return 1
+  fi
+
+  sleep 2
+  local type
+  type="$(iface_type "${iface}" || echo unknown)"
+  if [[ "${type}" != "AP" ]] && ! iface_has_gateway "${iface}"; then
+    # Some NM builds report "managed" while hotspot is active — check active conn.
+    if ! nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null \
+        | grep -qiE "(${NM_AP_CONN}|hotspot).*${iface}|${iface}.*(${NM_AP_CONN}|hotspot)"; then
+      local active
+      active="$(nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null || true)"
+      if ! printf '%s\n' "${active}" | grep -qi hotspot \
+          && ! printf '%s\n' "${active}" | grep -q "${NM_AP_CONN}"; then
+        log "nmcli AP did not become active (type=${type})"
+        return 1
+      fi
+    fi
+  fi
+  log "started AP via NetworkManager (ssid=${SSID} gateway=${GATEWAY} type=${type})"
   return 0
 }
 
 start_ap_hostapd() {
   local iface="$1"
+  local channel="${2:-6}"
   command -v hostapd >/dev/null 2>&1 || return 1
 
   mkdir -p "${RUNTIME_DIR}"
   rm -f "${RUNTIME_DIR}/hostapd.log"
 
-  if command -v nmcli >/dev/null 2>&1; then
-    nmcli device set "${iface}" managed no >/dev/null 2>&1 || true
-  fi
+  prepare_iface_for_ap "${iface}" 1
 
   if [[ -n "${IP_BIN}" ]]; then
-    "${IP_BIN}" link set "${iface}" down || true
     "${IP_BIN}" addr flush dev "${iface}" || true
-    "${IP_BIN}" addr add "${GATEWAY}/24" dev "${iface}"
-    "${IP_BIN}" link set "${iface}" up
-  else
-    ip link set "${iface}" down || true
-    ip addr flush dev "${iface}" || true
-    ip addr add "${GATEWAY}/24" dev "${iface}"
-    ip link set "${iface}" up
+    "${IP_BIN}" addr add "${GATEWAY}/24" dev "${iface}" || true
+    "${IP_BIN}" link set "${iface}" up || true
   fi
   sleep 1
 
-  # Minimal WPA2-PSK config tuned for iPhone/MacBook + Allwinner SoftAP:
-  # - CCMP only (no TKIP)
-  # - no ieee80211w= (older hostapd rejects unknown keys and exits)
-  # - 802.11n/WMM off (driver HT quirks often look like "wrong password")
+  # Keep hostapd.conf minimal — extra keys break older builds / flaky SoftAP drivers.
   cat > "${HOSTAPD_CONF}" <<EOF
 interface=${iface}
 driver=nl80211
 ssid=${SSID}
 hw_mode=g
-channel=1
-ieee80211n=0
-wmm_enabled=0
+channel=${channel}
 macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
 wpa=2
 wpa_passphrase=${PASSPHRASE}
 wpa_key_mgmt=WPA-PSK
-wpa_pairwise=CCMP
 rsn_pairwise=CCMP
 EOF
 
   if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" \
       -f "${RUNTIME_DIR}/hostapd.log" "${HOSTAPD_CONF}"; then
-    log "hostapd failed to start (see ${RUNTIME_DIR}/hostapd.log)"
+    log "hostapd failed to start (channel=${channel}; see ${RUNTIME_DIR}/hostapd.log)"
     if [[ -f "${RUNTIME_DIR}/hostapd.log" ]]; then
-      log "hostapd.log tail:"
       tail -n 40 "${RUNTIME_DIR}/hostapd.log" 2>/dev/null || true
     fi
     return 1
   fi
-  sleep 1
+  sleep 2
   if ! ap_backend_running "${iface}"; then
-    log "hostapd exited immediately (see ${RUNTIME_DIR}/hostapd.log)"
+    log "hostapd exited immediately (channel=${channel})"
     if [[ -f "${RUNTIME_DIR}/hostapd.log" ]]; then
       tail -n 40 "${RUNTIME_DIR}/hostapd.log" 2>/dev/null || true
     fi
@@ -353,7 +427,6 @@ EOF
     return 1
   fi
 
-  # DHCP is best-effort: SoftAP can stay up without it (static IP clients).
   if command -v dnsmasq >/dev/null 2>&1; then
     cat > "${DNSMASQ_CONF}" <<EOF
 interface=${iface}
@@ -378,18 +451,15 @@ EOF
     log "WARNING: dnsmasq not installed — AP is up but DHCP may not work"
   fi
 
-  sleep 2
+  sleep 1
+  local itype
+  itype="$(iface_type "${iface}" || echo unknown)"
   if ! ap_backend_running "${iface}" && ! iface_has_gateway "${iface}"; then
-    log "hostapd did not stay up"
-    if [[ -f "${RUNTIME_DIR}/hostapd.log" ]]; then
-      tail -n 40 "${RUNTIME_DIR}/hostapd.log" 2>/dev/null || true
-    fi
+    log "hostapd did not stay up (channel=${channel})"
     stop_hostapd_dnsmasq
     return 1
   fi
-  local itype
-  itype="$(iface_type "${iface}" || echo unknown)"
-  log "started AP via hostapd (ssid=${SSID} gateway=${GATEWAY} type=${itype})"
+  log "started AP via hostapd (ssid=${SSID} gateway=${GATEWAY} type=${itype} ch=${channel})"
   return 0
 }
 
@@ -426,28 +496,29 @@ cmd_ap() {
   stop_hostapd_dnsmasq
   stop_nm_hotspot
 
-  # Unmanage before hostapd/create_ap so NetworkManager cannot steal wlan0
-  # back to the home SSID (that looked like: fast blink → slow → solid).
-  prepare_iface_for_ap "${iface}"
-
-  # Prefer hostapd: stable with NM unmanaged. create_ap often exits and NM
-  # reconnects the client within seconds.
-  if start_ap_hostapd "${iface}"; then
+  # Orange Pi Zero 2W (UWE5622): NetworkManager SoftAP is usually the only
+  # reliable path. hostapd often fails with "Could not connect to kernel driver"
+  # unless wpa_supplicant is killed and the iface type is set to AP first.
+  log "trying NetworkManager SoftAP first…"
+  if start_ap_nmcli "${iface}"; then
     exit 0
   fi
+
+  log "NetworkManager path failed; trying hostapd (channel 6)…"
+  if start_ap_hostapd "${iface}" 6; then
+    exit 0
+  fi
+  log "hostapd ch6 failed; trying hostapd (channel 1)…"
+  if start_ap_hostapd "${iface}" 1; then
+    exit 0
+  fi
+
   log "hostapd path failed; trying create_ap…"
   if start_ap_create_ap "${iface}"; then
     exit 0
   fi
-  log "create_ap path failed; trying nmcli hotspot…"
-  # nmcli hotspot needs the device managed again
-  if command -v nmcli >/dev/null 2>&1; then
-    nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
-  fi
-  if start_ap_nmcli "${iface}"; then
-    exit 0
-  fi
-  die "no AP backend available (install create_ap, NetworkManager, or hostapd+dnsmasq)"
+
+  die "no AP backend available (see journal + /run/cookie-finder-wifi/*.log)"
 }
 
 cmd_client() {

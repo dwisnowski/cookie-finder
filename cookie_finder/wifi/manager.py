@@ -190,10 +190,16 @@ def _nm_hotspot_active() -> bool:
     result = _run([nmcli, "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"])
     for line in (result.stdout or "").splitlines():
         parts = line.split(":")
-        if len(parts) >= 2 and "wireless" in parts[1].lower():
-            name = parts[0].lower()
-            if "hotspot" in name or AP_SSID.lower() in name:
-                return True
+        if len(parts) < 2:
+            continue
+        name = parts[0].lower()
+        # Our explicit SoftAP profile, generic Hotspot, or SSID-named conn.
+        if (
+            name in ("cookie-finder-ap", "hotspot")
+            or "hotspot" in name
+            or AP_SSID.lower() in name
+        ):
+            return True
     return False
 
 
