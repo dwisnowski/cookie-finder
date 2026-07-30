@@ -32,6 +32,13 @@ from cookie_finder.bluetooth.controller import BluetoothController
 from cookie_finder.wifi import get_switch_instructions, get_wifi_status, set_wifi_mode
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").lower() in ("1", "true", "yes")
+
+
+# Verbose console chatter (MJPEG wait loops, etc.)
+_VERBOSE = _env_flag("COOKIE_FINDER_VERBOSE")
+
 # Global state
 camera_thread = None
 frame_queue = Queue(maxsize=2)
@@ -379,8 +386,8 @@ def mjpeg_generator(jpeg_quality=65):
                    + buffer.tobytes() + b'\r\n')
         
         frame_count += 1
-        if frame_count % 50 == 0 and not camera_connected:
-            print(f"  (⏳ waiting for camera reconnection...)")
+        if _VERBOSE and frame_count % 50 == 0 and not camera_connected:
+            print("  (⏳ waiting for camera reconnection...)")
         
         time.sleep(0.02)
 
@@ -1017,11 +1024,7 @@ def run_webserver(host="0.0.0.0", port=8000, camera_id=None):
     print(f"Starting web server on {host}:{port}")
     print(f"Open browser: http://{host}:{port}")
     
-    access_log = os.environ.get("COOKIE_FINDER_ACCESS_LOG", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    access_log = _env_flag("COOKIE_FINDER_ACCESS_LOG")
     log_level = "info" if access_log else "warning"
     uvicorn.run(
         app,
