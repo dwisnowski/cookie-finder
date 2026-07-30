@@ -4,7 +4,7 @@
 #
 # Environment overrides:
 #   COOKIE_FINDER_AP_SSID        (default: cookie-finder)
-#   COOKIE_FINDER_AP_PASSPHRASE  (default: thermalcam)
+#   COOKIE_FINDER_AP_PASSPHRASE  (default: empty = open SoftAP, no password)
 #   COOKIE_FINDER_AP_GATEWAY     (default: 192.168.12.1)
 
 set -euo pipefail
@@ -14,7 +14,8 @@ export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
 
 MODE="${1:-}"
 SSID="${COOKIE_FINDER_AP_SSID:-cookie-finder}"
-PASSPHRASE="${COOKIE_FINDER_AP_PASSPHRASE:-thermalcam}"
+# Empty passphrase = open network (what works reliably on Zero 2W SoftAP).
+PASSPHRASE="${COOKIE_FINDER_AP_PASSPHRASE:-}"
 GATEWAY="${COOKIE_FINDER_AP_GATEWAY:-192.168.12.1}"
 RUNTIME_DIR="${COOKIE_FINDER_WIFI_RUNTIME:-/run/cookie-finder-wifi}"
 HOSTAPD_CONF="${RUNTIME_DIR}/hostapd.conf"
@@ -25,11 +26,14 @@ LOCK_FILE="${RUNTIME_DIR}/wifi-mode.lock"
 log() { echo "[wifi-mode] $*"; }
 die() { echo "[wifi-mode] ERROR: $*" >&2; exit 1; }
 
-# WPA2-PSK requires 8–63 ASCII characters (IEEE).
+# WPA2-PSK requires 8–63 ASCII characters when a passphrase is configured.
 assert_passphrase() {
   local n=${#PASSPHRASE}
+  if (( n == 0 )); then
+    return 0
+  fi
   if (( n < 8 || n > 63 )); then
-    die "WPA2 passphrase must be 8–63 characters (got ${n}). Current value is too short for Wi‑Fi clients."
+    die "WPA2 passphrase must be 8–63 characters (got ${n}), or empty for an open SoftAP."
   fi
 }
 
@@ -306,8 +310,12 @@ start_ap_create_ap() {
   prepare_iface_for_ap "${iface}" 0
 
   # -n: no internet sharing (local AP only); --daemon keeps it in background
-  if create_ap --daemon -n --no-virt -c 6 -g "${GATEWAY}" \
-      "${iface}" "${SSID}" "${PASSPHRASE}" >"${logf}" 2>&1; then
+  # Passphrase omitted → open SoftAP (UWE5622 + Apple clients work reliably open).
+  local -a create_args=(--daemon -n --no-virt -c 6 -g "${GATEWAY}" "${iface}" "${SSID}")
+  if [[ -n "${PASSPHRASE}" ]]; then
+    create_args+=("${PASSPHRASE}")
+  fi
+  if create_ap "${create_args[@]}" >"${logf}" 2>&1; then
     pgrep -n -f "create_ap .*${iface}" > "${PID_FILE}" 2>/dev/null || true
     sleep 3
     if ! ap_backend_running "${iface}" && ! iface_has_gateway "${iface}"; then
@@ -331,36 +339,39 @@ start_ap_nmcli() {
   stop_nm_hotspot
 
   # Explicit AP profile is more reliable on UWE5622 than `wifi hotspot`.
-  if ! nmcli connection add type wifi ifname "${iface}" con-name "${NM_AP_CONN}" \
-      autoconnect no ssid "${SSID}" >/dev/null 2>&1; then
-    # Profile may already exist from a partial run
-    nmcli connection delete "${NM_AP_CONN}" >/dev/null 2>&1 || true
-    nmcli connection add type wifi ifname "${iface}" con-name "${NM_AP_CONN}" \
-      autoconnect no ssid "${SSID}" >/dev/null || return 1
-  fi
-
-  nmcli connection modify "${NM_AP_CONN}" \
+  # Open SoftAP (no wifi-sec): WPA SoftAP often fails phone joins on this chip;
+  # key-mgmt "none" wrongly becomes WEP on Bookworm NM — omit security entirely.
+  nmcli connection delete "${NM_AP_CONN}" >/dev/null 2>&1 || true
+  nmcli connection add type wifi ifname "${iface}" con-name "${NM_AP_CONN}" \
+    autoconnect no ssid "${SSID}" \
     802-11-wireless.mode ap \
     802-11-wireless.band bg \
     802-11-wireless.channel 6 \
     ipv4.method shared \
-    ipv4.addresses "${GATEWAY}/24" \
-    wifi-sec.key-mgmt wpa-psk \
-    wifi-sec.psk "${PASSPHRASE}" \
-    connection.autoconnect no >/dev/null || return 1
+    ipv4.addresses "${GATEWAY}/24" >/dev/null || return 1
+
+  if [[ -n "${PASSPHRASE}" ]]; then
+    nmcli connection modify "${NM_AP_CONN}" \
+      wifi-sec.key-mgmt wpa-psk \
+      wifi-sec.proto rsn \
+      wifi-sec.pairwise ccmp \
+      wifi-sec.group ccmp \
+      wifi-sec.pmf disable \
+      wifi-sec.psk "${PASSPHRASE}" >/dev/null || return 1
+    log "NM SoftAP: WPA2-PSK (passphrase set via COOKIE_FINDER_AP_PASSPHRASE)"
+  else
+    log "NM SoftAP: open network (no password)"
+  fi
 
   if ! nmcli -w 25 connection up "${NM_AP_CONN}" ifname "${iface}"; then
-    log "nmcli connection up ${NM_AP_CONN} failed; trying wifi hotspot fallback"
-    nmcli connection delete "${NM_AP_CONN}" >/dev/null 2>&1 || true
-    nmcli device wifi hotspot ifname "${iface}" ssid "${SSID}" password "${PASSPHRASE}" \
-      || return 1
+    log "nmcli connection up ${NM_AP_CONN} failed"
+    return 1
   fi
 
   sleep 2
   local type
   type="$(iface_type "${iface}" || echo unknown)"
   if [[ "${type}" != "AP" ]] && ! iface_has_gateway "${iface}"; then
-    # Some NM builds report "managed" while hotspot is active — check active conn.
     if ! nmcli -t -f NAME,DEVICE connection show --active 2>/dev/null \
         | grep -qiE "(${NM_AP_CONN}|hotspot).*${iface}|${iface}.*(${NM_AP_CONN}|hotspot)"; then
       local active
@@ -394,7 +405,9 @@ start_ap_hostapd() {
   sleep 1
 
   # Keep hostapd.conf minimal — extra keys break older builds / flaky SoftAP drivers.
-  cat > "${HOSTAPD_CONF}" <<EOF
+  # Default: open SoftAP (no WPA). Optional passphrase via COOKIE_FINDER_AP_PASSPHRASE.
+  if [[ -n "${PASSPHRASE}" ]]; then
+    cat > "${HOSTAPD_CONF}" <<EOF
 interface=${iface}
 driver=nl80211
 ssid=${SSID}
@@ -408,6 +421,18 @@ wpa_passphrase=${PASSPHRASE}
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 EOF
+  else
+    cat > "${HOSTAPD_CONF}" <<EOF
+interface=${iface}
+driver=nl80211
+ssid=${SSID}
+hw_mode=g
+channel=${channel}
+macaddr_acl=0
+auth_algs=1
+ignore_broadcast_ssid=0
+EOF
+  fi
 
   if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" \
       -f "${RUNTIME_DIR}/hostapd.log" "${HOSTAPD_CONF}"; then

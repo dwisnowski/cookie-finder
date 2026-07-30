@@ -42,7 +42,7 @@ When home WiFi is unavailable, the Pi can host its own hotspot (GPIO button or S
 | | |
 |--|--|
 | **SSID** | `cookie-finder` |
-| **Password** | `thermalcam` |
+| **Password** | none (open network) |
 | **URL** | `http://192.168.12.1:8000` |
 
 One-time setup on the Pi: `make on-the-pi-init-wifi` (or `make init-wifi`). Details: [WiFi AP mode](docs/usage/running.md#wifi-access-point-mode), [Orange Pi setup](docs/setup/orange-pi.md#5-enable-wifi-access-point-mode-optional).

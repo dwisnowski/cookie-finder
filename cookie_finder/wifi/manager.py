@@ -18,7 +18,8 @@ from pathlib import Path
 from typing import Any
 
 AP_SSID = "cookie-finder"
-AP_PASSPHRASE = "thermalcam"
+# Open SoftAP by default — WPA SoftAP on Zero 2W (UWE5622) often fails phone joins.
+AP_PASSPHRASE = ""
 AP_GATEWAY = "192.168.12.1"
 AP_URL = f"http://{AP_GATEWAY}:8000"
 
@@ -272,7 +273,8 @@ def get_wifi_status() -> dict[str, Any]:
         "interface": iface,
         "ssid": ssid,
         "ap_ssid": AP_SSID,
-        "ap_passphrase": AP_PASSPHRASE,
+        "ap_passphrase": AP_PASSPHRASE or None,
+        "open_network": not bool(AP_PASSPHRASE),
         "ap_gateway": AP_GATEWAY,
         "ap_url": AP_URL,
         "switching": switching,
@@ -545,17 +547,17 @@ def _switch_instructions(mode: str) -> dict[str, Any]:
             "title": "Switch to Access Point mode?",
             "summary": (
                 "The Orange Pi will stop using your home/office WiFi and broadcast "
-                f"its own network named “{AP_SSID}”."
+                f"its own open network named “{AP_SSID}” (no password)."
             ),
             "steps": [
                 "You will lose this browser connection as soon as the switch starts.",
-                f"On your phone or laptop, join WiFi “{AP_SSID}”.",
-                f"Password: {AP_PASSPHRASE}",
+                f"On your phone or laptop, join WiFi “{AP_SSID}” (open — no password).",
                 f"Open {AP_URL} in your browser.",
                 "Use Settings → WiFi again when you want to return to client mode.",
             ],
             "ssid": AP_SSID,
-            "passphrase": AP_PASSPHRASE,
+            "passphrase": AP_PASSPHRASE or None,
+            "open_network": not bool(AP_PASSPHRASE),
             "url": AP_URL,
         }
 
