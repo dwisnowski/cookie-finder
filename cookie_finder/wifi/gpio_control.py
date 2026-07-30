@@ -44,6 +44,8 @@ SLOW_BLINK_HALF_S = 0.5  # ~1 Hz
 FAST_BLINK_HALF_S = 0.1  # ~5 Hz
 # Ignore button edges right after GPIO claim (avoids false "press" on restart).
 BUTTON_STARTUP_GRACE_S = 2.0
+# Ignore further presses after a switch so bounce cannot flip AP→client.
+BUTTON_SWITCH_COOLDOWN_S = 8.0
 
 
 class WifiGpioController:
@@ -242,10 +244,17 @@ class WifiGpioController:
             )
         print(f"[wifi-gpio] button → switch to {target}")
         result = set_wifi_mode(target, delay_seconds=0.0)
+        # Prevent bounce from immediately toggling back (AP → client).
+        self._button_armed_at = now + BUTTON_SWITCH_COOLDOWN_S
         self._cached_status = result.get("wifi") or get_wifi_status()
         self._status_deadline = now + STATUS_REFRESH_S
         if result.get("status") in ("error", "busy"):
             print(f"[wifi-gpio] switch failed: {result.get('message')}")
+        else:
+            print(
+                f"[wifi-gpio] switch requested ({result.get('status')}); "
+                f"button cooldown {BUTTON_SWITCH_COOLDOWN_S:.0f}s"
+            )
 
     def _update_led(self, now: float, status: dict) -> None:
         if status.get("switching"):

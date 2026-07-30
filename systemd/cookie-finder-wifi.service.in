@@ -8,8 +8,9 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=@REPO_ROOT@
 Environment=PYTHONPATH=@REPO_ROOT@
+Environment=PYTHONUNBUFFERED=1
 # Boot always restores client WiFi first (AP is runtime-only)
-ExecStart=@PYTHON@ -m cookie_finder.wifi.gpio_daemon
+ExecStart=@PYTHON@ -u -m cookie_finder.wifi.gpio_daemon
 Restart=on-failure
 RestartSec=2
 # Client restore + nmcli can take a while on cold boot

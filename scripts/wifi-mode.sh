@@ -9,6 +9,9 @@
 
 set -euo pipefail
 
+# Non-login shells often omit /usr/sbin (iw, ip live there on Armbian).
+export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
+
 MODE="${1:-}"
 SSID="${COOKIE_FINDER_AP_SSID:-cookie-finder}"
 PASSPHRASE="${COOKIE_FINDER_AP_PASSPHRASE:-cookie-finder}"
@@ -21,6 +24,9 @@ LOCK_FILE="${RUNTIME_DIR}/wifi-mode.lock"
 
 log() { echo "[wifi-mode] $*"; }
 die() { echo "[wifi-mode] ERROR: $*" >&2; exit 1; }
+
+IW_BIN="$(command -v iw || true)"
+IP_BIN="$(command -v ip || true)"
 
 # Serialize ap/client switches so the GPIO button service and web UI cannot race.
 acquire_mode_lock() {
@@ -41,9 +47,9 @@ require_root() {
 }
 
 find_iface() {
-  if command -v iw >/dev/null 2>&1; then
+  if [[ -n "${IW_BIN}" ]]; then
     local iface
-    iface="$(iw dev 2>/dev/null | awk '/Interface/ {print $2; exit}')"
+    iface="$("${IW_BIN}" dev 2>/dev/null | awk '/Interface/ {print $2; exit}')"
     if [[ -n "${iface}" ]]; then
       echo "${iface}"
       return 0
@@ -60,7 +66,37 @@ find_iface() {
 
 iface_type() {
   local iface="$1"
-  iw dev "${iface}" info 2>/dev/null | awk '/type/ {print $2; exit}'
+  [[ -n "${IW_BIN}" ]] || return 1
+  "${IW_BIN}" dev "${iface}" info 2>/dev/null | awk '/type/ {print $2; exit}'
+}
+
+iface_has_gateway() {
+  local iface="$1"
+  [[ -n "${IP_BIN}" ]] || return 1
+  "${IP_BIN}" -4 -o addr show dev "${iface}" 2>/dev/null | grep -q "${GATEWAY}"
+}
+
+ap_backend_running() {
+  local iface="$1"
+  pgrep -af "create_ap .*${iface}" >/dev/null 2>&1 && return 0
+  pgrep -af "hostapd.*${HOSTAPD_CONF}" >/dev/null 2>&1 && return 0
+  pgrep -af "hostapd.*${iface}" >/dev/null 2>&1 && return 0
+  return 1
+}
+
+# Take the radio away from NetworkManager before hostapd/create_ap.
+prepare_iface_for_ap() {
+  local iface="$1"
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli device disconnect "${iface}" >/dev/null 2>&1 || true
+    nmcli device set "${iface}" managed no >/dev/null 2>&1 || true
+  fi
+  if [[ -n "${IP_BIN}" ]]; then
+    "${IP_BIN}" link set "${iface}" down >/dev/null 2>&1 || true
+    "${IP_BIN}" addr flush dev "${iface}" >/dev/null 2>&1 || true
+    "${IP_BIN}" link set "${iface}" up >/dev/null 2>&1 || true
+  fi
+  sleep 1
 }
 
 stop_create_ap() {
@@ -121,8 +157,8 @@ stop_nm_hotspot() {
 client_already_associated() {
   local iface="$1"
   local ssid=""
-  if command -v iw >/dev/null 2>&1; then
-    ssid="$(iw dev "${iface}" link 2>/dev/null | awk '/SSID:/ {$1=""; sub(/^ /,""); print; exit}')"
+  if [[ -n "${IW_BIN}" ]]; then
+    ssid="$("${IW_BIN}" dev "${iface}" link 2>/dev/null | awk '/SSID:/ {$1=""; sub(/^ /,""); print; exit}')"
   fi
   if [[ -z "${ssid}" ]] && command -v nmcli >/dev/null 2>&1; then
     ssid="$(nmcli -t -f ACTIVE,SSID dev wifi 2>/dev/null | awk -F: '$1=="yes"{print $2; exit}')"
@@ -210,6 +246,11 @@ start_ap_create_ap() {
       "${iface}" "${SSID}" "${PASSPHRASE}"; then
     # Best-effort PID capture for cleanup
     pgrep -n -f "create_ap .*${iface}" > "${PID_FILE}" 2>/dev/null || true
+    sleep 2
+    if ! ap_backend_running "${iface}" && ! iface_has_gateway "${iface}"; then
+      log "create_ap exited immediately; trying next backend"
+      return 1
+    fi
     log "started AP via create_ap (ssid=${SSID} gateway=${GATEWAY})"
     return 0
   fi
@@ -242,15 +283,21 @@ start_ap_hostapd() {
 
   mkdir -p "${RUNTIME_DIR}"
 
-  # Unmanage interface if NetworkManager is present
   if command -v nmcli >/dev/null 2>&1; then
     nmcli device set "${iface}" managed no >/dev/null 2>&1 || true
   fi
 
-  ip link set "${iface}" down || true
-  ip addr flush dev "${iface}" || true
-  ip addr add "${GATEWAY}/24" dev "${iface}"
-  ip link set "${iface}" up
+  if [[ -n "${IP_BIN}" ]]; then
+    "${IP_BIN}" link set "${iface}" down || true
+    "${IP_BIN}" addr flush dev "${iface}" || true
+    "${IP_BIN}" addr add "${GATEWAY}/24" dev "${iface}"
+    "${IP_BIN}" link set "${iface}" up
+  else
+    ip link set "${iface}" down || true
+    ip addr flush dev "${iface}" || true
+    ip addr add "${GATEWAY}/24" dev "${iface}"
+    ip link set "${iface}" up
+  fi
 
   cat > "${HOSTAPD_CONF}" <<EOF
 interface=${iface}
@@ -276,8 +323,21 @@ dhcp-option=3,${GATEWAY}
 dhcp-option=6,${GATEWAY}
 EOF
 
-  hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" "${HOSTAPD_CONF}"
-  dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid"
+  if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" "${HOSTAPD_CONF}"; then
+    log "hostapd failed to start"
+    return 1
+  fi
+  if ! dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid"; then
+    log "dnsmasq failed to start"
+    stop_hostapd_dnsmasq
+    return 1
+  fi
+  sleep 1
+  if ! ap_backend_running "${iface}" && ! iface_has_gateway "${iface}"; then
+    log "hostapd did not stay up"
+    stop_hostapd_dnsmasq
+    return 1
+  fi
   log "started AP via hostapd+dnsmasq (ssid=${SSID} gateway=${GATEWAY})"
   return 0
 }
@@ -294,7 +354,9 @@ cmd_status() {
   type="$(iface_type "${iface}" || echo unknown)"
   echo "interface=${iface}"
   echo "type=${type}"
-  if [[ "${type}" == "AP" ]]; then
+  if [[ "${type}" == "AP" ]] \
+      || ap_backend_running "${iface}" \
+      || iface_has_gateway "${iface}"; then
     echo "mode=ap"
   else
     echo "mode=client"
@@ -312,21 +374,23 @@ cmd_ap() {
   stop_hostapd_dnsmasq
   stop_nm_hotspot
 
-  # Drop any existing client association
-  if command -v nmcli >/dev/null 2>&1; then
-    nmcli device disconnect "${iface}" >/dev/null 2>&1 || true
-  fi
-  ip link set "${iface}" down >/dev/null 2>&1 || true
-  sleep 1
-  ip link set "${iface}" up >/dev/null 2>&1 || true
+  # Unmanage before hostapd/create_ap so NetworkManager cannot steal wlan0
+  # back to the home SSID (that looked like: fast blink → slow → solid).
+  prepare_iface_for_ap "${iface}"
 
+  # Prefer hostapd: stable with NM unmanaged. create_ap often exits and NM
+  # reconnects the client within seconds.
+  if start_ap_hostapd "${iface}"; then
+    exit 0
+  fi
   if start_ap_create_ap "${iface}"; then
     exit 0
   fi
-  if start_ap_nmcli "${iface}"; then
-    exit 0
+  # nmcli hotspot needs the device managed again
+  if command -v nmcli >/dev/null 2>&1; then
+    nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
   fi
-  if start_ap_hostapd "${iface}"; then
+  if start_ap_nmcli "${iface}"; then
     exit 0
   fi
   die "no AP backend available (install create_ap, NetworkManager, or hostapd+dnsmasq)"
