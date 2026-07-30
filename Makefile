@@ -625,7 +625,12 @@ on-the-pi-wifi-gpio-daemon-stop:
 	@echo "Stopped cookie-finder-wifi.service"
 
 on-the-pi-wifi-gpio-daemon-status:
-	@sudo systemctl --no-pager --full status cookie-finder-wifi.service
+	@sudo systemctl --no-pager --full status cookie-finder-wifi.service || true
+	@echo ""
+	@echo "WiFi button+LED managed by systemd"
+	@echo "Check status:  make on-the-pi-wifi-gpio-daemon-status"
+	@echo "Stop:          make on-the-pi-wifi-gpio-daemon-stop"
+	@echo "Follow logs:   sudo journalctl -u cookie-finder-wifi -f"
 
 # =============================================================================
 # Backward-compatible aliases (prefer on-the-mac-* / on-the-pi-*)
