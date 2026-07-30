@@ -88,7 +88,7 @@ In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspo
 **Boot policy:** AP mode does **not** survive a full reboot (power cycle). After reboot, `cookie-finder-wifi` restores client (home/office) WiFi. A plain `systemctl restart` while already in AP leaves AP alone. If the radio looks like client but has no SSID, the button repairs client mode instead of entering AP.
 
 - AP SSID: `cookie-finder`
-- AP password: `cookie-finder`
+- AP password: `thermalcam`
 - AP URL: `http://192.168.12.1:8000`
 - LED: solid = client, slow blink (~1 Hz) = AP, fast blink (~5 Hz) = switching
 

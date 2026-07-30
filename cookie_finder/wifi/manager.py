@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 AP_SSID = "cookie-finder"
-AP_PASSPHRASE = "cookie-finder"
+AP_PASSPHRASE = "thermalcam"
 AP_GATEWAY = "192.168.12.1"
 AP_URL = f"http://{AP_GATEWAY}:8000"
 

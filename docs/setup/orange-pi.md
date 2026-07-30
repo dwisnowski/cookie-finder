@@ -83,7 +83,7 @@ This installs `hostapd` / `dnsmasq` / `create_ap` (when missing), grants passwor
 1. Open **Settings**
 2. Under **WiFi Mode**, choose **Switch to AP Mode**
 3. Confirm the popup instructions
-4. Join WiFi **`cookie-finder`** (password: `cookie-finder`)
+4. Join WiFi **`cookie-finder`** (password: `thermalcam`)
 5. Open `http://192.168.12.1:8000`
 
 The home-screen badge shows **Client · …** or **AP · cookie-finder**.

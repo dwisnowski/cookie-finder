@@ -4,7 +4,7 @@
 #
 # Environment overrides:
 #   COOKIE_FINDER_AP_SSID        (default: cookie-finder)
-#   COOKIE_FINDER_AP_PASSPHRASE  (default: cookie-finder)
+#   COOKIE_FINDER_AP_PASSPHRASE  (default: thermalcam)
 #   COOKIE_FINDER_AP_GATEWAY     (default: 192.168.12.1)
 
 set -euo pipefail
@@ -14,7 +14,7 @@ export PATH="/usr/sbin:/sbin:/usr/bin:/bin:${PATH:-}"
 
 MODE="${1:-}"
 SSID="${COOKIE_FINDER_AP_SSID:-cookie-finder}"
-PASSPHRASE="${COOKIE_FINDER_AP_PASSPHRASE:-cookie-finder}"
+PASSPHRASE="${COOKIE_FINDER_AP_PASSPHRASE:-thermalcam}"
 GATEWAY="${COOKIE_FINDER_AP_GATEWAY:-192.168.12.1}"
 RUNTIME_DIR="${COOKIE_FINDER_WIFI_RUNTIME:-/run/cookie-finder-wifi}"
 HOSTAPD_CONF="${RUNTIME_DIR}/hostapd.conf"
@@ -24,6 +24,14 @@ LOCK_FILE="${RUNTIME_DIR}/wifi-mode.lock"
 
 log() { echo "[wifi-mode] $*"; }
 die() { echo "[wifi-mode] ERROR: $*" >&2; exit 1; }
+
+# WPA2-PSK requires 8–63 ASCII characters (IEEE).
+assert_passphrase() {
+  local n=${#PASSPHRASE}
+  if (( n < 8 || n > 63 )); then
+    die "WPA2 passphrase must be 8–63 characters (got ${n}). Current value is too short for Wi‑Fi clients."
+  fi
+}
 
 IW_BIN="$(command -v iw || true)"
 IP_BIN="$(command -v ip || true)"
@@ -134,6 +142,10 @@ stop_hostapd_dnsmasq() {
   fi
   pkill -f "${HOSTAPD_CONF}" >/dev/null 2>&1 || true
   pkill -f "${DNSMASQ_CONF}" >/dev/null 2>&1 || true
+  # Our AP dnsmasq must own :53 on the AP subnet; stop the system one if present.
+  if systemctl list-unit-files dnsmasq.service >/dev/null 2>&1; then
+    systemctl stop dnsmasq.service >/dev/null 2>&1 || true
+  fi
 }
 
 stop_nm_hotspot() {
@@ -298,37 +310,57 @@ start_ap_hostapd() {
     ip addr add "${GATEWAY}/24" dev "${iface}"
     ip link set "${iface}" up
   fi
+  sleep 1
 
+  # Minimal WPA2-PSK config tuned for iPhone/MacBook + Allwinner SoftAP:
+  # - CCMP only (no TKIP)
+  # - 802.11w off (MFP breaks some Apple clients on cheap APs)
+  # - 802.11n/WMM off (driver HT quirks often look like "wrong password")
   cat > "${HOSTAPD_CONF}" <<EOF
 interface=${iface}
 driver=nl80211
 ssid=${SSID}
 hw_mode=g
-channel=6
-ieee80211n=1
-wmm_enabled=1
+channel=1
+ieee80211n=0
+wmm_enabled=0
+macaddr_acl=0
 auth_algs=1
 ignore_broadcast_ssid=0
 wpa=2
 wpa_passphrase=${PASSPHRASE}
 wpa_key_mgmt=WPA-PSK
+wpa_pairwise=CCMP
 rsn_pairwise=CCMP
+ieee80211w=0
 EOF
 
   cat > "${DNSMASQ_CONF}" <<EOF
 interface=${iface}
 bind-interfaces
+listen-address=${GATEWAY}
 dhcp-range=192.168.12.50,192.168.12.200,255.255.255.0,12h
 dhcp-option=3,${GATEWAY}
 dhcp-option=6,${GATEWAY}
+no-resolv
+no-hosts
+server=1.1.1.1
+server=8.8.8.8
 EOF
 
-  if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" "${HOSTAPD_CONF}"; then
-    log "hostapd failed to start"
+  # Free port 53 before our AP DHCP/DNS starts
+  if systemctl list-unit-files dnsmasq.service >/dev/null 2>&1; then
+    systemctl stop dnsmasq.service >/dev/null 2>&1 || true
+  fi
+  pkill -x dnsmasq >/dev/null 2>&1 || true
+
+  if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" \
+      -f "${RUNTIME_DIR}/hostapd.log" "${HOSTAPD_CONF}"; then
+    log "hostapd failed to start (see ${RUNTIME_DIR}/hostapd.log)"
     return 1
   fi
   if ! dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid"; then
-    log "dnsmasq failed to start"
+    log "dnsmasq failed to start (DHCP/DNS — clients will fail to join)"
     stop_hostapd_dnsmasq
     return 1
   fi
@@ -365,6 +397,7 @@ cmd_status() {
 
 cmd_ap() {
   require_root
+  assert_passphrase
   acquire_mode_lock
   local iface
   iface="$(find_iface)" || die "no wireless interface found"

@@ -95,7 +95,7 @@ _init-wifi:
 		echo "Note: .venv not found yet — after 'make install', run:"; \
 		echo "  make on-the-pi-wifi-gpio-daemon"; \
 	fi
-	@echo "WiFi AP setup complete. SSID will be cookie-finder (password: cookie-finder)."
+	@echo "WiFi AP setup complete. SSID will be cookie-finder (password: thermalcam)."
 	@echo "Toggle AP/client via Settings panel, or the GPIO button (LED on pin 7)."
 	@echo "Button service: sudo systemctl status cookie-finder-wifi"
 

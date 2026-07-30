@@ -35,6 +35,18 @@ Open `http://<device-ip>:8000` in a browser.
 
 (`make install` and `make run` are aliases for the commands above.)
 
+## WiFi Access Point
+
+When home WiFi is unavailable, the Pi can host its own hotspot (GPIO button or Settings → WiFi Mode):
+
+| | |
+|--|--|
+| **SSID** | `cookie-finder` |
+| **Password** | `thermalcam` |
+| **URL** | `http://192.168.12.1:8000` |
+
+One-time setup on the Pi: `make on-the-pi-init-wifi` (or `make init-wifi`). Details: [WiFi AP mode](docs/usage/running.md#wifi-access-point-mode), [Orange Pi setup](docs/setup/orange-pi.md#5-enable-wifi-access-point-mode-optional).
+
 ## Rust Gimbal Daemon (Optional, Recommended on Pi)
 
 The gimbal and gamepad control loop can run in a Rust daemon for lower latency. The Python web server connects to it over a Unix socket and falls back to Python GPIO if the daemon is not running.

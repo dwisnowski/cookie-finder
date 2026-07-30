@@ -87,7 +87,7 @@ let wifiStatus = {
     mode: 'unknown',
     ssid: null,
     ap_ssid: 'cookie-finder',
-    ap_passphrase: 'cookie-finder',
+    ap_passphrase: 'thermalcam',
     ap_url: 'http://192.168.12.1:8000',
     switching: false,
 };
@@ -1011,7 +1011,7 @@ function updateWifiSettingsUI() {
         toggleBtn.disabled = false;
         toggleBtn.textContent = 'Switch to Client Mode';
         if (hint) {
-            hint.innerHTML = `Password: <strong>${wifiStatus.ap_passphrase || 'cookie-finder'}</strong> · Open <strong>${wifiStatus.ap_url || 'http://192.168.12.1:8000'}</strong>`;
+            hint.innerHTML = `Password: <strong>${wifiStatus.ap_passphrase || 'thermalcam'}</strong> · Open <strong>${wifiStatus.ap_url || 'http://192.168.12.1:8000'}</strong>`;
         }
         return;
     }
@@ -1063,7 +1063,7 @@ function openWifiConfirm(targetMode, instructions) {
             creds.hidden = false;
             creds.innerHTML = `
                 <div><span>Network</span><strong>${instructions.ssid || 'cookie-finder'}</strong></div>
-                <div><span>Password</span><strong>${instructions.passphrase || 'cookie-finder'}</strong></div>
+                <div><span>Password</span><strong>${instructions.passphrase || 'thermalcam'}</strong></div>
                 <div><span>URL</span><strong>${instructions.url || 'http://192.168.12.1:8000'}</strong></div>
             `;
         } else {
