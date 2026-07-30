@@ -163,7 +163,7 @@ make serial-run SERIAL_CMD='…'   # run a single command
 
 See [Makefile reference](../reference/makefile.md#serial-console) for all serial targets.
 
-> **Note:** Pin 8 (PH0) is shared with the tilt motor IN1 wire in this project. Disconnect that wire for clean serial debugging if needed.
+> **Note:** Pins 8 (TXD.0) and 10 (RXD.0) are reserved for UART0 serial debugging. Do not wire motors or limit switches to them. Tilt motor IN1 is physical pin 22 (RXD.2 / offset 262).
 
 ---
 
