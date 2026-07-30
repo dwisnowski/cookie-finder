@@ -85,7 +85,7 @@ The home screen badge shows **Client · …** or **AP · cookie-finder**.
 
 In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspot. A confirmation dialog lists reconnect steps before the radio switches. The GPIO button does the same toggle.
 
-**Boot policy:** AP mode does **not** survive reboot. The `cookie-finder-wifi` service always restores client (home/office) WiFi on start, so a partial AP switch cannot leave the Pi unreachable after power cycle. If the radio looks like client but has no SSID, the button repairs client mode instead of entering AP.
+**Boot policy:** AP mode does **not** survive a full reboot (power cycle). After reboot, `cookie-finder-wifi` restores client (home/office) WiFi. A plain `systemctl restart` while already in AP leaves AP alone. If the radio looks like client but has no SSID, the button repairs client mode instead of entering AP.
 
 - AP SSID: `cookie-finder`
 - AP password: `cookie-finder`

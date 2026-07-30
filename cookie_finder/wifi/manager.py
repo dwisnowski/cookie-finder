@@ -28,9 +28,41 @@ _RUNTIME_DIR = Path(
     os.environ.get("COOKIE_FINDER_WIFI_RUNTIME", "/run/cookie-finder-wifi")
 )
 _SWITCHING_MARKER = _RUNTIME_DIR / "switching"
+_STATE_DIR = Path(
+    os.environ.get("COOKIE_FINDER_WIFI_STATE", "/var/lib/cookie-finder")
+)
+_LAST_BOOT_ID_FILE = _STATE_DIR / "wifi-last-boot-id"
+_BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
 
 _switch_lock = threading.Lock()
 _pending_mode: str | None = None
+
+
+def _current_boot_id() -> str | None:
+    try:
+        return _BOOT_ID_FILE.read_text().strip() or None
+    except OSError:
+        return None
+
+
+def _is_new_boot() -> bool:
+    """True once per kernel boot (first wifi daemon start after reboot)."""
+    boot_id = _current_boot_id()
+    if not boot_id:
+        # No boot_id (non-Linux) — treat as new boot so we still restore client.
+        return True
+    try:
+        previous = _LAST_BOOT_ID_FILE.read_text().strip()
+        if previous == boot_id:
+            return False
+    except OSError:
+        pass
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _LAST_BOOT_ID_FILE.write_text(boot_id + "\n")
+    except OSError as exc:
+        print(f"[wifi] warning: could not persist boot id: {exc}")
+    return True
 
 
 def _run(cmd: list[str], timeout: float = 2.0) -> subprocess.CompletedProcess[str]:
@@ -290,13 +322,14 @@ def _perform_switch(mode: str) -> dict[str, Any]:
 
 def apply_boot_wifi_policy() -> dict[str, Any]:
     """
-    Restore client WiFi when the GPIO daemon starts (typically at boot).
+    WiFi policy when the GPIO daemon starts.
 
-    AP mode is runtime-only: a reboot always returns to home/office WiFi so a
-    crashed or partial AP switch cannot leave the Pi unreachable.
+    - **New reboot:** always restore client (AP is runtime-only across power cycle).
+    - **Same boot** (``systemctl restart``): leave a working client or AP alone;
+      only repair a broken radio (managed but no SSID / unknown).
 
-    Fast path: if already associated as a client, do nothing (keeps
-    ``systemctl restart`` / make targets snappy while you're online).
+    This prevents an intentional AP session from being torn down when the
+    wifi service restarts.
     """
     global _pending_mode
 
@@ -306,20 +339,45 @@ def apply_boot_wifi_policy() -> dict[str, Any]:
         return {"status": "skipped", "message": reason, "wifi": get_wifi_status()}
 
     current = get_wifi_status()
-    if current.get("mode") == "client" and current.get("ssid"):
-        print(
-            f"[wifi] boot policy: already client on {current['ssid']}; skip restore"
-        )
-        return {
-            "status": "noop",
-            "message": f"Already connected as client to {current['ssid']}",
-            "wifi": current,
-        }
+    new_boot = _is_new_boot()
 
-    print(
-        "[wifi] boot policy: restoring client mode "
-        "(AP does not persist across reboot)"
-    )
+    if not new_boot:
+        if current.get("mode") == "ap":
+            print("[wifi] boot policy: same boot, already AP; leave alone")
+            return {
+                "status": "noop",
+                "message": "Already in AP mode",
+                "wifi": current,
+            }
+        if current.get("mode") == "client" and current.get("ssid"):
+            print(
+                f"[wifi] boot policy: already client on {current['ssid']}; "
+                "skip restore"
+            )
+            return {
+                "status": "noop",
+                "message": f"Already connected as client to {current['ssid']}",
+                "wifi": current,
+            }
+        print(
+            "[wifi] boot policy: same boot, radio looks unhealthy — "
+            "repairing client"
+        )
+    else:
+        if current.get("mode") == "client" and current.get("ssid"):
+            print(
+                f"[wifi] boot policy: new boot, already client on "
+                f"{current['ssid']}; skip restore"
+            )
+            return {
+                "status": "noop",
+                "message": f"Already connected as client to {current['ssid']}",
+                "wifi": current,
+            }
+        print(
+            "[wifi] boot policy: new boot — restoring client mode "
+            "(AP does not persist across reboot)"
+        )
 
     if not _switch_lock.acquire(blocking=True, timeout=120):
         return {

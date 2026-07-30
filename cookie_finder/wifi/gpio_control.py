@@ -42,6 +42,8 @@ DEBOUNCE_S = 0.05
 STATUS_REFRESH_S = 2.0
 SLOW_BLINK_HALF_S = 0.5  # ~1 Hz
 FAST_BLINK_HALF_S = 0.1  # ~5 Hz
+# Ignore button edges right after GPIO claim (avoids false "press" on restart).
+BUTTON_STARTUP_GRACE_S = 2.0
 
 
 class WifiGpioController:
@@ -70,6 +72,7 @@ class WifiGpioController:
         self._blink_deadline = 0.0
         self._cached_status: dict = {}
         self._status_deadline = 0.0
+        self._button_armed_at = 0.0
 
     @property
     def available(self) -> bool:
@@ -105,9 +108,16 @@ class WifiGpioController:
                 config=config,
             )
             self._set_led(False)
+            # Seed button state from the live line so claiming GPIO cannot look
+            # like a falling edge (logs showed false "button → switch to ap"
+            # on every systemctl restart).
+            released = self._read_button_released()
+            self._last_button_raw = released
+            self._stable_button = released
+            self._button_armed_at = time.monotonic() + BUTTON_STARTUP_GRACE_S
             print(
                 f"[wifi-gpio] ready (LED={self.led_pin} button={self.button_pin} "
-                f"chip={self.chip_path})"
+                f"chip={self.chip_path}; button armed in {BUTTON_STARTUP_GRACE_S:.0f}s)"
             )
         except Exception as e:
             print(f"[wifi-gpio] GPIO init failed: {e}")
@@ -182,6 +192,14 @@ class WifiGpioController:
         return self._cached_status
 
     def _handle_button(self, now: float) -> None:
+        if now < self._button_armed_at:
+            # Keep baseline in sync during grace so a held button after arm
+            # does not look like a fresh press.
+            raw_released = self._read_button_released()
+            self._last_button_raw = raw_released
+            self._stable_button = raw_released
+            return
+
         raw_released = self._read_button_released()
         if raw_released != self._last_button_raw:
             self._last_button_raw = raw_released
