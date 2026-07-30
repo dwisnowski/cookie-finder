@@ -32,6 +32,7 @@ _STATE_DIR = Path(
     os.environ.get("COOKIE_FINDER_WIFI_STATE", "/var/lib/cookie-finder")
 )
 _LAST_BOOT_ID_FILE = _STATE_DIR / "wifi-last-boot-id"
+_DESIRED_MODE_FILE = _STATE_DIR / "wifi-desired-mode"
 _BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
 
 _switch_lock = threading.Lock()
@@ -43,6 +44,28 @@ def _current_boot_id() -> str | None:
         return _BOOT_ID_FILE.read_text().strip() or None
     except OSError:
         return None
+
+
+def get_desired_mode() -> str:
+    """Last requested mode (ap/client). Survives daemon restarts within a boot."""
+    try:
+        text = _DESIRED_MODE_FILE.read_text().strip().lower()
+        if text in ("ap", "client"):
+            return text
+    except OSError:
+        pass
+    return "client"
+
+
+def set_desired_mode(mode: str) -> None:
+    mode = (mode or "").strip().lower()
+    if mode not in ("ap", "client"):
+        return
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _DESIRED_MODE_FILE.write_text(mode + "\n")
+    except OSError as exc:
+        print(f"[wifi] warning: could not persist desired mode: {exc}")
 
 
 def _is_new_boot() -> bool:
@@ -278,10 +301,23 @@ def _sudo_script(mode: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
+def _log_script_output(result: subprocess.CompletedProcess[str]) -> None:
+    out = (result.stdout or "").strip()
+    err = (result.stderr or "").strip()
+    if out:
+        for line in out.splitlines():
+            print(line if line.startswith("[wifi-mode]") else f"[wifi-mode] {line}")
+    if err:
+        for line in err.splitlines():
+            print(f"[wifi-mode:err] {line}")
+
+
 def _perform_switch(mode: str) -> dict[str, Any]:
     global _pending_mode
     try:
+        print(f"[wifi] running wifi-mode.sh {mode}")
         result = _sudo_script(mode)
+        _log_script_output(result)
         # Give the radio a moment to settle before reporting status
         time.sleep(2.0)
         status = get_wifi_status()
@@ -289,11 +325,21 @@ def _perform_switch(mode: str) -> dict[str, Any]:
         message = (result.stdout or result.stderr or "").strip()
         if not ok and not message:
             message = f"wifi-mode.sh exited with code {result.returncode}"
+        print(
+            f"[wifi] switch to {mode}: "
+            f"{'OK' if ok else 'FAILED'} (exit {result.returncode}); "
+            f"settled mode={status.get('mode')!r} ssid={status.get('ssid')!r}"
+        )
         if ok and mode == "ap" and status.get("mode") != "ap":
-            # Script succeeded but detection lagged; still treat as switching done
-            status["mode"] = "ap"
-            status["ssid"] = AP_SSID
-            status["ap_gateway"] = AP_GATEWAY
+            print(
+                "[wifi] WARNING: AP script exited 0 but radio is not in AP mode — "
+                "check /run/cookie-finder-wifi/hostapd.log"
+            )
+            ok = False
+            message = (
+                "AP backend exited successfully but SoftAP did not stay up. "
+                "See hostapd.log on the Pi."
+            )
         return {
             "status": "ok" if ok else "error",
             "requested_mode": mode,
@@ -303,6 +349,7 @@ def _perform_switch(mode: str) -> dict[str, Any]:
             "stderr": (result.stderr or "").strip(),
         }
     except subprocess.TimeoutExpired:
+        print(f"[wifi] switch to {mode} timed out")
         return {
             "status": "error",
             "requested_mode": mode,
@@ -310,6 +357,7 @@ def _perform_switch(mode: str) -> dict[str, Any]:
             "wifi": get_wifi_status(),
         }
     except Exception as exc:
+        print(f"[wifi] switch to {mode} crashed: {exc}")
         return {
             "status": "error",
             "requested_mode": mode,
@@ -324,12 +372,10 @@ def apply_boot_wifi_policy() -> dict[str, Any]:
     """
     WiFi policy when the GPIO daemon starts.
 
-    - **New reboot:** always restore client (AP is runtime-only across power cycle).
-    - **Same boot** (``systemctl restart``): leave a working client or AP alone;
-      only repair a broken radio (managed but no SSID / unknown).
-
-    This prevents an intentional AP session from being torn down when the
-    wifi service restarts.
+    - **New reboot:** restore client (AP does not persist across power cycle).
+    - **Same boot** (``systemctl restart``): honor *desired* mode. If the user
+      requested AP, re-apply AP instead of tearing a failed/partial AP down
+      as an "unhealthy client" repair.
     """
     global _pending_mode
 
@@ -340,44 +386,55 @@ def apply_boot_wifi_policy() -> dict[str, Any]:
 
     current = get_wifi_status()
     new_boot = _is_new_boot()
+    desired = get_desired_mode()
+    mode = current.get("mode")
+    ssid = current.get("ssid")
+    healthy_ap = mode == "ap"
+    healthy_client = mode == "client" and bool(ssid)
 
-    if not new_boot:
-        if current.get("mode") == "ap":
-            print("[wifi] boot policy: same boot, already AP; leave alone")
+    if new_boot:
+        set_desired_mode("client")
+        if healthy_client:
+            print(f"[wifi] boot policy: new boot, already client on {ssid}; skip restore")
+            return {
+                "status": "noop",
+                "message": f"Already connected as client to {ssid}",
+                "wifi": current,
+            }
+        print(
+            f"[wifi] boot policy: new boot — restoring client "
+            f"(was mode={mode!r} ssid={ssid!r})"
+        )
+        target = "client"
+    elif desired == "ap":
+        if healthy_ap:
+            print("[wifi] boot policy: same boot, desired AP already up; leave alone")
             return {
                 "status": "noop",
                 "message": "Already in AP mode",
                 "wifi": current,
             }
-        if current.get("mode") == "client" and current.get("ssid"):
-            print(
-                f"[wifi] boot policy: already client on {current['ssid']}; "
-                "skip restore"
-            )
-            return {
-                "status": "noop",
-                "message": f"Already connected as client to {current['ssid']}",
-                "wifi": current,
-            }
         print(
-            "[wifi] boot policy: same boot, radio looks unhealthy — "
-            "repairing client"
+            f"[wifi] boot policy: same boot, desired AP but radio is "
+            f"{mode!r}/{ssid!r} — re-applying AP"
         )
+        target = "ap"
+    elif healthy_client or healthy_ap:
+        print(
+            f"[wifi] boot policy: same boot, leave alone "
+            f"(desired={desired!r} mode={mode!r} ssid={ssid!r})"
+        )
+        return {
+            "status": "noop",
+            "message": f"Already healthy {mode} mode; left alone",
+            "wifi": current,
+        }
     else:
-        if current.get("mode") == "client" and current.get("ssid"):
-            print(
-                f"[wifi] boot policy: new boot, already client on "
-                f"{current['ssid']}; skip restore"
-            )
-            return {
-                "status": "noop",
-                "message": f"Already connected as client to {current['ssid']}",
-                "wifi": current,
-            }
         print(
-            "[wifi] boot policy: new boot — restoring client mode "
-            "(AP does not persist across reboot)"
+            f"[wifi] boot policy: same boot, desired client, radio unhealthy "
+            f"({mode!r}/{ssid!r}) — repairing client"
         )
+        target = "client"
 
     if not _switch_lock.acquire(blocking=True, timeout=120):
         return {
@@ -386,9 +443,10 @@ def apply_boot_wifi_policy() -> dict[str, Any]:
             "wifi": get_wifi_status(),
         }
 
-    _pending_mode = "client"
+    set_desired_mode(target)
+    _pending_mode = target
     try:
-        result = _perform_switch("client")
+        result = _perform_switch(target)
         print(
             f"[wifi] boot policy result: {result.get('status')} "
             f"{result.get('message')}"
@@ -432,6 +490,7 @@ def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
         and not (mode == "client" and not current.get("ssid"))
     )
     if already:
+        set_desired_mode(mode)
         return {
             "status": "noop",
             "message": f"Already in {mode} mode",
@@ -445,12 +504,20 @@ def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
             "wifi": get_wifi_status(),
         }
 
+    set_desired_mode(mode)
     _pending_mode = mode
 
     def _worker() -> None:
         try:
             time.sleep(max(0.0, delay_seconds))
-            _perform_switch(mode)
+            result = _perform_switch(mode)
+            print(
+                f"[wifi] switch worker done: {result.get('status')} "
+                f"{result.get('message')}"
+            )
+        except Exception as exc:
+            print(f"[wifi] switch worker crashed: {exc}")
+            _pending_mode = None
         finally:
             _switch_lock.release()
 

@@ -19,7 +19,7 @@ import threading
 import time
 from typing import Optional
 
-from cookie_finder.wifi.manager import get_wifi_status, set_wifi_mode
+from cookie_finder.wifi.manager import get_desired_mode, get_wifi_status, set_wifi_mode
 
 try:
     import gpiod
@@ -229,13 +229,20 @@ class WifiGpioController:
 
         mode = status.get("mode")
         ssid = status.get("ssid")
-        # Only enter AP when already associated as a client. Otherwise repair
-        # client mode (common after a failed/partial AP switch left wlan0
-        # "managed" with no SSID — toggling to AP would strand you again).
+        desired = get_desired_mode()
+        # Healthy AP ↔ healthy client toggle. Broken radio (no SSID): retry the
+        # last *desired* mode — after a failed AP attempt that is usually AP,
+        # not a client repair that fights the button.
         if mode == "ap":
             target = "client"
         elif mode == "client" and ssid:
             target = "ap"
+        elif desired == "ap":
+            target = "ap"
+            print(
+                f"[wifi-gpio] button → retry AP "
+                f"(mode={mode!r} ssid={ssid!r} desired={desired!r})"
+            )
         else:
             target = "client"
             print(

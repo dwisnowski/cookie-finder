@@ -291,9 +291,9 @@ start_ap_nmcli() {
 start_ap_hostapd() {
   local iface="$1"
   command -v hostapd >/dev/null 2>&1 || return 1
-  command -v dnsmasq >/dev/null 2>&1 || return 1
 
   mkdir -p "${RUNTIME_DIR}"
+  rm -f "${RUNTIME_DIR}/hostapd.log"
 
   if command -v nmcli >/dev/null 2>&1; then
     nmcli device set "${iface}" managed no >/dev/null 2>&1 || true
@@ -314,7 +314,7 @@ start_ap_hostapd() {
 
   # Minimal WPA2-PSK config tuned for iPhone/MacBook + Allwinner SoftAP:
   # - CCMP only (no TKIP)
-  # - 802.11w off (MFP breaks some Apple clients on cheap APs)
+  # - no ieee80211w= (older hostapd rejects unknown keys and exits)
   # - 802.11n/WMM off (driver HT quirks often look like "wrong password")
   cat > "${HOSTAPD_CONF}" <<EOF
 interface=${iface}
@@ -332,10 +332,30 @@ wpa_passphrase=${PASSPHRASE}
 wpa_key_mgmt=WPA-PSK
 wpa_pairwise=CCMP
 rsn_pairwise=CCMP
-ieee80211w=0
 EOF
 
-  cat > "${DNSMASQ_CONF}" <<EOF
+  if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" \
+      -f "${RUNTIME_DIR}/hostapd.log" "${HOSTAPD_CONF}"; then
+    log "hostapd failed to start (see ${RUNTIME_DIR}/hostapd.log)"
+    if [[ -f "${RUNTIME_DIR}/hostapd.log" ]]; then
+      log "hostapd.log tail:"
+      tail -n 40 "${RUNTIME_DIR}/hostapd.log" 2>/dev/null || true
+    fi
+    return 1
+  fi
+  sleep 1
+  if ! ap_backend_running "${iface}"; then
+    log "hostapd exited immediately (see ${RUNTIME_DIR}/hostapd.log)"
+    if [[ -f "${RUNTIME_DIR}/hostapd.log" ]]; then
+      tail -n 40 "${RUNTIME_DIR}/hostapd.log" 2>/dev/null || true
+    fi
+    stop_hostapd_dnsmasq
+    return 1
+  fi
+
+  # DHCP is best-effort: SoftAP can stay up without it (static IP clients).
+  if command -v dnsmasq >/dev/null 2>&1; then
+    cat > "${DNSMASQ_CONF}" <<EOF
 interface=${iface}
 bind-interfaces
 listen-address=${GATEWAY}
@@ -347,30 +367,29 @@ no-hosts
 server=1.1.1.1
 server=8.8.8.8
 EOF
+    if systemctl list-unit-files dnsmasq.service >/dev/null 2>&1; then
+      systemctl stop dnsmasq.service >/dev/null 2>&1 || true
+    fi
+    pkill -x dnsmasq >/dev/null 2>&1 || true
+    if ! dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid"; then
+      log "WARNING: dnsmasq failed — AP is up but DHCP may not work"
+    fi
+  else
+    log "WARNING: dnsmasq not installed — AP is up but DHCP may not work"
+  fi
 
-  # Free port 53 before our AP DHCP/DNS starts
-  if systemctl list-unit-files dnsmasq.service >/dev/null 2>&1; then
-    systemctl stop dnsmasq.service >/dev/null 2>&1 || true
-  fi
-  pkill -x dnsmasq >/dev/null 2>&1 || true
-
-  if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" \
-      -f "${RUNTIME_DIR}/hostapd.log" "${HOSTAPD_CONF}"; then
-    log "hostapd failed to start (see ${RUNTIME_DIR}/hostapd.log)"
-    return 1
-  fi
-  if ! dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid"; then
-    log "dnsmasq failed to start (DHCP/DNS — clients will fail to join)"
-    stop_hostapd_dnsmasq
-    return 1
-  fi
-  sleep 1
+  sleep 2
   if ! ap_backend_running "${iface}" && ! iface_has_gateway "${iface}"; then
     log "hostapd did not stay up"
+    if [[ -f "${RUNTIME_DIR}/hostapd.log" ]]; then
+      tail -n 40 "${RUNTIME_DIR}/hostapd.log" 2>/dev/null || true
+    fi
     stop_hostapd_dnsmasq
     return 1
   fi
-  log "started AP via hostapd+dnsmasq (ssid=${SSID} gateway=${GATEWAY})"
+  local itype
+  itype="$(iface_type "${iface}" || echo unknown)"
+  log "started AP via hostapd (ssid=${SSID} gateway=${GATEWAY} type=${itype})"
   return 0
 }
 
@@ -416,9 +435,11 @@ cmd_ap() {
   if start_ap_hostapd "${iface}"; then
     exit 0
   fi
+  log "hostapd path failed; trying create_ap…"
   if start_ap_create_ap "${iface}"; then
     exit 0
   fi
+  log "create_ap path failed; trying nmcli hotspot…"
   # nmcli hotspot needs the device managed again
   if command -v nmcli >/dev/null 2>&1; then
     nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
