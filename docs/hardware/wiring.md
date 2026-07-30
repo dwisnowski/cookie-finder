@@ -145,6 +145,74 @@ The thermal camera connects via **USB 2.0** — no GPIO required.
 
 ---
 
+## WiFi Mode Button + LED
+
+Momentary push-button + red LED for toggling WiFi **client** ↔ **AP** modes. Driven by the standalone `cookie-finder-wifi` systemd service (does **not** require the web app).
+
+### Connections
+
+| Signal | gpiochip1 Offset | Physical | Name | Notes |
+|--------|------------------|----------|------|-------|
+| LED | 269 | 7 | PWM3 | Active-high output |
+| LED GND | — | 9 | GND | Nearby ground |
+| Button | 226 | 11 | TXD.5 | Active-low input (internal pull-up) |
+| Button GND | — | 9 or 14 | GND | Nearby ground |
+
+These pins are unused by the pan/tilt motors (Rust daemon uses physical 22/24/26/28 and 31/33/35/37).
+
+### LED circuit (3.3 V GPIO + 330 Ω)
+
+```
+GPIO 7 (PWM3) ──► 330Ω ──► LED anode (+) ──► LED cathode (−) ──► GND (pin 9)
+```
+
+- Longer LED leg = anode (+); shorter / flat side = cathode (−).
+- With a classic red LED (~2.0 V forward): `(3.3 − 2.0) / 330 ≈ 3.9 mA` — safe for the GPIO pin.
+- Do **not** wire the LED to 5 V with only a 330 Ω resistor.
+
+### Button circuit (4-prong tactile)
+
+```
+          ┌──┬──┐
+   side A │1 │2 │  (1 and 2 always connected internally)
+          ├──┼──┤
+   side B │3 │4 │  (3 and 4 always connected internally)
+          └──┴──┘
+```
+
+Wire one side to **GPIO 11 (TXD.5)** and the other side to **GND (pin 9 or 14)** (e.g. pin 1 → GPIO, pin 4 → GND). Do not also connect 3.3 V — the pull-up is enabled in software.
+
+### LED blink legend
+
+| WiFi state | LED |
+|------------|-----|
+| Client mode | Solid ON |
+| AP mode | Slow blink ~1 Hz (500 ms on / 500 ms off) |
+| Switching modes | Fast blink ~5 Hz (100 ms on / 100 ms off) |
+| Unavailable / error | OFF |
+
+### Service
+
+```bash
+make init-wifi                         # deps + enable service (after make install)
+# or:
+make on-the-pi-wifi-gpio-daemon        # install/start only
+make on-the-pi-wifi-gpio-daemon-status
+sudo journalctl -u cookie-finder-wifi -f
+```
+
+Press the button to toggle between client WiFi and the `cookie-finder` access point.
+
+| | |
+|--|--|
+| **SSID** | `cookie-finder` |
+| **Password** | none (open network) |
+| **URL** | `http://192.168.12.1:8000` |
+
+If WiFi is disconnected (client mode but no SSID), the button repairs home WiFi instead of entering AP. Reboot always restores client mode. The Settings panel in the web UI uses the same `scripts/wifi-mode.sh` helper.
+
+---
+
 ## Notes
 
 - All GPIO access requires `sudo` or appropriate group permissions on Armbian.

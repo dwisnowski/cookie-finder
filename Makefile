@@ -23,6 +23,9 @@ PI_DEST      ?= ~/cookie-finder/$(RUST_BIN)
 RUST_SOCKET  ?= /tmp/cookie-finder.sock
 SYSTEMD_UNIT_IN := systemd/cookie-finder.service.in
 SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder.service
+WIFI_SYSTEMD_UNIT_IN := systemd/cookie-finder-wifi.service.in
+WIFI_SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder-wifi.service
+WIFI_PYTHON     ?= $(CURDIR)/.venv/bin/python
 
 help:
 	@echo "Cookie Finder – Makefile Targets"
@@ -69,6 +72,32 @@ _init:
 	@echo "Initializing system permissions for Bluetooth..."
 	sudo usermod -aG bluetooth cookie
 	@echo "Bluetooth group permissions added. Please log out and log back in for changes to take effect."
+
+_init-wifi:
+	@echo "Installing WiFi AP dependencies (hostapd, dnsmasq, iw)..."
+	sudo apt-get update
+	sudo apt-get install -y hostapd dnsmasq iw iwconfig wireless-tools network-manager || true
+	@if ! command -v create_ap >/dev/null 2>&1; then \
+		echo "Installing create_ap helper script..."; \
+		sudo curl -fsSL https://raw.githubusercontent.com/oblique/create_ap/master/create_ap \
+			-o /usr/local/bin/create_ap; \
+		sudo chmod +x /usr/local/bin/create_ap; \
+	fi
+	@SCRIPT_PATH="$$(cd "$(CURDIR)" && pwd)/scripts/wifi-mode.sh"; \
+	echo "Configuring passwordless sudo for $$SCRIPT_PATH..."; \
+	echo "cookie ALL=(root) NOPASSWD: $$SCRIPT_PATH" | sudo tee /etc/sudoers.d/cookie-finder-wifi >/dev/null; \
+	sudo chmod 440 /etc/sudoers.d/cookie-finder-wifi; \
+	sudo visudo -cf /etc/sudoers.d/cookie-finder-wifi
+	@if [ -x "$(WIFI_PYTHON)" ]; then \
+		$(MAKE) on-the-pi-wifi-gpio-daemon-install; \
+		sudo systemctl restart cookie-finder-wifi.service; \
+	else \
+		echo "Note: .venv not found yet — after 'make install', run:"; \
+		echo "  make on-the-pi-wifi-gpio-daemon"; \
+	fi
+	@echo "WiFi AP setup complete. SSID will be cookie-finder (open network, no password)."
+	@echo "Toggle AP/client via Settings panel, or the GPIO button (LED on pin 7)."
+	@echo "Button service: sudo systemctl status cookie-finder-wifi"
 
 _run-standalone:
 	@echo "Starting Thermal Camera Viewer (Standalone GUI mode)..."
@@ -421,7 +450,10 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-check on-the-pi-rust-build \
         on-the-pi-rust-daemon-install on-the-pi-rust-daemon \
         on-the-pi-rust-daemon-stop on-the-pi-rust-daemon-status \
-        on-the-pi-rust-keyboard
+        on-the-pi-rust-keyboard on-the-pi-init-wifi \
+        on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
+        on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
+        on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
 on-the-pi-help:
 	@echo "On-the-Pi targets (run on Orange Pi only):"
@@ -432,6 +464,11 @@ on-the-pi-help:
 	@echo "  make on-the-pi-init                  Bluetooth group permissions"
 	@echo "  make on-the-pi-tool-setup            apt build deps + Rust/cargo (rustup)"
 	@echo "  make on-the-pi-tool-setup-rust       Rust/cargo only (skip apt packages)"
+	@echo "  make on-the-pi-init-wifi              Install WiFi AP deps + button/LED systemd service"
+	@echo "  make on-the-pi-wifi-gpio-daemon       Install/start WiFi button+LED service"
+	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
+	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
+	@echo "  make on-the-pi-wifi-status            Show WiFi mode + IP addresses"
 	@echo ""
 	@echo "Running the application:"
 	@echo "  make on-the-pi-run                   Start web server (default)"
@@ -468,12 +505,20 @@ on-the-pi-help:
 	@echo "  make on-the-pi-rust-keyboard         Keyboard pan/tilt + drive mode (M) + wiring ([ ] / W)"
 	@echo ""
 	@echo "Maintenance:"
+	@echo "  make on-the-pi-armbian-home-screen   Print Armbian MOTD / home screen"
 	@echo "  make on-the-pi-clean                 Remove Python cache files"
 
 on-the-pi-install: _install
 on-the-pi-install-yolo: _install-yolo
 on-the-pi-init: _init
+on-the-pi-init-wifi: _init-wifi
 on-the-pi-clean: _clean
+on-the-pi-armbian-home-screen:
+	@sudo run-parts /etc/update-motd.d/
+on-the-pi-wifi-status:
+	@"$(CURDIR)/scripts/wifi-mode.sh" status
+	@echo "---"
+	@ip -4 -br addr show 2>/dev/null || hostname -I
 on-the-pi-run: on-the-pi-run-web
 on-the-pi-run-standalone: _run-standalone
 on-the-pi-run-web: _run-web
@@ -548,11 +593,51 @@ on-the-pi-rust-daemon-status:
 
 on-the-pi-rust-keyboard: _keyboard-gimbal
 
+# WiFi button + LED daemon (independent of web app)
+on-the-pi-wifi-gpio-daemon-install:
+	@test -x "$(WIFI_PYTHON)" || { \
+		echo "error: missing $(WIFI_PYTHON)"; \
+		echo "hint: run 'make on-the-pi-install' first (creates .venv)"; \
+		exit 1; \
+	}
+	@sed \
+		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
+		-e 's|@PYTHON@|$(WIFI_PYTHON)|g' \
+		$(WIFI_SYSTEMD_UNIT_IN) | sudo tee $(WIFI_SYSTEMD_UNIT) >/dev/null
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable cookie-finder-wifi.service
+	@echo "Installed $(WIFI_SYSTEMD_UNIT)"
+	@echo "  python: $(WIFI_PYTHON)"
+	@echo "  module: cookie_finder.wifi.gpio_daemon"
+
+on-the-pi-wifi-gpio-daemon: on-the-pi-wifi-gpio-daemon-install
+	@sudo systemctl restart cookie-finder-wifi.service
+	@sleep 1
+	@sudo systemctl --no-pager --full status cookie-finder-wifi.service || true
+	@echo ""
+	@echo "WiFi button+LED managed by systemd"
+	@echo "Check status:  make on-the-pi-wifi-gpio-daemon-status"
+	@echo "Stop:          make on-the-pi-wifi-gpio-daemon-stop"
+	@echo "Follow logs:   sudo journalctl -u cookie-finder-wifi -f"
+
+on-the-pi-wifi-gpio-daemon-stop:
+	@sudo systemctl stop cookie-finder-wifi.service
+	@echo "Stopped cookie-finder-wifi.service"
+
+on-the-pi-wifi-gpio-daemon-status:
+	@sudo systemctl --no-pager --full status cookie-finder-wifi.service || true
+	@echo ""
+	@echo "WiFi button+LED managed by systemd"
+	@echo "Check status:  make on-the-pi-wifi-gpio-daemon-status"
+	@echo "Stop:          make on-the-pi-wifi-gpio-daemon-stop"
+	@echo "Follow logs:   sudo journalctl -u cookie-finder-wifi -f"
+	@echo "Recent logs:   sudo journalctl -u cookie-finder-wifi -n 30 --no-pager"
+
 # =============================================================================
 # Backward-compatible aliases (prefer on-the-mac-* / on-the-pi-*)
 # =============================================================================
 
-.PHONY: install install-yolo install-docs docs clean init \
+.PHONY: install install-yolo install-docs docs clean init init-wifi \
         run run-standalone run-web run-web-custom \
         test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw \
         test-motors-tilt-ccw test-motors-home test-bluetooth-input test-gimbal-gamepad \
@@ -563,7 +648,9 @@ on-the-pi-rust-keyboard: _keyboard-gimbal
         serial-help serial-list serial-connect serial-run serial-deploy serial-deploy-rust \
         rust-help rust-check rust-build-mac rust-build-pi rust-build-pi-remote \
         rust-deploy rust-deploy-cookie rust-deploy-remote rust-deploy-cookie-remote \
-        rust-daemon rust-run run-with-rust rust-home rust-keyboard
+        rust-daemon rust-run run-with-rust rust-home rust-keyboard \
+        wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status \
+        wifi-status
 
 # Installation
 install: on-the-pi-install
@@ -572,6 +659,7 @@ install-docs: on-the-mac-install-docs
 install-ffmpeg: on-the-mac-install-ffmpeg
 install-libusb: on-the-mac-install-libusb
 init: on-the-pi-init
+init-wifi: on-the-pi-init-wifi
 docs: on-the-mac-docs
 clean: on-the-pi-clean
 
@@ -636,3 +724,10 @@ rust-run: on-the-mac-rust-run
 rust-home: on-the-mac-rust-home
 run-with-rust: on-the-mac-run-with-rust
 rust-keyboard: on-the-pi-rust-keyboard
+
+# WiFi button + LED
+wifi-gpio-daemon: on-the-pi-wifi-gpio-daemon
+wifi-gpio-daemon-install: on-the-pi-wifi-gpio-daemon-install
+wifi-gpio-daemon-stop: on-the-pi-wifi-gpio-daemon-stop
+wifi-gpio-daemon-status: on-the-pi-wifi-gpio-daemon-status
+wifi-status: on-the-pi-wifi-status

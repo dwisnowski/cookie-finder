@@ -64,7 +64,35 @@ Save with `Ctrl+X`, `Y`, `Enter`.
 
 ---
 
-## 5. Install uv (Python Environment Manager)
+## 5. Enable WiFi Access Point Mode (optional)
+
+When home/office WiFi is unavailable, the Orange Pi can host its own network named **`cookie-finder`**.
+
+After cloning the repo and running `make install`:
+
+```bash
+make init-wifi
+```
+
+This installs `hostapd` / `dnsmasq` / `create_ap` (when missing), grants passwordless sudo for `scripts/wifi-mode.sh`, and enables the **`cookie-finder-wifi`** systemd service (GPIO button + LED on boot). After a full reboot that service restores **client** WiFi; AP mode is runtime-only and does not persist across power cycle.
+
+**Physical button:** press to toggle client ↔ AP (works without the web app). See [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led).
+
+**Web UI:**
+
+1. Open **Settings**
+2. Under **WiFi Mode**, choose **Switch to AP Mode**
+3. Confirm the popup instructions
+4. Join WiFi **`cookie-finder`** (open network — no password)
+5. Open `http://192.168.12.1:8000`
+
+The home-screen badge shows **Client · …** or **AP · cookie-finder**.
+
+> The onboard radio is typically client *or* AP, not both at once. Switching modes disconnects the current browser session.
+
+---
+
+## 6. Install uv (Python Environment Manager)
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -74,7 +102,7 @@ source $HOME/.local/bin/env
 
 ---
 
-## 6. Configure SSH Key
+## 7. Configure SSH Key
 
 ```bash
 ssh-keygen -t ed25519 -C "your@email.com"
@@ -85,7 +113,7 @@ Add the public key to your GitHub account if you plan to clone via SSH.
 
 ---
 
-## 7. Reboot
+## 8. Reboot
 
 ```bash
 sudo reboot
@@ -93,17 +121,19 @@ sudo reboot
 
 ---
 
-## 8. Clone and Install
+## 9. Clone and Install
 
 ```bash
 git clone git@github.com:dwisnowski/cookie-finder.git
 cd cookie-finder
 make install
+# Optional WiFi AP support:
+make init-wifi
 ```
 
 ---
 
-## 9. Run
+## 10. Run
 
 ```bash
 make run

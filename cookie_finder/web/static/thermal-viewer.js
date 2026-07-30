@@ -82,6 +82,18 @@ const gamepadPresets = {
     }
 };
 
+let wifiStatus = {
+    supported: false,
+    mode: 'unknown',
+    ssid: null,
+    ap_ssid: 'cookie-finder',
+    ap_passphrase: null,
+    open_network: true,
+    ap_url: 'http://192.168.12.1:8000',
+    switching: false,
+};
+let wifiTargetMode = null;
+
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
 }
@@ -510,6 +522,8 @@ function connectWebSocket() {
         } else if (msg.type === 'bluetooth_scan_stopped') {
             bluetoothScanning = false;
             updateBluetoothUI();
+        } else if (msg.type === 'wifi_status') {
+            applyWifiStatus(msg.data);
         }
     };
 
@@ -619,6 +633,8 @@ function updateStatusBadges() {
         cameraDot.classList.remove('active');
         cameraText.textContent = 'camera';
     }
+
+    updateWifiBadge();
 
     // FPS badge is updated by polling, so we'll just ensure the element exists
     const fpsDot = document.getElementById('badge_fps_dot');
@@ -929,8 +945,218 @@ const settingsOverlay = document.getElementById('settingsOverlay');
 const settingsBtn = document.getElementById('btn_settings');
 const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 
+function applyWifiStatus(data) {
+    wifiStatus = Object.assign({}, wifiStatus, data || {});
+    updateWifiBadge();
+    updateWifiSettingsUI();
+}
+
+function updateWifiBadge() {
+    const badge = document.getElementById('badge_wifi');
+    const dot = document.getElementById('badge_wifi_dot');
+    const text = document.getElementById('badge_wifi_text');
+    if (!badge || !dot || !text) return;
+
+    badge.classList.remove('badge-wifi-ap', 'badge-wifi-client', 'badge-wifi-unknown');
+    if (wifiStatus.switching) {
+        badge.classList.add('badge-wifi-unknown');
+        dot.classList.remove('active');
+        text.textContent = 'WiFi switching…';
+        return;
+    }
+
+    if (wifiStatus.mode === 'ap') {
+        badge.classList.add('badge-wifi-ap');
+        dot.classList.add('active');
+        text.textContent = `AP · ${wifiStatus.ap_ssid || 'cookie-finder'}`;
+        return;
+    }
+
+    if (wifiStatus.mode === 'client') {
+        badge.classList.add('badge-wifi-client');
+        dot.classList.add('active');
+        const ssid = wifiStatus.ssid ? wifiStatus.ssid : 'network';
+        text.textContent = `Client · ${ssid}`;
+        return;
+    }
+
+    badge.classList.add('badge-wifi-unknown');
+    dot.classList.remove('active');
+    text.textContent = wifiStatus.supported === false ? 'WiFi n/a' : 'WiFi —';
+}
+
+function updateWifiSettingsUI() {
+    const summary = document.getElementById('wifiModeSummary');
+    const toggleBtn = document.getElementById('btn_wifi_toggle');
+    const hint = document.getElementById('wifiModeHint');
+    if (!summary || !toggleBtn) return;
+
+    if (wifiStatus.supported === false) {
+        summary.textContent = wifiStatus.reason || 'WiFi AP mode is not available on this device.';
+        toggleBtn.disabled = true;
+        toggleBtn.textContent = 'AP Mode Unavailable';
+        if (hint) hint.textContent = 'Requires Orange Pi Linux with sudo access for scripts/wifi-mode.sh.';
+        return;
+    }
+
+    if (wifiStatus.switching) {
+        const pending = wifiStatus.pending_mode || 'new';
+        summary.textContent = `Switching to ${pending} mode… You may lose this connection shortly.`;
+        toggleBtn.disabled = true;
+        toggleBtn.textContent = 'Switching…';
+        return;
+    }
+
+    if (wifiStatus.mode === 'ap') {
+        summary.textContent = `Currently hosting access point “${wifiStatus.ap_ssid || 'cookie-finder'}” (${wifiStatus.ap_gateway || '192.168.12.1'}).`;
+        toggleBtn.disabled = false;
+        toggleBtn.textContent = 'Switch to Client Mode';
+        if (hint) {
+            hint.innerHTML = `Open network (no password) · <strong>${wifiStatus.ap_url || 'http://192.168.12.1:8000'}</strong>`;
+        }
+        return;
+    }
+
+    if (wifiStatus.mode === 'client') {
+        const ssid = wifiStatus.ssid ? `“${wifiStatus.ssid}”` : 'a saved WiFi network';
+        summary.textContent = `Currently connected as a WiFi client to ${ssid}.`;
+        toggleBtn.disabled = false;
+        toggleBtn.textContent = 'Switch to AP Mode (cookie-finder)';
+        if (hint) {
+            hint.innerHTML = `AP network name: <strong>${wifiStatus.ap_ssid || 'cookie-finder'}</strong>`;
+        }
+        return;
+    }
+
+    summary.textContent = 'WiFi mode could not be determined.';
+    toggleBtn.disabled = false;
+    toggleBtn.textContent = 'Try Switch to AP Mode';
+}
+
+function refreshWifiStatus() {
+    fetch('/wifi/status')
+        .then((r) => r.json())
+        .then((data) => applyWifiStatus(data))
+        .catch((e) => console.error('WiFi status error:', e));
+}
+
+function openWifiConfirm(targetMode, instructions) {
+    wifiTargetMode = targetMode;
+    const overlay = document.getElementById('wifiConfirmOverlay');
+    const title = document.getElementById('wifiConfirmTitle');
+    const summary = document.getElementById('wifiConfirmSummary');
+    const steps = document.getElementById('wifiConfirmSteps');
+    const creds = document.getElementById('wifiConfirmCreds');
+    const confirmBtn = document.getElementById('btn_wifi_confirm');
+    if (!overlay || !title || !summary || !steps || !confirmBtn) return;
+
+    title.textContent = instructions.title || 'Switch WiFi Mode?';
+    summary.textContent = instructions.summary || '';
+    steps.innerHTML = '';
+    (instructions.steps || []).forEach((step) => {
+        const li = document.createElement('li');
+        li.textContent = step;
+        steps.appendChild(li);
+    });
+
+    if (creds) {
+        if (targetMode === 'ap') {
+            creds.hidden = false;
+            const passRow = instructions.open_network || !instructions.passphrase
+                ? `<div><span>Security</span><strong>Open (no password)</strong></div>`
+                : `<div><span>Password</span><strong>${instructions.passphrase}</strong></div>`;
+            creds.innerHTML = `
+                <div><span>Network</span><strong>${instructions.ssid || 'cookie-finder'}</strong></div>
+                ${passRow}
+                <div><span>URL</span><strong>${instructions.url || 'http://192.168.12.1:8000'}</strong></div>
+            `;
+        } else {
+            creds.hidden = true;
+            creds.innerHTML = '';
+        }
+    }
+
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = targetMode === 'ap' ? 'Switch to AP Mode' : 'Switch to Client Mode';
+    overlay.classList.add('active');
+}
+
+function closeWifiConfirm() {
+    const overlay = document.getElementById('wifiConfirmOverlay');
+    if (overlay) overlay.classList.remove('active');
+    wifiTargetMode = null;
+}
+
+function requestWifiModeSwitch() {
+    if (!wifiStatus.supported) return;
+    const target = wifiStatus.mode === 'ap' ? 'client' : 'ap';
+    fetch(`/wifi/instructions/${target}`)
+        .then((r) => r.json())
+        .then((instructions) => {
+            if (instructions.error) {
+                alert(instructions.error);
+                return;
+            }
+            openWifiConfirm(target, instructions);
+        })
+        .catch((e) => {
+            console.error('WiFi instructions error:', e);
+            alert('Could not load WiFi switch instructions.');
+        });
+}
+
+function confirmWifiModeSwitch() {
+    if (!wifiTargetMode) return;
+    const confirmBtn = document.getElementById('btn_wifi_confirm');
+    const cancelBtn = document.getElementById('btn_wifi_cancel');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Switching…';
+    }
+    if (cancelBtn) cancelBtn.disabled = true;
+
+    fetch(`/wifi/mode/${wifiTargetMode}`, { method: 'POST' })
+        .then((r) => r.json())
+        .then((data) => {
+            if (data.wifi) applyWifiStatus(data.wifi);
+            if (data.status === 'error' || data.status === 'busy') {
+                alert(data.message || 'WiFi switch failed');
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Switch Mode';
+                }
+                if (cancelBtn) cancelBtn.disabled = false;
+                return;
+            }
+
+            const summary = document.getElementById('wifiConfirmSummary');
+            if (summary) {
+                summary.textContent = (data.message || 'Switch started.') +
+                    ' Keep these instructions handy — this page will disconnect when the radio changes.';
+            }
+            if (confirmBtn) confirmBtn.textContent = 'Switch started';
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Close';
+            }
+        })
+        .catch((e) => {
+            console.error('WiFi switch error:', e);
+            // Likely disconnected mid-switch; leave instructions visible
+            const summary = document.getElementById('wifiConfirmSummary');
+            if (summary) {
+                summary.textContent = 'Connection lost while switching. Follow the steps above to reconnect.';
+            }
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Close';
+            }
+        });
+}
+
 function openSettings() {
     settingsOverlay.classList.add('active');
+    refreshWifiStatus();
 }
 
 function closeSettings() {
@@ -945,6 +1171,27 @@ settingsOverlay.addEventListener('click', (e) => {
         closeSettings();
     }
 });
+
+const wifiToggleBtn = document.getElementById('btn_wifi_toggle');
+if (wifiToggleBtn) {
+    wifiToggleBtn.addEventListener('click', requestWifiModeSwitch);
+}
+
+const wifiConfirmOverlay = document.getElementById('wifiConfirmOverlay');
+const closeWifiConfirmBtn = document.getElementById('closeWifiConfirmBtn');
+const wifiCancelBtn = document.getElementById('btn_wifi_cancel');
+const wifiConfirmBtn = document.getElementById('btn_wifi_confirm');
+if (closeWifiConfirmBtn) closeWifiConfirmBtn.addEventListener('click', closeWifiConfirm);
+if (wifiCancelBtn) wifiCancelBtn.addEventListener('click', closeWifiConfirm);
+if (wifiConfirmBtn) wifiConfirmBtn.addEventListener('click', confirmWifiModeSwitch);
+if (wifiConfirmOverlay) {
+    wifiConfirmOverlay.addEventListener('click', (e) => {
+        if (e.target === wifiConfirmOverlay) closeWifiConfirm();
+    });
+}
+
+refreshWifiStatus();
+setInterval(refreshWifiStatus, 5000);
 
 // Help modal
 const helpOverlay = document.getElementById('helpOverlay');

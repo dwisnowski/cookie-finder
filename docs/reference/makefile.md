@@ -13,6 +13,11 @@ All available `make` targets.
 | `make install-docs` | `uv sync --extra docs` — add MkDocs + Material theme |
 | `make install-ffmpeg` | `brew install ffmpeg` (macOS) |
 | `make install-libusb` | `brew install libusb` (macOS, needed for USB probing) |
+| `make init` | Add user to Bluetooth group (Orange Pi) |
+| `make init-wifi` | Install WiFi AP tools, sudoers, and `cookie-finder-wifi` button/LED service |
+| `make on-the-pi-wifi-gpio-daemon` | Install/start WiFi button+LED systemd service |
+| `make on-the-pi-wifi-gpio-daemon-status` | Show WiFi button+LED service status |
+| `make on-the-pi-wifi-gpio-daemon-stop` | Stop WiFi button+LED service |
 
 ---
 

@@ -15,6 +15,9 @@ Started with `make run` (or `uv run main.py --web`). Serves on `http://0.0.0.0:8
 | `GET` | `/available-cameras` | List of working camera device IDs + current |
 | `POST` | `/reconnect` | Trigger camera reconnect |
 | `POST` | `/switch-camera/{id}` | Switch to a different camera device by index |
+| `GET` | `/wifi/status` | Current WiFi mode (`client` / `ap`) + SSID details |
+| `GET` | `/wifi/instructions/{mode}` | Confirmation-dialog copy for switching to `ap` or `client` |
+| `POST` | `/wifi/mode/{mode}` | Switch WiFi to `ap` or `client` (background; disconnects current link) |
 
 ---
 
@@ -33,8 +36,9 @@ A persistent WebSocket for real-time bidirectional control. The server pushes st
 | `bluetooth` | `{status, data}` | Scan and device events |
 | `bluetooth_state` | `{devices, scanning}` | On WebSocket connect |
 | `bluetooth_connected` | `{connected_devices, active_device}` | On connect/disconnect/scan/active change |
+| `wifi_status` | WiFi status object | On WebSocket connect |
 
-HTTP `GET /camera-status`, `/available-cameras`, and `/bluetooth/connected` remain available for debugging but are not polled by the UI.
+HTTP `GET /camera-status`, `/available-cameras`, `/bluetooth/connected`, and `/wifi/status` remain available for debugging. The UI also polls `/wifi/status` every few seconds.
 
 ### Toggle a mode
 

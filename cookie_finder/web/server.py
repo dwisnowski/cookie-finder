@@ -29,7 +29,15 @@ from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
+from cookie_finder.wifi import get_switch_instructions, get_wifi_status, set_wifi_mode
 
+
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").lower() in ("1", "true", "yes")
+
+
+# Verbose console chatter (MJPEG wait loops, etc.)
+_VERBOSE = _env_flag("COOKIE_FINDER_VERBOSE")
 
 # Global state
 camera_thread = None
@@ -378,8 +386,8 @@ def mjpeg_generator(jpeg_quality=65):
                    + buffer.tobytes() + b'\r\n')
         
         frame_count += 1
-        if frame_count % 50 == 0 and not camera_connected:
-            print(f"  (⏳ waiting for camera reconnection...)")
+        if _VERBOSE and frame_count % 50 == 0 and not camera_connected:
+            print("  (⏳ waiting for camera reconnection...)")
         
         time.sleep(0.02)
 
@@ -619,6 +627,26 @@ def create_app(camera_id=None):
         if processor is None:
             return {"error": "Processor not initialized"}
         return processor.get_state()
+
+    @app.get("/wifi/status")
+    def wifi_status():
+        """Return current WiFi client/AP mode details."""
+        return get_wifi_status()
+
+    @app.get("/wifi/instructions/{mode}")
+    def wifi_instructions(mode: str):
+        """Return confirmation-dialog copy for switching to ap or client."""
+        return get_switch_instructions(mode)
+
+    @app.post("/wifi/mode/{mode}")
+    def wifi_set_mode(mode: str):
+        """
+        Switch WiFi to ap or client mode.
+
+        Returns immediately, then performs the radio change in the background
+        so the browser can show instructions before the link drops.
+        """
+        return set_wifi_mode(mode)
     
     @app.post("/bluetooth/scan")
     async def bluetooth_scan():
@@ -817,6 +845,10 @@ def create_app(camera_id=None):
                 "type": "available_cameras",
                 "data": get_available_cameras_payload(),
             })
+            await websocket.send_json({
+                "type": "wifi_status",
+                "data": get_wifi_status(),
+            })
 
             while True:
                 data = await websocket.receive_text()
@@ -992,11 +1024,7 @@ def run_webserver(host="0.0.0.0", port=8000, camera_id=None):
     print(f"Starting web server on {host}:{port}")
     print(f"Open browser: http://{host}:{port}")
     
-    access_log = os.environ.get("COOKIE_FINDER_ACCESS_LOG", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
+    access_log = _env_flag("COOKIE_FINDER_ACCESS_LOG")
     log_level = "info" if access_log else "warning"
     uvicorn.run(
         app,
