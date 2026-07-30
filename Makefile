@@ -631,6 +631,7 @@ on-the-pi-wifi-gpio-daemon-status:
 	@echo "Check status:  make on-the-pi-wifi-gpio-daemon-status"
 	@echo "Stop:          make on-the-pi-wifi-gpio-daemon-stop"
 	@echo "Follow logs:   sudo journalctl -u cookie-finder-wifi -f"
+	@echo "Recent logs:   sudo journalctl -u cookie-finder-wifi -n 30 --no-pager"
 
 # =============================================================================
 # Backward-compatible aliases (prefer on-the-mac-* / on-the-pi-*)
