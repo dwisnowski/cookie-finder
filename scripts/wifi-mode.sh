@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Switch Orange Pi WiFi between client and access-point modes.
-# Usage: wifi-mode.sh <ap|client|status>
+# Usage: wifi-mode.sh <ap|client|fix|status>
 #
 # Environment overrides:
 #   COOKIE_FINDER_AP_SSID        (default: cookie-finder)
@@ -576,12 +576,147 @@ cmd_client() {
   log "client mode restore requested"
 }
 
+# Saved WiFi profile names, highest autoconnect-priority first.
+wifi_profile_names() {
+  nmcli -t -f NAME,TYPE,AUTOCONNECT-PRIORITY connection show 2>/dev/null \
+    | awk -F: '$2 ~ /wireless|wifi/ {print $3 "\t" $1}' \
+    | sort -t$'\t' -k1,1nr \
+    | cut -f2
+}
+
+# When NetworkManager leaves UWE5622 as unavailable/unmanaged after SoftAP,
+# associate with a saved profile via wpa_supplicant + DHCP instead.
+connect_via_wpa_supplicant() {
+  local iface="$1"
+  command -v wpa_supplicant >/dev/null 2>&1 || die "wpa_supplicant not found"
+  command -v wpa_passphrase >/dev/null 2>&1 || die "wpa_passphrase not found"
+  command -v nmcli >/dev/null 2>&1 || die "nmcli needed to read saved WiFi PSKs"
+
+  nmcli device set "${iface}" managed no >/dev/null 2>&1 || true
+  pkill -x wpa_supplicant >/dev/null 2>&1 || true
+  sleep 1
+
+  mkdir -p "${RUNTIME_DIR}"
+  local conn ssid psk conf="${RUNTIME_DIR}/wpa-fix.conf"
+
+  while IFS= read -r conn; do
+    [[ -z "${conn}" ]] && continue
+    ssid="$(nmcli -g 802-11-wireless.ssid connection show "${conn}" 2>/dev/null || true)"
+    psk="$(nmcli -s -g 802-11-wireless-security.psk connection show "${conn}" 2>/dev/null || true)"
+    if [[ -z "${ssid}" || -z "${psk}" ]]; then
+      log "skip ${conn}: missing ssid/psk in NetworkManager profile"
+      continue
+    fi
+    log "wpa_supplicant trying SSID=${ssid} (profile ${conn})"
+    wpa_passphrase "${ssid}" "${psk}" > "${conf}"
+    if ! wpa_supplicant -B -i "${iface}" -c "${conf}" >/dev/null 2>&1; then
+      log "wpa_supplicant failed to start for ${ssid}"
+      continue
+    fi
+    sleep 6
+    if [[ -n "${IW_BIN}" ]] \
+        && "${IW_BIN}" dev "${iface}" link 2>/dev/null | grep -q "SSID:"; then
+      if command -v dhclient >/dev/null 2>&1; then
+        dhclient -r "${iface}" >/dev/null 2>&1 || true
+        dhclient "${iface}" >/dev/null 2>&1 || true
+      elif command -v dhcpcd >/dev/null 2>&1; then
+        dhcpcd -n "${iface}" >/dev/null 2>&1 || true
+      fi
+      sleep 2
+      log "connected via wpa_supplicant to ${ssid}"
+      log "left ${iface} unmanaged so NetworkManager does not fight this link"
+      return 0
+    fi
+    log "no association for ${ssid}; trying next profile"
+    pkill -x wpa_supplicant >/dev/null 2>&1 || true
+    sleep 1
+  done < <(wifi_profile_names)
+
+  return 1
+}
+
+# Recover a wedged client radio (common after SoftAP on Orange Pi Zero 2W).
+# Tries NetworkManager first; falls back to wpa_supplicant using saved PSKs.
+cmd_fix() {
+  require_root
+  acquire_mode_lock
+  local iface
+  iface="$(find_iface)" || die "no wireless interface found"
+
+  log "fixing ${iface} (clear AP leftovers, recover client)"
+  command -v rfkill >/dev/null 2>&1 && rfkill unblock wifi >/dev/null 2>&1 || true
+  command -v rfkill >/dev/null 2>&1 && rfkill unblock all >/dev/null 2>&1 || true
+
+  stop_create_ap "${iface}"
+  stop_hostapd_dnsmasq
+  stop_nm_hotspot
+  pkill -x wpa_supplicant >/dev/null 2>&1 || true
+
+  if [[ -n "${IP_BIN}" ]]; then
+    "${IP_BIN}" addr flush dev "${iface}" >/dev/null 2>&1 || true
+  fi
+  recover_iface_for_nm "${iface}"
+
+  if ! command -v nmcli >/dev/null 2>&1; then
+    restore_client_networking "${iface}"
+    log "wifi fix finished (no nmcli; used wpa/dhcp fallback path)"
+    exit 0
+  fi
+
+  # Restart NM, then re-assert managed — order matters on this chip.
+  if systemctl list-unit-files NetworkManager.service >/dev/null 2>&1; then
+    log "restarting NetworkManager"
+    systemctl restart NetworkManager >/dev/null 2>&1 || true
+    sleep 4
+  fi
+  nmcli networking on >/dev/null 2>&1 || true
+  nmcli radio wifi on >/dev/null 2>&1 || true
+  nmcli device set "${iface}" managed yes >/dev/null 2>&1 || true
+  sleep 2
+
+  local state
+  state="$(nmcli -t -f DEVICE,STATE device status 2>/dev/null \
+    | awk -F: -v d="${iface}" '$1 == d { print $2; exit }')"
+  log "nmcli ${iface} state=${state:-unknown}"
+
+  local brought_up=0 conn
+  while IFS= read -r conn; do
+    [[ -z "${conn}" ]] && continue
+    log "trying nmcli connection up: ${conn}"
+    if nmcli -w 20 connection up "${conn}" ifname "${iface}" >/dev/null 2>&1; then
+      log "connected via nmcli ${conn}"
+      brought_up=1
+      break
+    fi
+  done < <(wifi_profile_names)
+
+  if [[ "${brought_up}" -eq 1 ]]; then
+    log "wifi fix complete (NetworkManager)"
+    exit 0
+  fi
+
+  if [[ "${state}" == "unavailable" || "${state}" == "unmanaged" \
+      || "${state}" == "disconnected" || -z "${state}" ]]; then
+    log "nmcli activate failed (state=${state:-unknown}); trying wpa_supplicant"
+  else
+    log "nmcli activate failed; trying wpa_supplicant"
+  fi
+
+  if connect_via_wpa_supplicant "${iface}"; then
+    log "wifi fix complete (wpa_supplicant)"
+    exit 0
+  fi
+
+  die "could not associate with any saved WiFi profile (in range? run: make wifi-configure-clients)"
+}
+
 case "${MODE}" in
   ap) cmd_ap ;;
   client) cmd_client ;;
+  fix) cmd_fix ;;
   status) cmd_status ;;
   *)
-    echo "Usage: $0 <ap|client|status>" >&2
+    echo "Usage: $0 <ap|client|fix|status>" >&2
     exit 2
     ;;
 esac

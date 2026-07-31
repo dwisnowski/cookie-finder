@@ -460,7 +460,7 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
         on-the-pi-web-daemon-install on-the-pi-web-daemon \
         on-the-pi-web-daemon-stop on-the-pi-web-daemon-status \
-        on-the-pi-wifi-configure-clients \
+        on-the-pi-wifi-configure-clients on-the-pi-wifi-fix \
         on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
 on-the-pi-help:
@@ -478,6 +478,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-status            Show WiFi mode + IP addresses"
 	@echo "  make on-the-pi-wifi-configure-clients Save home + phone WiFi profiles (NM)"
+	@echo "  make on-the-pi-wifi-fix              Recover wedged client WiFi (NM + wpa fallback)"
 	@echo ""
 	@echo "Running the application:"
 	@echo "  make on-the-pi-run                   Start web server (foreground)"
@@ -553,6 +554,16 @@ on-the-pi-wifi-configure-clients:
 		|| echo "Profiles saved; neither network associated yet (out of range?)."
 	@echo "---"
 	@nmcli -t -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show
+	@$(MAKE) on-the-pi-wifi-status
+
+# Recover wedged client WiFi after SoftAP / NM "unavailable" on UWE5622.
+# Stops cookie-finder-wifi briefly so it cannot race the recovery.
+# Requires saved NM profiles (make on-the-pi-wifi-configure-clients).
+on-the-pi-wifi-fix:
+	@echo "Recovering client WiFi (clears AP leftovers; NM then wpa_supplicant)..."
+	@-sudo systemctl stop cookie-finder-wifi.service 2>/dev/null || true
+	@sudo "$(CURDIR)/scripts/wifi-mode.sh" fix
+	@-sudo systemctl start cookie-finder-wifi.service 2>/dev/null || true
 	@$(MAKE) on-the-pi-wifi-status
 
 on-the-pi-run: on-the-pi-run-web
@@ -815,6 +826,7 @@ wifi-gpio-daemon-stop: on-the-pi-wifi-gpio-daemon-stop
 wifi-gpio-daemon-status: on-the-pi-wifi-gpio-daemon-status
 wifi-status: on-the-pi-wifi-status
 wifi-configure-clients: on-the-pi-wifi-configure-clients
+wifi-fix: on-the-pi-wifi-fix
 
 # Web server daemon
 web-daemon: on-the-pi-web-daemon
