@@ -2,8 +2,8 @@
 WiFi mode button + LED on Orange Pi Zero 2W GPIO.
 
 Pins (gpiochip1) — kept clear of pan/tilt motor pins (phys 22–28, 31–37):
-  LED    physical 7  / PWM3  / offset 269  (active-high)
-  Button physical 11 / TXD.5 / offset 226  (active-low, internal pull-up)
+  LED    physical 29 / PI00 / offset 256  (active-high)
+  Button physical 40 / PI03 / offset 259  (active-low, internal pull-up)
 
 LED patterns:
   client     solid ON
@@ -33,8 +33,8 @@ except ImportError as e:
     print(f"[wifi-gpio] WARNING: gpiod not available: {e}")
 
 # gpiochip1 offsets (Orange Pi Zero 2W) — unused by Rust/Python gimbal
-LED_PIN = 269  # physical 7, PWM3
-BUTTON_PIN = 226  # physical 11, TXD.5
+LED_PIN = 256  # physical 29, PI00
+BUTTON_PIN = 259  # physical 40, PI03
 GPIO_CHIP = "/dev/gpiochip1"
 
 POLL_INTERVAL_S = 0.025
