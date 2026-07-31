@@ -263,7 +263,7 @@ _serial-list:
 _serial-connect:
 	@command -v screen >/dev/null || (echo "Install screen: brew install screen" && exit 1)
 	@test -e $(SERIAL_DEVICE) || (echo "Serial device not found: $(SERIAL_DEVICE)" && $(MAKE) on-the-mac-serial-list && exit 1)
-	TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)
+	@echo "TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)"
 
 _serial-run:
 	@test -n "$(SERIAL_CMD)" || (echo "Usage: make on-the-mac-serial-run SERIAL_CMD='your command'" && exit 1)
@@ -535,8 +535,8 @@ on-the-pi-wifi-configure-clients:
 		connection.autoconnect yes connection.autoconnect-priority 100
 	@nmcli connection delete id "David's iPhone 13 pro max" >/dev/null 2>&1 || true
 	@nmcli connection add type wifi con-name "David's iPhone 13 pro max" ifname "*" \
-		ssid "David's iPhone 13 pro max" \
-		wifi-sec.key-mgmt wpa-psk wifi-sec.psk 'davesPh0n3!01' \
+		ssid "Ghostwire" \
+		wifi-sec.key-mgmt wpa-psk wifi-sec.psk 'connectifyoudare' \
 		connection.autoconnect yes connection.autoconnect-priority 50
 	@echo "Bringing up preferred network (HSH-5G, else iPhone)..."
 	@nmcli -w 15 connection up "HSH-5G" \
