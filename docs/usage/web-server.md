@@ -18,6 +18,24 @@ Started with `make run` (or `uv run main.py --web`). Serves on `http://0.0.0.0:8
 | `GET` | `/wifi/status` | Current WiFi mode (`client` / `ap`) + SSID details |
 | `GET` | `/wifi/instructions/{mode}` | Confirmation-dialog copy for switching to `ap` or `client` |
 | `POST` | `/wifi/mode/{mode}` | Switch WiFi to `ap` or `client` (background; disconnects current link) |
+| `POST` | `/bluetooth/scan` | Start BlueZ discovery scan |
+| `POST` | `/bluetooth/stop-scan` | Stop scan |
+| `GET` | `/bluetooth/devices` | Known / discovered BlueZ devices |
+| `GET` | `/bluetooth/connected` | Connected devices + active input address |
+| `POST` | `/bluetooth/pair/{address}` | Pair + trust (Classic HID) |
+| `POST` | `/bluetooth/connect/{address}` | Pair if needed, connect, set active |
+| `POST` | `/bluetooth/set-active/{address}` | Mark connected pad as gimbal input |
+| `POST` | `/bluetooth/disconnect/{address}` | BlueZ disconnect |
+| `POST` | `/bluetooth/remove/{address}` | Disconnect and forget (unpair) |
+
+### Pi Bluetooth gamepad vs browser gamepad
+
+There are two independent gamepad paths:
+
+1. **Pi Bluetooth Gamepad** (controls panel) — Classic Bluetooth HID via BlueZ on the robot. Scan / Pair / Connect / Remove use `bluetoothctl`. After Connect or Set Active, the Rust daemon reads `/dev/input/event*` (or Python falls back to pygame). This is the path for a pad paired to the Orange Pi.
+2. **Browser Gamepad API** (header badge / settings axis presets) — a controller plugged into or paired with the machine running the browser. Axes are sent over WebSocket as `motor_command` / `gamepad_input`. Unrelated to the Pi Bluetooth panel.
+
+Do not expect the Pi Bluetooth panel to manage a pad that is only connected to your laptop.
 
 ---
 
@@ -36,7 +54,13 @@ A persistent WebSocket for real-time bidirectional control. The server pushes st
 | `bluetooth` | `{status, data}` | Scan and device events |
 | `bluetooth_state` | `{devices, scanning}` | On WebSocket connect |
 | `bluetooth_connected` | `{connected_devices, active_device}` | On connect/disconnect/scan/active change |
+| `bluetooth_pair_result` | `{address, success, message}` | After `bluetooth_pair` |
+| `bluetooth_connect_result` | `{address, success, message}` | After `bluetooth_connect` |
+| `bluetooth_disconnect_result` | `{address, success, message}` | After `bluetooth_disconnect` |
+| `bluetooth_remove_result` | `{address, success, message}` | After `bluetooth_remove` |
 | `wifi_status` | WiFi status object | On WebSocket connect |
+
+Client → server Bluetooth actions: `bluetooth_start_scan`, `bluetooth_stop_scan`, `bluetooth_pair`, `bluetooth_connect`, `bluetooth_disconnect`, `bluetooth_remove` (each with `address` where applicable).
 
 HTTP `GET /camera-status`, `/available-cameras`, `/bluetooth/connected`, and `/wifi/status` remain available for debugging. The UI also polls `/wifi/status` every few seconds.
 

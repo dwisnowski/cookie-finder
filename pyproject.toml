@@ -12,7 +12,6 @@ dependencies = [
     "uvicorn[standard]>=0.23.0",
     "websockets>=11.0",
     "jinja2",
-    "bleak>=0.20.0",
     "pygame>=2.1.0",
     "gpiod>=2.1.0; sys_platform == 'linux'",
 ]
