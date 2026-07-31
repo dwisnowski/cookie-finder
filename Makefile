@@ -263,7 +263,7 @@ _serial-list:
 _serial-connect:
 	@command -v screen >/dev/null || (echo "Install screen: brew install screen" && exit 1)
 	@test -e $(SERIAL_DEVICE) || (echo "Serial device not found: $(SERIAL_DEVICE)" && $(MAKE) on-the-mac-serial-list && exit 1)
-	screen $(SERIAL_DEVICE) $(SERIAL_BAUD)
+	TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)
 
 _serial-run:
 	@test -n "$(SERIAL_CMD)" || (echo "Usage: make on-the-mac-serial-run SERIAL_CMD='your command'" && exit 1)
@@ -453,6 +453,7 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-keyboard on-the-pi-init-wifi \
         on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
+        on-the-pi-wifi-configure-clients \
         on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
 on-the-pi-help:
@@ -469,8 +470,10 @@ on-the-pi-help:
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-status            Show WiFi mode + IP addresses"
+	@echo "  make on-the-pi-wifi-configure-clients Save home + phone WiFi profiles (NM)"
 	@echo ""
 	@echo "Running the application:"
+
 	@echo "  make on-the-pi-run                   Start web server (default)"
 	@echo "  make on-the-pi-run-standalone        Start standalone GUI mode"
 	@echo "  make on-the-pi-run-web               Start web server (http://0.0.0.0:8000)"
@@ -519,7 +522,32 @@ on-the-pi-wifi-status:
 	@"$(CURDIR)/scripts/wifi-mode.sh" status
 	@echo "---"
 	@ip -4 -br addr show 2>/dev/null || hostname -I
+
+# Save preferred client WiFi profiles for NetworkManager restore.
+# HSH-5G (pri 100) then iPhone hotspot (pri 50). Does not require both
+# SSIDs to be in range — association is attempted after profiles are saved.
+on-the-pi-wifi-configure-clients:
+	@command -v nmcli >/dev/null 2>&1 || { echo "nmcli not found (install network-manager)"; exit 1; }
+	@echo "Saving WiFi client profiles..."
+	@nmcli connection delete id "HSH-5G" >/dev/null 2>&1 || true
+	@nmcli connection add type wifi con-name "HSH-5G" ifname "*" ssid "HSH-5G" \
+		wifi-sec.key-mgmt wpa-psk wifi-sec.psk "wisnowskishome" \
+		connection.autoconnect yes connection.autoconnect-priority 100
+	@nmcli connection delete id "David's iPhone 13 pro max" >/dev/null 2>&1 || true
+	@nmcli connection add type wifi con-name "David's iPhone 13 pro max" ifname "*" \
+		ssid "David's iPhone 13 pro max" \
+		wifi-sec.key-mgmt wpa-psk wifi-sec.psk 'davesPh0n3!01' \
+		connection.autoconnect yes connection.autoconnect-priority 50
+	@echo "Bringing up preferred network (HSH-5G, else iPhone)..."
+	@nmcli -w 15 connection up "HSH-5G" \
+		|| nmcli -w 15 connection up "David's iPhone 13 pro max" \
+		|| echo "Profiles saved; neither network associated yet (out of range?)."
+	@echo "---"
+	@nmcli -t -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show
+	@$(MAKE) on-the-pi-wifi-status
+
 on-the-pi-run: on-the-pi-run-web
+
 on-the-pi-run-standalone: _run-standalone
 on-the-pi-run-web: _run-web
 on-the-pi-run-web-custom: _run-web-custom
@@ -731,3 +759,4 @@ wifi-gpio-daemon-install: on-the-pi-wifi-gpio-daemon-install
 wifi-gpio-daemon-stop: on-the-pi-wifi-gpio-daemon-stop
 wifi-gpio-daemon-status: on-the-pi-wifi-gpio-daemon-status
 wifi-status: on-the-pi-wifi-status
+wifi-configure-clients: on-the-pi-wifi-configure-clients
