@@ -351,7 +351,7 @@ on-the-mac-help:
 	@echo "  make on-the-mac-rust-check                 Typecheck without building"
 	@echo "  make on-the-mac-rust-build                 Cross-compile for Pi (needs cross + Docker)"
 	@echo "  make on-the-mac-rust-deploy                Build + scp to Pi (PI_HOST=$(PI_HOST))"
-	@echo "  make on-the-mac-rust-deploy-cookie         Build + scp via SSH config (PI_SSH_HOST=$(PI_SSH_HOST))"
+	@echo "  make on-the-mac-rust-deploy-cookie         <-- Normal Deployment -- Build + scp via SSH config (PI_SSH_HOST=$(PI_SSH_HOST))"
 	@echo "  make on-the-mac-rust-build-remote          Build on Pi via SSH (PI_HOST=$(PI_HOST))"
 	@echo "  make on-the-mac-rust-deploy-remote         Build on Pi via SSH + install binary"
 	@echo "  make on-the-mac-rust-deploy-cookie-remote  Build on Pi via SSH config host"
