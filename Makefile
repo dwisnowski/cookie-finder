@@ -533,14 +533,14 @@ on-the-pi-wifi-configure-clients:
 	@nmcli connection add type wifi con-name "HSH-5G" ifname "*" ssid "HSH-5G" \
 		wifi-sec.key-mgmt wpa-psk wifi-sec.psk "wisnowskishome" \
 		connection.autoconnect yes connection.autoconnect-priority 100
-	@nmcli connection delete id "David's iPhone 13 pro max" >/dev/null 2>&1 || true
-	@nmcli connection add type wifi con-name "David's iPhone 13 pro max" ifname "*" \
+	@nmcli connection delete id "Ghostwire" >/dev/null 2>&1 || true
+	@nmcli connection add type wifi con-name "Ghostwire" ifname "*" \
 		ssid "Ghostwire" \
 		wifi-sec.key-mgmt wpa-psk wifi-sec.psk 'connectifyoudare' \
 		connection.autoconnect yes connection.autoconnect-priority 50
 	@echo "Bringing up preferred network (HSH-5G, else iPhone)..."
 	@nmcli -w 15 connection up "HSH-5G" \
-		|| nmcli -w 15 connection up "David's iPhone 13 pro max" \
+		|| nmcli -w 15 connection up "Ghostwire" \
 		|| echo "Profiles saved; neither network associated yet (out of range?)."
 	@echo "---"
 	@nmcli -t -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show
