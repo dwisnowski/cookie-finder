@@ -19,6 +19,28 @@ make run
 
 Starts the server on `http://0.0.0.0:8000`. Open `http://<device-ip>:8000` in any browser on the same network.
 
+## Web Server as systemd Daemon (Orange Pi)
+
+To install and start the web app on boot:
+
+```bash
+make on-the-pi-web-daemon
+```
+
+That installs `cookie-finder-web.service`, enables it on boot, and starts it. Useful commands:
+
+```bash
+make on-the-pi-web-daemon-status
+make on-the-pi-web-daemon-stop
+sudo journalctl -u cookie-finder-web -f
+```
+
+Override bind address/port when installing:
+
+```bash
+make on-the-pi-web-daemon WEB_HOST=0.0.0.0 WEB_PORT=8080
+```
+
 ## Custom Host / Port
 
 ```bash

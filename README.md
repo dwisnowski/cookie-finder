@@ -33,7 +33,13 @@ make on-the-pi-run
 
 Open `http://<device-ip>:8000` in a browser.
 
-(`make install` and `make run` are aliases for the commands above.)
+To run as a systemd service (starts on boot):
+
+```bash
+make on-the-pi-web-daemon
+```
+
+(`make install` / `make run` / `make web-daemon` are aliases for the commands above.)
 
 ## WiFi Access Point
 

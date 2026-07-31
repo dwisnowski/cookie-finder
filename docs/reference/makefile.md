@@ -25,10 +25,13 @@ All available `make` targets.
 
 | Target | Description |
 |--------|-------------|
-| `make run` | Alias for `run-web` — start web server on port 8000 |
-| `make run-web` | Start FastAPI server on `http://0.0.0.0:8000` |
+| `make run` | Alias for `run-web` — start web server on port 8000 (foreground) |
+| `make run-web` | Start FastAPI server on `http://0.0.0.0:8000` (foreground) |
 | `make run-standalone` | Start OpenCV GUI mode (requires display) |
 | `make run-web-custom` | Prompt for host + port, then start web server |
+| `make on-the-pi-web-daemon` | Install/start web server systemd service (`cookie-finder-web`) |
+| `make on-the-pi-web-daemon-status` | Show web server service status |
+| `make on-the-pi-web-daemon-stop` | Stop web server service |
 
 ---
 

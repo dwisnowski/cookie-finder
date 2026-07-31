@@ -26,6 +26,11 @@ SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder.service
 WIFI_SYSTEMD_UNIT_IN := systemd/cookie-finder-wifi.service.in
 WIFI_SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder-wifi.service
 WIFI_PYTHON     ?= $(CURDIR)/.venv/bin/python
+WEB_SYSTEMD_UNIT_IN := systemd/cookie-finder-web.service.in
+WEB_SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder-web.service
+WEB_PYTHON      ?= $(CURDIR)/.venv/bin/python
+WEB_HOST        ?= 0.0.0.0
+WEB_PORT        ?= 8000
 
 help:
 	@echo "Cookie Finder – Makefile Targets"
@@ -453,6 +458,8 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-keyboard on-the-pi-init-wifi \
         on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
+        on-the-pi-web-daemon-install on-the-pi-web-daemon \
+        on-the-pi-web-daemon-stop on-the-pi-web-daemon-status \
         on-the-pi-wifi-configure-clients \
         on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
@@ -473,11 +480,13 @@ on-the-pi-help:
 	@echo "  make on-the-pi-wifi-configure-clients Save home + phone WiFi profiles (NM)"
 	@echo ""
 	@echo "Running the application:"
-
-	@echo "  make on-the-pi-run                   Start web server (default)"
+	@echo "  make on-the-pi-run                   Start web server (foreground)"
 	@echo "  make on-the-pi-run-standalone        Start standalone GUI mode"
 	@echo "  make on-the-pi-run-web               Start web server (http://0.0.0.0:8000)"
 	@echo "  make on-the-pi-run-web-custom        Prompt for host + port"
+	@echo "  make on-the-pi-web-daemon            Install/start web server systemd service"
+	@echo "  make on-the-pi-web-daemon-status     Show web server service status"
+	@echo "  make on-the-pi-web-daemon-stop       Stop web server service"
 	@echo ""
 	@echo "Camera:"
 	@echo "  make on-the-pi-find-camera           Detect available camera devices"
@@ -621,6 +630,51 @@ on-the-pi-rust-daemon-status:
 
 on-the-pi-rust-keyboard: _keyboard-gimbal
 
+# Web server daemon (systemd)
+on-the-pi-web-daemon-install:
+	@test -x "$(WEB_PYTHON)" || { \
+		echo "error: missing $(WEB_PYTHON)"; \
+		echo "hint: run 'make on-the-pi-install' first (creates .venv)"; \
+		exit 1; \
+	}
+	@sed \
+		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
+		-e 's|@PYTHON@|$(WEB_PYTHON)|g' \
+		-e 's|@WEB_HOST@|$(WEB_HOST)|g' \
+		-e 's|@WEB_PORT@|$(WEB_PORT)|g' \
+		$(WEB_SYSTEMD_UNIT_IN) | sudo tee $(WEB_SYSTEMD_UNIT) >/dev/null
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable cookie-finder-web.service
+	@echo "Installed $(WEB_SYSTEMD_UNIT)"
+	@echo "  python: $(WEB_PYTHON)"
+	@echo "  listen: http://$(WEB_HOST):$(WEB_PORT)"
+
+on-the-pi-web-daemon: on-the-pi-web-daemon-install
+	@echo "Stopping any foreground web server on port $(WEB_PORT)..."
+	@-sudo fuser -k $(WEB_PORT)/tcp 2>/dev/null || true
+	@sleep 0.5
+	@sudo systemctl restart cookie-finder-web.service
+	@sleep 1
+	@sudo systemctl --no-pager --full status cookie-finder-web.service || true
+	@echo ""
+	@echo "Web server managed by systemd (http://$(WEB_HOST):$(WEB_PORT))"
+	@echo "Check status:  make on-the-pi-web-daemon-status"
+	@echo "Stop:          make on-the-pi-web-daemon-stop"
+	@echo "Follow logs:   sudo journalctl -u cookie-finder-web -f"
+
+on-the-pi-web-daemon-stop:
+	@sudo systemctl stop cookie-finder-web.service
+	@echo "Stopped cookie-finder-web.service"
+
+on-the-pi-web-daemon-status:
+	@sudo systemctl --no-pager --full status cookie-finder-web.service || true
+	@echo ""
+	@echo "Web server managed by systemd"
+	@echo "Check status:  make on-the-pi-web-daemon-status"
+	@echo "Stop:          make on-the-pi-web-daemon-stop"
+	@echo "Follow logs:   sudo journalctl -u cookie-finder-web -f"
+	@echo "Recent logs:   sudo journalctl -u cookie-finder-web -n 30 --no-pager"
+
 # WiFi button + LED daemon (independent of web app)
 on-the-pi-wifi-gpio-daemon-install:
 	@test -x "$(WIFI_PYTHON)" || { \
@@ -678,6 +732,7 @@ on-the-pi-wifi-gpio-daemon-status:
         rust-deploy rust-deploy-cookie rust-deploy-remote rust-deploy-cookie-remote \
         rust-daemon rust-run run-with-rust rust-home rust-keyboard \
         wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status \
+        web-daemon web-daemon-install web-daemon-stop web-daemon-status \
         wifi-status
 
 # Installation
@@ -760,3 +815,9 @@ wifi-gpio-daemon-stop: on-the-pi-wifi-gpio-daemon-stop
 wifi-gpio-daemon-status: on-the-pi-wifi-gpio-daemon-status
 wifi-status: on-the-pi-wifi-status
 wifi-configure-clients: on-the-pi-wifi-configure-clients
+
+# Web server daemon
+web-daemon: on-the-pi-web-daemon
+web-daemon-install: on-the-pi-web-daemon-install
+web-daemon-stop: on-the-pi-web-daemon-stop
+web-daemon-status: on-the-pi-web-daemon-status

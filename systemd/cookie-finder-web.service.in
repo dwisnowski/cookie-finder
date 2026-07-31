@@ -1,0 +1,21 @@
+[Unit]
+Description=Cookie Finder web server
+Documentation=file://@REPO_ROOT@/docs/usage/running.md
+After=local-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=@REPO_ROOT@
+Environment=PYTHONPATH=@REPO_ROOT@
+Environment=PYTHONUNBUFFERED=1
+ExecStart=@PYTHON@ -u @REPO_ROOT@/main.py --web --host @WEB_HOST@ --port @WEB_PORT@
+Restart=on-failure
+RestartSec=2
+
+# Soft stop, then hard kill if needed
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
