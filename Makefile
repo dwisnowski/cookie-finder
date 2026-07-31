@@ -263,7 +263,7 @@ _serial-list:
 _serial-connect:
 	@command -v screen >/dev/null || (echo "Install screen: brew install screen" && exit 1)
 	@test -e $(SERIAL_DEVICE) || (echo "Serial device not found: $(SERIAL_DEVICE)" && $(MAKE) on-the-mac-serial-list && exit 1)
-	screen $(SERIAL_DEVICE) $(SERIAL_BAUD)
+	TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)
 
 _serial-run:
 	@test -n "$(SERIAL_CMD)" || (echo "Usage: make on-the-mac-serial-run SERIAL_CMD='your command'" && exit 1)
