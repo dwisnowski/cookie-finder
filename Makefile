@@ -650,6 +650,7 @@ on-the-pi-web-daemon-install:
 		echo "hint: run 'make on-the-pi-install' first (creates .venv)"; \
 		exit 1; \
 	}
+	@command -v qrencode >/dev/null 2>&1 || sudo apt-get install -y qrencode || true
 	@sed \
 		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
 		-e 's|@PYTHON@|$(WEB_PYTHON)|g' \
@@ -689,6 +690,7 @@ on-the-pi-web-daemon-status:
 	@echo "Recent logs:   sudo journalctl -u cookie-finder-web -n 30 --no-pager"
 
 # Print reachable IPv4 addresses and the web app URL/port (Pi only).
+# Also prints a terminal QR code when qrencode is installed.
 on-the-pi-web-url:
 	@port="$(WEB_PORT)"; \
 	if [ -f "$(WEB_SYSTEMD_UNIT)" ]; then \
@@ -702,11 +704,25 @@ on-the-pi-web-url:
 		echo "  (none — no global IPv4 yet)"; \
 		exit 0; \
 	fi; \
+	primary=""; \
 	echo "$$ips" | while read -r iface addr; do \
 		[ -z "$$addr" ] && continue; \
 		echo "  $$iface  $$addr"; \
 		echo "  url: http://$$addr:$$port"; \
 	done; \
+	primary=$$(echo "$$ips" | awk -v p="$$port" ' \
+		$$1 ~ /^wlan/ { print "http://" $$2 ":" p; found=1; exit } \
+		!found && NF { first="http://" $$2 ":" p } \
+		END { if (!found && first) print first }'); \
+	if [ -n "$$primary" ]; then \
+		echo "primary: $$primary"; \
+		if command -v qrencode >/dev/null 2>&1; then \
+			echo ""; \
+			qrencode -t ANSIUTF8 "$$primary"; \
+		else \
+			echo "qr: install with: sudo apt-get install -y qrencode"; \
+		fi; \
+	fi; \
 	if systemctl is-active --quiet cookie-finder-web.service 2>/dev/null; then \
 		echo "service: cookie-finder-web (active)"; \
 	else \
