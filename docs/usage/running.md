@@ -114,7 +114,7 @@ In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspo
 - AP URL: `http://192.168.12.1:8000`
 - LED: solid = client, slow blink (~1 Hz) = AP, fast blink (~5 Hz) = switching
 
-Wiring details: [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led).
+Wiring details: [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led). Networking prerequisites (NM-only Wi‑Fi, no netplan Wi‑Fi, optional fast-boot mask): [Orange Pi setup §4](../setup/orange-pi.md#4-configure-wifi-networkmanager-only).
 
 ---
 
