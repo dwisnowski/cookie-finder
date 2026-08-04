@@ -460,6 +460,7 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
         on-the-pi-web-daemon-install on-the-pi-web-daemon \
         on-the-pi-web-daemon-stop on-the-pi-web-daemon-status \
+        on-the-pi-web-url \
         on-the-pi-wifi-configure-clients on-the-pi-wifi-fix \
         on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
@@ -488,6 +489,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-web-daemon            Install/start web server systemd service"
 	@echo "  make on-the-pi-web-daemon-status     Show web server service status"
 	@echo "  make on-the-pi-web-daemon-stop       Stop web server service"
+	@echo "  make on-the-pi-web-url               Print device IP(s) + web URL/port"
 	@echo ""
 	@echo "Camera:"
 	@echo "  make on-the-pi-find-camera           Detect available camera devices"
@@ -686,6 +688,31 @@ on-the-pi-web-daemon-status:
 	@echo "Follow logs:   sudo journalctl -u cookie-finder-web -f"
 	@echo "Recent logs:   sudo journalctl -u cookie-finder-web -n 30 --no-pager"
 
+# Print reachable IPv4 addresses and the web app URL/port (Pi only).
+on-the-pi-web-url:
+	@port="$(WEB_PORT)"; \
+	if [ -f "$(WEB_SYSTEMD_UNIT)" ]; then \
+		unit_port=$$(sed -n 's/.*--port[[:space:]]\+\([0-9][0-9]*\).*/\1/p' "$(WEB_SYSTEMD_UNIT)" | head -1); \
+		[ -n "$$unit_port" ] && port="$$unit_port"; \
+	fi; \
+	echo "port: $$port"; \
+	echo "ips:"; \
+	ips=$$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $$2, $$4}' | sed 's|/.*||'); \
+	if [ -z "$$ips" ]; then \
+		echo "  (none — no global IPv4 yet)"; \
+		exit 0; \
+	fi; \
+	echo "$$ips" | while read -r iface addr; do \
+		[ -z "$$addr" ] && continue; \
+		echo "  $$iface  $$addr"; \
+		echo "  url: http://$$addr:$$port"; \
+	done; \
+	if systemctl is-active --quiet cookie-finder-web.service 2>/dev/null; then \
+		echo "service: cookie-finder-web (active)"; \
+	else \
+		echo "service: cookie-finder-web (not active — start with: make on-the-pi-web-daemon)"; \
+	fi
+
 # WiFi button + LED daemon (independent of web app)
 on-the-pi-wifi-gpio-daemon-install:
 	@test -x "$(WIFI_PYTHON)" || { \
@@ -744,7 +771,7 @@ on-the-pi-wifi-gpio-daemon-status:
         rust-daemon rust-run run-with-rust rust-home rust-keyboard \
         wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status \
         web-daemon web-daemon-install web-daemon-stop web-daemon-status \
-        wifi-status
+        web-url wifi-status
 
 # Installation
 install: on-the-pi-install
@@ -833,3 +860,4 @@ web-daemon: on-the-pi-web-daemon
 web-daemon-install: on-the-pi-web-daemon-install
 web-daemon-stop: on-the-pi-web-daemon-stop
 web-daemon-status: on-the-pi-web-daemon-status
+web-url: on-the-pi-web-url

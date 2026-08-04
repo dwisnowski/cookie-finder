@@ -32,6 +32,7 @@ That installs `cookie-finder-web.service`, enables it on boot, and starts it. Us
 ```bash
 make on-the-pi-web-daemon-status
 make on-the-pi-web-daemon-stop
+make on-the-pi-web-url               # print IP(s) + http://…:port
 sudo journalctl -u cookie-finder-web -f
 ```
 

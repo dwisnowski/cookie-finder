@@ -32,6 +32,7 @@ All available `make` targets.
 | `make on-the-pi-web-daemon` | Install/start web server systemd service (`cookie-finder-web`) |
 | `make on-the-pi-web-daemon-status` | Show web server service status |
 | `make on-the-pi-web-daemon-stop` | Stop web server service |
+| `make on-the-pi-web-url` / `make web-url` | Print device IPv4 address(es) + web URL/port |
 
 ---
 
