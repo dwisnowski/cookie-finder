@@ -30,7 +30,12 @@ WEB_SYSTEMD_UNIT_IN := systemd/cookie-finder-web.service.in
 WEB_SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder-web.service
 WEB_PYTHON      ?= $(CURDIR)/.venv/bin/python
 WEB_HOST        ?= 0.0.0.0
-WEB_PORT        ?= 8000
+WEB_PORT        ?= 80
+WEB_HTTPS_PORT  ?= 443
+TLS_DIR         ?= /var/lib/cookie-finder/tls
+MDNS_HOSTNAME   ?= cookie-finder
+AVAHI_SERVICE_IN := systemd/cookie-finder.avahi.service
+AVAHI_SERVICE    := /etc/avahi/services/cookie-finder.service
 
 help:
 	@echo "Cookie Finder – Makefile Targets"
@@ -93,6 +98,13 @@ _init-wifi:
 	echo "cookie ALL=(root) NOPASSWD: $$SCRIPT_PATH" | sudo tee /etc/sudoers.d/cookie-finder-wifi >/dev/null; \
 	sudo chmod 440 /etc/sudoers.d/cookie-finder-wifi; \
 	sudo visudo -cf /etc/sudoers.d/cookie-finder-wifi
+	@echo "Installing NetworkManager captive-DNS drop-in (AP SoftAP only)..."
+	@sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
+	@printf '%s\n' \
+		'# Cookie Finder captive portal — sinkhole all DNS to SoftAP gateway.' \
+		'# Only used by NetworkManager "shared" (AP) connections.' \
+		'address=/#/192.168.12.1' \
+		| sudo tee /etc/NetworkManager/dnsmasq-shared.d/cookie-finder-captive.conf >/dev/null
 	@if [ -x "$(WIFI_PYTHON)" ]; then \
 		$(MAKE) on-the-pi-wifi-gpio-daemon-install; \
 		sudo systemctl restart cookie-finder-wifi.service; \
@@ -101,6 +113,7 @@ _init-wifi:
 		echo "  make on-the-pi-wifi-gpio-daemon"; \
 	fi
 	@echo "WiFi AP setup complete. SSID will be cookie-finder (open network, no password)."
+	@echo "Captive portal: guests are redirected to http://192.168.12.1/ (web app)."
 	@echo "Toggle AP/client via Settings panel, or the GPIO button (LED on pin 7)."
 	@echo "Button service: sudo systemctl status cookie-finder-wifi"
 
@@ -109,16 +122,18 @@ _run-standalone:
 	uv run main.py
 
 _run-web:
-	@echo "Starting Thermal Camera Viewer (WebServer mode on http://0.0.0.0:8000)..."
-	uv run main.py --web
+	@echo "Starting Thermal Camera Viewer (WebServer mode on http://0.0.0.0:$(WEB_PORT) + https://0.0.0.0:$(WEB_HTTPS_PORT))..."
+	uv run main.py --web --host $(WEB_HOST) --port $(WEB_PORT) --https-port $(WEB_HTTPS_PORT)
 
 _run-web-custom:
-	@read -p "Enter port (default 8000): " port; \
+	@read -p "Enter HTTP port (default $(WEB_PORT)): " port; \
+	read -p "Enter HTTPS port (default $(WEB_HTTPS_PORT), 0=off): " https_port; \
 	read -p "Enter host (default 0.0.0.0): " host; \
-	port=$${port:-8000}; \
+	port=$${port:-$(WEB_PORT)}; \
+	https_port=$${https_port:-$(WEB_HTTPS_PORT)}; \
 	host=$${host:-0.0.0.0}; \
-	echo "Starting Thermal Camera Viewer (WebServer mode on http://$$host:$$port)..."; \
-	uv run main.py --web --port $$port --host $$host
+	echo "Starting Thermal Camera Viewer (WebServer mode on http://$$host:$$port https://$$host:$$https_port)..."; \
+	uv run main.py --web --port $$port --https-port $$https_port --host $$host
 
 _test-motors:
 	@echo "Motor control test script:"
@@ -460,7 +475,7 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
         on-the-pi-web-daemon-install on-the-pi-web-daemon \
         on-the-pi-web-daemon-stop on-the-pi-web-daemon-status \
-        on-the-pi-web-url \
+        on-the-pi-web-url on-the-pi-mdns \
         on-the-pi-wifi-configure-clients on-the-pi-wifi-fix \
         on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
@@ -473,19 +488,20 @@ on-the-pi-help:
 	@echo "  make on-the-pi-init                  Bluetooth group permissions"
 	@echo "  make on-the-pi-tool-setup            apt build deps + Rust/cargo (rustup)"
 	@echo "  make on-the-pi-tool-setup-rust       Rust/cargo only (skip apt packages)"
-	@echo "  make on-the-pi-init-wifi              Install WiFi AP deps + button/LED systemd service"
+	@echo "  make on-the-pi-init-wifi              Install WiFi AP deps + captive DNS + button/LED service"
 	@echo "  make on-the-pi-wifi-gpio-daemon       Install/start WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-status            Show WiFi mode + IP addresses"
 	@echo "  make on-the-pi-wifi-configure-clients Save home + phone WiFi profiles (NM)"
 	@echo "  make on-the-pi-wifi-fix              Recover wedged client WiFi (NM + wpa fallback)"
+	@echo "  make on-the-pi-mdns                   Set hostname + Avahi for cookie-finder.local"
 	@echo ""
 	@echo "Running the application:"
 	@echo "  make on-the-pi-run                   Start web server (foreground)"
 	@echo "  make on-the-pi-run-standalone        Start standalone GUI mode"
-	@echo "  make on-the-pi-run-web               Start web server (http://0.0.0.0:8000)"
-	@echo "  make on-the-pi-run-web-custom        Prompt for host + port"
+	@echo "  make on-the-pi-run-web               Start web server (http://:80 + https://:443)"
+	@echo "  make on-the-pi-run-web-custom        Prompt for host + ports"
 	@echo "  make on-the-pi-web-daemon            Install/start web server systemd service"
 	@echo "  make on-the-pi-web-daemon-status     Show web server service status"
 	@echo "  make on-the-pi-web-daemon-stop       Stop web server service"
@@ -643,7 +659,7 @@ on-the-pi-rust-daemon-status:
 
 on-the-pi-rust-keyboard: _keyboard-gimbal
 
-# Web server daemon (systemd)
+# Web server daemon (systemd) — listens on HTTP :80 and HTTPS :443
 on-the-pi-web-daemon-install:
 	@test -x "$(WEB_PYTHON)" || { \
 		echo "error: missing $(WEB_PYTHON)"; \
@@ -651,27 +667,53 @@ on-the-pi-web-daemon-install:
 		exit 1; \
 	}
 	@command -v qrencode >/dev/null 2>&1 || sudo apt-get install -y qrencode || true
+	@command -v openssl >/dev/null 2>&1 || sudo apt-get install -y openssl || true
+	@echo "Ensuring TLS certs in $(TLS_DIR)..."
+	@sudo mkdir -p "$(TLS_DIR)"
+	@if [ ! -f "$(TLS_DIR)/cert.pem" ] || [ ! -f "$(TLS_DIR)/key.pem" ]; then \
+		printf '%s\n' \
+			'[req]' 'default_bits = 2048' 'prompt = no' 'default_md = sha256' \
+			'distinguished_name = dn' 'x509_extensions = v3_req' \
+			'[dn]' 'CN = cookie-finder.local' \
+			'[v3_req]' 'subjectAltName = @alt_names' \
+			'basicConstraints = CA:FALSE' \
+			'keyUsage = digitalSignature, keyEncipherment' \
+			'extendedKeyUsage = serverAuth' \
+			'[alt_names]' \
+			'DNS.1 = cookie-finder.local' 'DNS.2 = localhost' \
+			'IP.1 = 192.168.12.1' 'IP.2 = 127.0.0.1' \
+			| sudo tee "$(TLS_DIR)/openssl-san.cnf" >/dev/null; \
+		sudo openssl req -x509 -nodes -newkey rsa:2048 \
+			-keyout "$(TLS_DIR)/key.pem" -out "$(TLS_DIR)/cert.pem" \
+			-days 3650 -config "$(TLS_DIR)/openssl-san.cnf"; \
+		echo "Generated $(TLS_DIR)/cert.pem"; \
+	else \
+		echo "Using existing $(TLS_DIR)/cert.pem"; \
+	fi
 	@sed \
 		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
 		-e 's|@PYTHON@|$(WEB_PYTHON)|g' \
 		-e 's|@WEB_HOST@|$(WEB_HOST)|g' \
 		-e 's|@WEB_PORT@|$(WEB_PORT)|g' \
+		-e 's|@WEB_HTTPS_PORT@|$(WEB_HTTPS_PORT)|g' \
+		-e 's|@TLS_DIR@|$(TLS_DIR)|g' \
 		$(WEB_SYSTEMD_UNIT_IN) | sudo tee $(WEB_SYSTEMD_UNIT) >/dev/null
 	@sudo systemctl daemon-reload
 	@sudo systemctl enable cookie-finder-web.service
 	@echo "Installed $(WEB_SYSTEMD_UNIT)"
 	@echo "  python: $(WEB_PYTHON)"
-	@echo "  listen: http://$(WEB_HOST):$(WEB_PORT)"
+	@echo "  listen: http://$(WEB_HOST):$(WEB_PORT)  https://$(WEB_HOST):$(WEB_HTTPS_PORT)"
 
 on-the-pi-web-daemon: on-the-pi-web-daemon-install
-	@echo "Stopping any foreground web server on port $(WEB_PORT)..."
+	@echo "Stopping any foreground web server on ports $(WEB_PORT)/$(WEB_HTTPS_PORT)..."
 	@-sudo fuser -k $(WEB_PORT)/tcp 2>/dev/null || true
+	@-sudo fuser -k $(WEB_HTTPS_PORT)/tcp 2>/dev/null || true
 	@sleep 0.5
 	@sudo systemctl restart cookie-finder-web.service
 	@sleep 1
 	@sudo systemctl --no-pager --full status cookie-finder-web.service || true
 	@echo ""
-	@echo "Web server managed by systemd (http://$(WEB_HOST):$(WEB_PORT))"
+	@echo "Web server managed by systemd (http://$(WEB_HOST):$(WEB_PORT) + https://$(WEB_HOST):$(WEB_HTTPS_PORT))"
 	@echo "Check status:  make on-the-pi-web-daemon-status"
 	@echo "Stop:          make on-the-pi-web-daemon-stop"
 	@echo "Follow logs:   sudo journalctl -u cookie-finder-web -f"
@@ -693,11 +735,16 @@ on-the-pi-web-daemon-status:
 # Also prints a terminal QR code when qrencode is installed.
 on-the-pi-web-url:
 	@port="$(WEB_PORT)"; \
+	https_port="$(WEB_HTTPS_PORT)"; \
 	if [ -f "$(WEB_SYSTEMD_UNIT)" ]; then \
 		unit_port=$$(sed -n 's/.*--port[[:space:]]\+\([0-9][0-9]*\).*/\1/p' "$(WEB_SYSTEMD_UNIT)" | head -1); \
+		unit_https=$$(sed -n 's/.*--https-port[[:space:]]\+\([0-9][0-9]*\).*/\1/p' "$(WEB_SYSTEMD_UNIT)" | head -1); \
 		[ -n "$$unit_port" ] && port="$$unit_port"; \
+		[ -n "$$unit_https" ] && https_port="$$unit_https"; \
 	fi; \
 	echo "port: $$port"; \
+	echo "https_port: $$https_port"; \
+	echo "mdns: http://$(MDNS_HOSTNAME).local/"; \
 	echo "ips:"; \
 	ips=$$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $$2, $$4}' | sed 's|/.*||'); \
 	if [ -z "$$ips" ]; then \
@@ -708,11 +755,29 @@ on-the-pi-web-url:
 	echo "$$ips" | while read -r iface addr; do \
 		[ -z "$$addr" ] && continue; \
 		echo "  $$iface  $$addr"; \
-		echo "  url: http://$$addr:$$port"; \
+		if [ "$$port" = "80" ]; then \
+			echo "  url: http://$$addr/"; \
+		else \
+			echo "  url: http://$$addr:$$port"; \
+		fi; \
+		if [ -n "$$https_port" ] && [ "$$https_port" != "0" ]; then \
+			if [ "$$https_port" = "443" ]; then \
+				echo "  url: https://$$addr/"; \
+			else \
+				echo "  url: https://$$addr:$$https_port"; \
+			fi; \
+		fi; \
 	done; \
 	primary=$$(echo "$$ips" | awk -v p="$$port" ' \
-		$$1 ~ /^wlan/ { print "http://" $$2 ":" p; found=1; exit } \
-		!found && NF { first="http://" $$2 ":" p } \
+		$$1 ~ /^wlan/ { \
+			if (p == "80") print "http://" $$2 "/"; \
+			else print "http://" $$2 ":" p; \
+			found=1; exit \
+		} \
+		!found && NF { \
+			if (p == "80") first="http://" $$2 "/"; \
+			else first="http://" $$2 ":" p \
+		} \
 		END { if (!found && first) print first }'); \
 	if [ -n "$$primary" ]; then \
 		echo "primary: $$primary"; \
@@ -728,6 +793,38 @@ on-the-pi-web-url:
 	else \
 		echo "service: cookie-finder-web (not active — start with: make on-the-pi-web-daemon)"; \
 	fi
+
+# Hostname + Avahi so LAN clients can use http://cookie-finder.local/
+on-the-pi-mdns:
+	@echo "Installing Avahi (mDNS) for $(MDNS_HOSTNAME).local..."
+	sudo apt-get update
+	sudo apt-get install -y avahi-daemon libnss-mdns
+	@echo "Setting hostname to $(MDNS_HOSTNAME)..."
+	@sudo hostnamectl set-hostname "$(MDNS_HOSTNAME)"
+	@if [ -f /etc/hosts ]; then \
+		if grep -qE '[[:space:]]$(MDNS_HOSTNAME)([[:space:]]|$$)' /etc/hosts; then \
+			echo "/etc/hosts already mentions $(MDNS_HOSTNAME)"; \
+		else \
+			if grep -qE '^127\.0\.1\.1[[:space:]]' /etc/hosts; then \
+				sudo sed -i 's/^127\.0\.1\.1.*/127.0.1.1\t$(MDNS_HOSTNAME)/' /etc/hosts; \
+			elif grep -qE '^127\.0\.0\.1[[:space:]]' /etc/hosts; then \
+				sudo sed -i 's/^127\.0\.0\.1.*/127.0.0.1\tlocalhost $(MDNS_HOSTNAME)/' /etc/hosts; \
+			else \
+				echo "127.0.0.1 localhost $(MDNS_HOSTNAME)" | sudo tee -a /etc/hosts >/dev/null; \
+			fi; \
+			echo "Updated /etc/hosts for $(MDNS_HOSTNAME)"; \
+		fi; \
+	fi
+	@sudo mkdir -p /etc/avahi/services
+	@sudo cp "$(AVAHI_SERVICE_IN)" "$(AVAHI_SERVICE)"
+	@sudo systemctl enable avahi-daemon.service
+	@sudo systemctl restart avahi-daemon.service
+	@sleep 1
+	@sudo systemctl --no-pager --full status avahi-daemon.service || true
+	@echo ""
+	@echo "mDNS ready: http://$(MDNS_HOSTNAME).local/  (HTTPS: https://$(MDNS_HOSTNAME).local/)"
+	@echo "Clients on the same LAN (and most SoftAP guests) can resolve this name via Avahi."
+	@echo "AP hotspot tip: phones may still use the captive portal at http://192.168.12.1/"
 
 # WiFi button + LED daemon (independent of web app)
 on-the-pi-wifi-gpio-daemon-install:
@@ -787,7 +884,7 @@ on-the-pi-wifi-gpio-daemon-status:
         rust-daemon rust-run run-with-rust rust-home rust-keyboard \
         wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status \
         web-daemon web-daemon-install web-daemon-stop web-daemon-status \
-        web-url wifi-status
+        web-url wifi-status mdns mdns-install
 
 # Installation
 install: on-the-pi-install
@@ -877,3 +974,7 @@ web-daemon-install: on-the-pi-web-daemon-install
 web-daemon-stop: on-the-pi-web-daemon-stop
 web-daemon-status: on-the-pi-web-daemon-status
 web-url: on-the-pi-web-url
+
+# mDNS (cookie-finder.local)
+mdns: on-the-pi-mdns
+mdns-install: on-the-pi-mdns

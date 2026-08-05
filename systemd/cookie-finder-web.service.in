@@ -9,7 +9,10 @@ Type=simple
 WorkingDirectory=@REPO_ROOT@
 Environment=PYTHONPATH=@REPO_ROOT@
 Environment=PYTHONUNBUFFERED=1
-ExecStart=@PYTHON@ -u @REPO_ROOT@/main.py --web --host @WEB_HOST@ --port @WEB_PORT@
+Environment=COOKIE_FINDER_TLS_DIR=@TLS_DIR@
+# Bind privileged HTTP/HTTPS ports (works even if User= is added later).
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ExecStart=@PYTHON@ -u @REPO_ROOT@/main.py --web --host @WEB_HOST@ --port @WEB_PORT@ --https-port @WEB_HTTPS_PORT@ --ssl-certfile @TLS_DIR@/cert.pem --ssl-keyfile @TLS_DIR@/key.pem
 Restart=on-failure
 RestartSec=2
 

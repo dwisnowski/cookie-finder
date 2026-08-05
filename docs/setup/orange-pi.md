@@ -116,11 +116,15 @@ This installs `hostapd` / `dnsmasq` / `create_ap` (when missing), grants passwor
 2. Under **WiFi Mode**, choose **Switch to AP Mode**
 3. Confirm the popup instructions
 4. Join WiFi **`cookie-finder`** (open network — no password)
-5. Open `http://192.168.12.1:8000`
+5. Your phone should open the captive portal to `http://192.168.12.1/` (web app home). If not, open that URL manually.
 
 The home-screen badge shows **Client · …** or **AP · cookie-finder**.
 
 > The onboard radio is typically client *or* AP, not both at once. Switching modes disconnects the current browser session.
+
+**Captive portal:** SoftAP DNS is sinkholed to `192.168.12.1` so OS connectivity checks redirect into the web UI (served on ports **80** and **443**).
+
+**mDNS:** run `make on-the-pi-mdns` (alias `make mdns`) once to advertise `http://cookie-finder.local/` on the LAN.
 
 ---
 
@@ -171,7 +175,7 @@ make init-wifi
 make run
 ```
 
-Then open `http://<device-ip>:8000` in a browser from any device on the same network.
+Then open `http://<device-ip>/` (or `http://cookie-finder.local/`) in a browser from any device on the same network.
 
 ---
 

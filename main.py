@@ -4,7 +4,7 @@ Thermal Camera Viewer - Dual Mode (Standalone GUI + WebServer)
 Usage:
     python main.py                    # Standalone mode (OpenCV GUI)
     python main.py --web              # WebServer mode (FastAPI + MJPEG)
-    python main.py --web --port 8000  # WebServer on custom port
+    python main.py --web --port 80  # WebServer on HTTP :80 (+ HTTPS :443 by default)
 """
 
 import os
@@ -413,8 +413,24 @@ def main():
     parser.add_argument(
         '--port',
         type=int,
-        default=8000,
-        help='WebServer port (default: 8000)'
+        default=80,
+        help='HTTP port (default: 80)'
+    )
+    parser.add_argument(
+        '--https-port',
+        type=int,
+        default=443,
+        help='HTTPS port (default: 443; set 0 to disable)'
+    )
+    parser.add_argument(
+        '--ssl-certfile',
+        default=None,
+        help='TLS certificate path (default: /var/lib/cookie-finder/tls/cert.pem)'
+    )
+    parser.add_argument(
+        '--ssl-keyfile',
+        default=None,
+        help='TLS private key path (default: /var/lib/cookie-finder/tls/key.pem)'
     )
     parser.add_argument(
         '--host',
@@ -452,8 +468,18 @@ def main():
     
     if args.web:
         print("Starting Thermal Camera Viewer in WebServer mode...")
-        print(f"Open browser: http://localhost:{args.port}")
-        run_webserver(host=args.host, port=args.port, camera_id=camera_to_use)
+        urls = [f"http://localhost:{args.port}"]
+        if args.https_port:
+            urls.append(f"https://localhost:{args.https_port}")
+        print(f"Open browser: {' | '.join(urls)}")
+        run_webserver(
+            host=args.host,
+            port=args.port,
+            https_port=args.https_port,
+            camera_id=camera_to_use,
+            ssl_certfile=args.ssl_certfile,
+            ssl_keyfile=args.ssl_keyfile,
+        )
     else:
         print("Starting Thermal Camera Viewer in Standalone mode...")
         standalone_mode(camera_id=camera_to_use)

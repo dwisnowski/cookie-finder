@@ -6,6 +6,9 @@
 #   COOKIE_FINDER_AP_SSID        (default: cookie-finder)
 #   COOKIE_FINDER_AP_PASSPHRASE  (default: empty = open SoftAP, no password)
 #   COOKIE_FINDER_AP_GATEWAY     (default: 192.168.12.1)
+#
+# Captive portal: in AP mode DNS is hijacked to the gateway so phones open the
+# web app (served on :80 / :443). See cookie_finder/web/server.py probe routes.
 
 set -euo pipefail
 
@@ -22,6 +25,9 @@ HOSTAPD_CONF="${RUNTIME_DIR}/hostapd.conf"
 DNSMASQ_CONF="${RUNTIME_DIR}/dnsmasq.conf"
 PID_FILE="${RUNTIME_DIR}/create_ap.pid"
 LOCK_FILE="${RUNTIME_DIR}/wifi-mode.lock"
+# NetworkManager shared-mode dnsmasq drop-in (captive DNS hijack).
+NM_DNSMASQ_SHARED_DIR="/etc/NetworkManager/dnsmasq-shared.d"
+NM_CAPTIVE_CONF="${NM_DNSMASQ_SHARED_DIR}/cookie-finder-captive.conf"
 
 log() { echo "[wifi-mode] $*"; }
 die() { echo "[wifi-mode] ERROR: $*" >&2; exit 1; }
@@ -218,6 +224,35 @@ stop_nm_hotspot() {
   done < <(nmcli -t -f NAME,TYPE,DEVICE connection show --active 2>/dev/null || true)
 }
 
+# Install NM shared-mode dnsmasq drop-in so SoftAP DHCP clients resolve every
+# name to the Pi (captive portal → web app on :80).
+install_nm_captive_dns() {
+  mkdir -p "${NM_DNSMASQ_SHARED_DIR}"
+  cat > "${NM_CAPTIVE_CONF}" <<EOF
+# Cookie Finder captive portal — sinkhole all DNS to the SoftAP gateway.
+# Only used by NetworkManager "shared" (AP) connections, not client WiFi.
+address=/#/${GATEWAY}
+EOF
+  log "installed captive DNS drop-in: ${NM_CAPTIVE_CONF}"
+}
+
+# hostapd-path dnsmasq: DHCP + captive DNS (no upstream forwarding).
+write_hostapd_dnsmasq_conf() {
+  local iface="$1"
+  cat > "${DNSMASQ_CONF}" <<EOF
+interface=${iface}
+bind-interfaces
+listen-address=${GATEWAY}
+dhcp-range=192.168.12.50,192.168.12.200,255.255.255.0,12h
+dhcp-option=3,${GATEWAY}
+dhcp-option=6,${GATEWAY}
+no-resolv
+no-hosts
+# Captive portal: every name → gateway (web app on :80 / :443)
+address=/#/${GATEWAY}
+EOF
+}
+
 client_already_associated() {
   local iface="$1"
   local ssid=""
@@ -338,6 +373,10 @@ start_ap_nmcli() {
   recover_iface_for_nm "${iface}"
   stop_nm_hotspot
 
+  # Captive DNS before bringing the shared connection up so NM's dnsmasq
+  # inherits the sinkhole drop-in.
+  install_nm_captive_dns
+
   # Explicit AP profile is more reliable on UWE5622 than `wifi hotspot`.
   # Open SoftAP (no wifi-sec): WPA SoftAP often fails phone joins on this chip;
   # key-mgmt "none" wrongly becomes WEP on Bookworm NM — omit security entirely.
@@ -383,7 +422,7 @@ start_ap_nmcli() {
       fi
     fi
   fi
-  log "started AP via NetworkManager (ssid=${SSID} gateway=${GATEWAY} type=${type})"
+  log "started AP via NetworkManager (ssid=${SSID} gateway=${GATEWAY} type=${type} captive-dns=on)"
   return 0
 }
 
@@ -453,24 +492,13 @@ EOF
   fi
 
   if command -v dnsmasq >/dev/null 2>&1; then
-    cat > "${DNSMASQ_CONF}" <<EOF
-interface=${iface}
-bind-interfaces
-listen-address=${GATEWAY}
-dhcp-range=192.168.12.50,192.168.12.200,255.255.255.0,12h
-dhcp-option=3,${GATEWAY}
-dhcp-option=6,${GATEWAY}
-no-resolv
-no-hosts
-server=1.1.1.1
-server=8.8.8.8
-EOF
+    write_hostapd_dnsmasq_conf "${iface}"
     if systemctl list-unit-files dnsmasq.service >/dev/null 2>&1; then
       systemctl stop dnsmasq.service >/dev/null 2>&1 || true
     fi
     pkill -x dnsmasq >/dev/null 2>&1 || true
     if ! dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid"; then
-      log "WARNING: dnsmasq failed — AP is up but DHCP may not work"
+      log "WARNING: dnsmasq failed — AP is up but DHCP/captive DNS may not work"
     fi
   else
     log "WARNING: dnsmasq not installed — AP is up but DHCP may not work"
@@ -484,7 +512,7 @@ EOF
     stop_hostapd_dnsmasq
     return 1
   fi
-  log "started AP via hostapd (ssid=${SSID} gateway=${GATEWAY} type=${itype} ch=${channel})"
+  log "started AP via hostapd (ssid=${SSID} gateway=${GATEWAY} type=${itype} ch=${channel} captive-dns=on)"
   return 0
 }
 

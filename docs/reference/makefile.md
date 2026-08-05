@@ -14,7 +14,8 @@ All available `make` targets.
 | `make install-ffmpeg` | `brew install ffmpeg` (macOS) |
 | `make install-libusb` | `brew install libusb` (macOS, needed for USB probing) |
 | `make init` | Add user to Bluetooth group (Orange Pi) |
-| `make init-wifi` | Install WiFi AP tools, sudoers, and `cookie-finder-wifi` button/LED service |
+| `make init-wifi` | Install WiFi AP tools, captive DNS drop-in, sudoers, and `cookie-finder-wifi` button/LED service |
+| `make on-the-pi-mdns` / `make mdns` | Set hostname + Avahi for `http://cookie-finder.local/` |
 | `make on-the-pi-wifi-gpio-daemon` | Install/start WiFi button+LED systemd service |
 | `make on-the-pi-wifi-gpio-daemon-status` | Show WiFi button+LED service status |
 | `make on-the-pi-wifi-gpio-daemon-stop` | Stop WiFi button+LED service |
@@ -25,14 +26,14 @@ All available `make` targets.
 
 | Target | Description |
 |--------|-------------|
-| `make run` | Alias for `run-web` — start web server on port 8000 (foreground) |
-| `make run-web` | Start FastAPI server on `http://0.0.0.0:8000` (foreground) |
+| `make run` | Alias for `run-web` — start web server on :80 + :443 (foreground) |
+| `make run-web` | Start FastAPI on HTTP :80 and HTTPS :443 (foreground) |
 | `make run-standalone` | Start OpenCV GUI mode (requires display) |
-| `make run-web-custom` | Prompt for host + port, then start web server |
-| `make on-the-pi-web-daemon` | Install/start web server systemd service (`cookie-finder-web`) |
+| `make run-web-custom` | Prompt for host + ports, then start web server |
+| `make on-the-pi-web-daemon` | Install/start web server systemd service (`cookie-finder-web`) on :80 + :443 |
 | `make on-the-pi-web-daemon-status` | Show web server service status |
 | `make on-the-pi-web-daemon-stop` | Stop web server service |
-| `make on-the-pi-web-url` / `make web-url` | Print device IPv4 address(es) + web URL/port (+ terminal QR if `qrencode` is installed) |
+| `make on-the-pi-web-url` / `make web-url` | Print device IPv4 address(es) + web URL (+ terminal QR if `qrencode` is installed) |
 
 ---
 
