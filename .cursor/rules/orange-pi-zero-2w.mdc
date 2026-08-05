@@ -1,0 +1,33 @@
+---
+description: Orange Pi Zero 2W (Armbian) platform constraints — WiFi, boot, serial
+alwaysApply: true
+---
+
+# Orange Pi Zero 2W
+
+Target board: **Orange Pi Zero 2W** on **Armbian Bookworm** (sunxi64). WiFi chip: **UWE5622** (`wlan0`).
+
+## Networking (critical)
+
+Cookie Finder WiFi (`scripts/wifi-mode.sh`, `cookie-finder-wifi`) requires **NetworkManager only** for `wlan0`.
+
+- **Do not** manage WiFi via Armbian netplan / `systemd-networkd`. Remove `/etc/netplan/30-wifis-dhcp.yaml` if present; keep Ethernet netplan (`renderer: networkd`) — `eth0:unmanaged` in nmcli is expected.
+- Dual stack symptom: `wlan0:unavailable`, empty wifi list, or two `wpa_supplicant` processes (one with `/run/netplan/wpa-wlan0.conf`).
+- Client joins / profiles: `nmcli`, not editing `wpa_supplicant.conf` as the primary path.
+- SoftAP: open `cookie-finder` hotspot; WPA SoftAP is unreliable on this chip. Prefer NM SoftAP; hostapd is fallback.
+- Boot policy: full reboot always restores **client**; AP is runtime-only.
+
+Details: `docs/setup/orange-pi.md` §4.
+
+## Boot / serial login
+
+- Unplugged `eth0` + `systemd-networkd-wait-online` can delay serial getty ~**2 minutes** (blocks `network-online` → `rc-local` → getty). Mask that unit if Ethernet need not be up before login.
+- Diagnose: `systemd-analyze blame` / `critical-chain getty.target`.
+
+## Access when WiFi is down
+
+Prefer **USB-TTL serial** (UART0, 115200): `make serial-connect` / `serial-deploy`. See `docs/setup/orange-pi.md` (Serial Console).
+
+## GPIO WiFi button
+
+Standalone service `cookie-finder-wifi` (not the web app). Wiring: `docs/hardware/wiring.md`.

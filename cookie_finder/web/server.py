@@ -533,6 +533,7 @@ def create_app(camera_id=None):
                     "device_connected",
                     "device_disconnected",
                     "device_removed",
+                    "device_paired",
                 ):
                     broadcast_bluetooth_connected_threadsafe()
 
@@ -728,81 +729,125 @@ def create_app(camera_id=None):
             }
         }
     
-    @app.post("/bluetooth/connect/{device_address}")
-    def bluetooth_connect(device_address: str):
-        """Connect to a Bluetooth device."""
+    @app.post("/bluetooth/pair/{device_address}")
+    def bluetooth_pair(device_address: str):
+        """Pair and trust a BlueZ HID device (does not require connect)."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}
-        
+
         try:
-            success = bluetooth_controller.connect_device(device_address)
+            success = bluetooth_controller.pair_device(device_address)
+            err = bluetooth_controller.get_last_error()
+            if success:
+                broadcast_bluetooth_connected_threadsafe(force=True)
             return {
                 "status": "success" if success else "failed",
                 "address": device_address,
-                "message": f"Device {'connected' if success else 'connection failed'}"
+                "message": "Device paired" if success else (err or "Pair failed"),
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    
+
+    @app.post("/bluetooth/connect/{device_address}")
+    def bluetooth_connect(device_address: str):
+        """Pair if needed, connect via BlueZ, and set as active input device."""
+        if bluetooth_controller is None:
+            return {"status": "error", "message": "Bluetooth not available"}
+
+        try:
+            success = bluetooth_controller.connect_device(device_address)
+            err = bluetooth_controller.get_last_error()
+            if success:
+                broadcast_bluetooth_connected_threadsafe(force=True)
+            return {
+                "status": "success" if success else "failed",
+                "address": device_address,
+                "message": (
+                    "Device connected"
+                    if success
+                    else (err or "Connection failed")
+                ),
+            }
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
+
     @app.post("/bluetooth/set-active/{device_address}")
     def bluetooth_set_active(device_address: str):
         """Set a device as the active input device (connects if needed)."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}
-        
+
         try:
             device = bluetooth_controller.get_device(device_address)
             if not device:
-                return {"status": "error", "message": f"Device {device_address} not found"}
-            
-            # Ensure device is connected (will skip for system-connected devices)
-            print(f"[BT] Connecting to device for input: {device_address} ({device.name})")
-            success = bluetooth_controller.connect_device(device_address)
-            
-            if not success:
-                return {"status": "error", "message": "Failed to connect device"}
-            
-            # Device is now active
-            print(f"[BT] Set active input device: {device_address} ({device.name})")
-            broadcast_bluetooth_connected_threadsafe(force=True)
+                return {
+                    "status": "error",
+                    "message": f"Device {device_address} not found",
+                }
 
+            print(
+                f"[BT] Setting active input device: "
+                f"{device_address} ({device.name})"
+            )
+            success = bluetooth_controller.set_active_device(device_address)
+            err = bluetooth_controller.get_last_error()
+
+            if not success:
+                return {
+                    "status": "error",
+                    "message": err or "Failed to set active device",
+                }
+
+            broadcast_bluetooth_connected_threadsafe(force=True)
             return {
                 "status": "success",
                 "address": device_address,
                 "name": device.name,
-                "message": f"Connected and set as active input device"
+                "message": "Set as active input device",
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    
+
     @app.post("/bluetooth/disconnect/{device_address}")
     def bluetooth_disconnect(device_address: str):
-        """Disconnect from a Bluetooth device."""
+        """Disconnect a BlueZ device."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}
-        
+
         try:
             success = bluetooth_controller.disconnect_device(device_address)
+            err = bluetooth_controller.get_last_error()
+            if success:
+                broadcast_bluetooth_connected_threadsafe(force=True)
             return {
                 "status": "success" if success else "failed",
                 "address": device_address,
-                "message": f"Device {'disconnected' if success else 'disconnection failed'}"
+                "message": (
+                    "Device disconnected"
+                    if success
+                    else (err or "Disconnection failed")
+                ),
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
-    
+
     @app.post("/bluetooth/remove/{device_address}")
     def bluetooth_remove(device_address: str):
-        """Remove/forget a Bluetooth device."""
+        """Disconnect and forget a BlueZ device."""
         if bluetooth_controller is None:
             return {"status": "error", "message": "Bluetooth not available"}
-        
+
         try:
             success = bluetooth_controller.remove_device(device_address)
+            err = bluetooth_controller.get_last_error()
+            if success:
+                broadcast_bluetooth_connected_threadsafe(force=True)
             return {
                 "status": "success" if success else "failed",
                 "address": device_address,
-                "message": f"Device {'removed' if success else 'removal failed'}"
+                "message": (
+                    "Device removed" if success else (err or "Removal failed")
+                ),
             }
         except Exception as e:
             return {"status": "error", "message": str(e)}
@@ -960,42 +1005,152 @@ def create_app(camera_id=None):
                             "message": "Bluetooth scan stopped"
                         })
                 
-                elif action == "bluetooth_connect":
+                elif action == "bluetooth_pair":
                     address = command.get("address")
                     if bluetooth_controller is None:
-                        await websocket.send_json({"type": "error", "message": "Bluetooth not available"})
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Bluetooth not available",
+                        })
                     else:
                         try:
-                            success = bluetooth_controller.connect_device(address)
+                            success = await asyncio.to_thread(
+                                bluetooth_controller.pair_device, address
+                            )
+                            err = bluetooth_controller.get_last_error()
                             await websocket.send_json({
-                                "type": "bluetooth_connect_result",
+                                "type": "bluetooth_pair_result",
                                 "address": address,
-                                "success": success
+                                "success": success,
+                                "message": (
+                                    "Paired"
+                                    if success
+                                    else (err or "Pair failed")
+                                ),
                             })
-                            broadcast_bluetooth_connected_threadsafe(force=True)
+                            await websocket.send_json({
+                                "type": "bluetooth_state",
+                                "data": {
+                                    "devices": bluetooth_controller.get_devices_list(),
+                                    "scanning": bluetooth_controller.scanning,
+                                },
+                            })
+                            if success:
+                                broadcast_bluetooth_connected_threadsafe(force=True)
                         except Exception as e:
                             await websocket.send_json({
                                 "type": "error",
-                                "message": f"Failed to connect: {str(e)}"
+                                "message": f"Failed to pair: {str(e)}",
                             })
-                
+
+                elif action == "bluetooth_connect":
+                    address = command.get("address")
+                    if bluetooth_controller is None:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Bluetooth not available",
+                        })
+                    else:
+                        try:
+                            success = await asyncio.to_thread(
+                                bluetooth_controller.connect_device, address
+                            )
+                            err = bluetooth_controller.get_last_error()
+                            await websocket.send_json({
+                                "type": "bluetooth_connect_result",
+                                "address": address,
+                                "success": success,
+                                "message": (
+                                    "Connected"
+                                    if success
+                                    else (err or "Connection failed")
+                                ),
+                            })
+                            await websocket.send_json({
+                                "type": "bluetooth_state",
+                                "data": {
+                                    "devices": bluetooth_controller.get_devices_list(),
+                                    "scanning": bluetooth_controller.scanning,
+                                },
+                            })
+                            if success:
+                                broadcast_bluetooth_connected_threadsafe(force=True)
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to connect: {str(e)}",
+                            })
+
                 elif action == "bluetooth_disconnect":
                     address = command.get("address")
                     if bluetooth_controller is not None:
                         try:
-                            bluetooth_controller.disconnect_device(address)
+                            success = await asyncio.to_thread(
+                                bluetooth_controller.disconnect_device, address
+                            )
+                            err = bluetooth_controller.get_last_error()
                             await websocket.send_json({
                                 "type": "bluetooth_disconnect_result",
                                 "address": address,
-                                "success": True
+                                "success": success,
+                                "message": (
+                                    "Disconnected"
+                                    if success
+                                    else (err or "Disconnect failed")
+                                ),
+                            })
+                            await websocket.send_json({
+                                "type": "bluetooth_state",
+                                "data": {
+                                    "devices": bluetooth_controller.get_devices_list(),
+                                    "scanning": bluetooth_controller.scanning,
+                                },
                             })
                             broadcast_bluetooth_connected_threadsafe(force=True)
                         except Exception as e:
                             await websocket.send_json({
                                 "type": "error",
-                                "message": f"Failed to disconnect: {str(e)}"
+                                "message": f"Failed to disconnect: {str(e)}",
                             })
-                
+
+                elif action == "bluetooth_remove":
+                    address = command.get("address")
+                    if bluetooth_controller is None:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "Bluetooth not available",
+                        })
+                    else:
+                        try:
+                            success = await asyncio.to_thread(
+                                bluetooth_controller.remove_device, address
+                            )
+                            err = bluetooth_controller.get_last_error()
+                            await websocket.send_json({
+                                "type": "bluetooth_remove_result",
+                                "address": address,
+                                "success": success,
+                                "message": (
+                                    "Removed"
+                                    if success
+                                    else (err or "Remove failed")
+                                ),
+                            })
+                            if success:
+                                broadcast_bluetooth_connected_threadsafe(force=True)
+                                await websocket.send_json({
+                                    "type": "bluetooth_state",
+                                    "data": {
+                                        "devices": bluetooth_controller.get_devices_list(),
+                                        "scanning": bluetooth_controller.scanning,
+                                    },
+                                })
+                        except Exception as e:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"Failed to remove: {str(e)}",
+                            })
+
                 elif action == "get_state":
                     await websocket.send_json({"type": "state", "data": processor.get_state()})
         

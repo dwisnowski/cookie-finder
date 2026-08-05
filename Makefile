@@ -26,6 +26,11 @@ SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder.service
 WIFI_SYSTEMD_UNIT_IN := systemd/cookie-finder-wifi.service.in
 WIFI_SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder-wifi.service
 WIFI_PYTHON     ?= $(CURDIR)/.venv/bin/python
+WEB_SYSTEMD_UNIT_IN := systemd/cookie-finder-web.service.in
+WEB_SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder-web.service
+WEB_PYTHON      ?= $(CURDIR)/.venv/bin/python
+WEB_HOST        ?= 0.0.0.0
+WEB_PORT        ?= 8000
 
 help:
 	@echo "Cookie Finder – Makefile Targets"
@@ -263,7 +268,7 @@ _serial-list:
 _serial-connect:
 	@command -v screen >/dev/null || (echo "Install screen: brew install screen" && exit 1)
 	@test -e $(SERIAL_DEVICE) || (echo "Serial device not found: $(SERIAL_DEVICE)" && $(MAKE) on-the-mac-serial-list && exit 1)
-	TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)
+	@echo "TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)"
 
 _serial-run:
 	@test -n "$(SERIAL_CMD)" || (echo "Usage: make on-the-mac-serial-run SERIAL_CMD='your command'" && exit 1)
@@ -351,7 +356,7 @@ on-the-mac-help:
 	@echo "  make on-the-mac-rust-check                 Typecheck without building"
 	@echo "  make on-the-mac-rust-build                 Cross-compile for Pi (needs cross + Docker)"
 	@echo "  make on-the-mac-rust-deploy                Build + scp to Pi (PI_HOST=$(PI_HOST))"
-	@echo "  make on-the-mac-rust-deploy-cookie         Build + scp via SSH config (PI_SSH_HOST=$(PI_SSH_HOST))"
+	@echo "  make on-the-mac-rust-deploy-cookie         <-- Normal Deployment -- Build + scp via SSH config (PI_SSH_HOST=$(PI_SSH_HOST))"
 	@echo "  make on-the-mac-rust-build-remote          Build on Pi via SSH (PI_HOST=$(PI_HOST))"
 	@echo "  make on-the-mac-rust-deploy-remote         Build on Pi via SSH + install binary"
 	@echo "  make on-the-mac-rust-deploy-cookie-remote  Build on Pi via SSH config host"
@@ -453,7 +458,10 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-keyboard on-the-pi-init-wifi \
         on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
-        on-the-pi-wifi-configure-clients \
+        on-the-pi-web-daemon-install on-the-pi-web-daemon \
+        on-the-pi-web-daemon-stop on-the-pi-web-daemon-status \
+        on-the-pi-web-url \
+        on-the-pi-wifi-configure-clients on-the-pi-wifi-fix \
         on-the-pi-armbian-home-screen on-the-pi-wifi-status
 
 on-the-pi-help:
@@ -471,13 +479,17 @@ on-the-pi-help:
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-status            Show WiFi mode + IP addresses"
 	@echo "  make on-the-pi-wifi-configure-clients Save home + phone WiFi profiles (NM)"
+	@echo "  make on-the-pi-wifi-fix              Recover wedged client WiFi (NM + wpa fallback)"
 	@echo ""
 	@echo "Running the application:"
-
-	@echo "  make on-the-pi-run                   Start web server (default)"
+	@echo "  make on-the-pi-run                   Start web server (foreground)"
 	@echo "  make on-the-pi-run-standalone        Start standalone GUI mode"
 	@echo "  make on-the-pi-run-web               Start web server (http://0.0.0.0:8000)"
 	@echo "  make on-the-pi-run-web-custom        Prompt for host + port"
+	@echo "  make on-the-pi-web-daemon            Install/start web server systemd service"
+	@echo "  make on-the-pi-web-daemon-status     Show web server service status"
+	@echo "  make on-the-pi-web-daemon-stop       Stop web server service"
+	@echo "  make on-the-pi-web-url               Print device IP(s) + web URL/port"
 	@echo ""
 	@echo "Camera:"
 	@echo "  make on-the-pi-find-camera           Detect available camera devices"
@@ -533,17 +545,27 @@ on-the-pi-wifi-configure-clients:
 	@nmcli connection add type wifi con-name "HSH-5G" ifname "*" ssid "HSH-5G" \
 		wifi-sec.key-mgmt wpa-psk wifi-sec.psk "wisnowskishome" \
 		connection.autoconnect yes connection.autoconnect-priority 100
-	@nmcli connection delete id "David's iPhone 13 pro max" >/dev/null 2>&1 || true
-	@nmcli connection add type wifi con-name "David's iPhone 13 pro max" ifname "*" \
-		ssid "David's iPhone 13 pro max" \
-		wifi-sec.key-mgmt wpa-psk wifi-sec.psk 'davesPh0n3!01' \
+	@nmcli connection delete id "Ghostwire" >/dev/null 2>&1 || true
+	@nmcli connection add type wifi con-name "Ghostwire" ifname "*" \
+		ssid "Ghostwire" \
+		wifi-sec.key-mgmt wpa-psk wifi-sec.psk 'connectifyoudare' \
 		connection.autoconnect yes connection.autoconnect-priority 50
 	@echo "Bringing up preferred network (HSH-5G, else iPhone)..."
 	@nmcli -w 15 connection up "HSH-5G" \
-		|| nmcli -w 15 connection up "David's iPhone 13 pro max" \
+		|| nmcli -w 15 connection up "Ghostwire" \
 		|| echo "Profiles saved; neither network associated yet (out of range?)."
 	@echo "---"
 	@nmcli -t -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show
+	@$(MAKE) on-the-pi-wifi-status
+
+# Recover wedged client WiFi after SoftAP / NM "unavailable" on UWE5622.
+# Stops cookie-finder-wifi briefly so it cannot race the recovery.
+# Requires saved NM profiles (make on-the-pi-wifi-configure-clients).
+on-the-pi-wifi-fix:
+	@echo "Recovering client WiFi (clears AP leftovers; NM then wpa_supplicant)..."
+	@-sudo systemctl stop cookie-finder-wifi.service 2>/dev/null || true
+	@sudo "$(CURDIR)/scripts/wifi-mode.sh" fix
+	@-sudo systemctl start cookie-finder-wifi.service 2>/dev/null || true
 	@$(MAKE) on-the-pi-wifi-status
 
 on-the-pi-run: on-the-pi-run-web
@@ -621,6 +643,92 @@ on-the-pi-rust-daemon-status:
 
 on-the-pi-rust-keyboard: _keyboard-gimbal
 
+# Web server daemon (systemd)
+on-the-pi-web-daemon-install:
+	@test -x "$(WEB_PYTHON)" || { \
+		echo "error: missing $(WEB_PYTHON)"; \
+		echo "hint: run 'make on-the-pi-install' first (creates .venv)"; \
+		exit 1; \
+	}
+	@command -v qrencode >/dev/null 2>&1 || sudo apt-get install -y qrencode || true
+	@sed \
+		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
+		-e 's|@PYTHON@|$(WEB_PYTHON)|g' \
+		-e 's|@WEB_HOST@|$(WEB_HOST)|g' \
+		-e 's|@WEB_PORT@|$(WEB_PORT)|g' \
+		$(WEB_SYSTEMD_UNIT_IN) | sudo tee $(WEB_SYSTEMD_UNIT) >/dev/null
+	@sudo systemctl daemon-reload
+	@sudo systemctl enable cookie-finder-web.service
+	@echo "Installed $(WEB_SYSTEMD_UNIT)"
+	@echo "  python: $(WEB_PYTHON)"
+	@echo "  listen: http://$(WEB_HOST):$(WEB_PORT)"
+
+on-the-pi-web-daemon: on-the-pi-web-daemon-install
+	@echo "Stopping any foreground web server on port $(WEB_PORT)..."
+	@-sudo fuser -k $(WEB_PORT)/tcp 2>/dev/null || true
+	@sleep 0.5
+	@sudo systemctl restart cookie-finder-web.service
+	@sleep 1
+	@sudo systemctl --no-pager --full status cookie-finder-web.service || true
+	@echo ""
+	@echo "Web server managed by systemd (http://$(WEB_HOST):$(WEB_PORT))"
+	@echo "Check status:  make on-the-pi-web-daemon-status"
+	@echo "Stop:          make on-the-pi-web-daemon-stop"
+	@echo "Follow logs:   sudo journalctl -u cookie-finder-web -f"
+
+on-the-pi-web-daemon-stop:
+	@sudo systemctl stop cookie-finder-web.service
+	@echo "Stopped cookie-finder-web.service"
+
+on-the-pi-web-daemon-status:
+	@sudo systemctl --no-pager --full status cookie-finder-web.service || true
+	@echo ""
+	@echo "Web server managed by systemd"
+	@echo "Check status:  make on-the-pi-web-daemon-status"
+	@echo "Stop:          make on-the-pi-web-daemon-stop"
+	@echo "Follow logs:   sudo journalctl -u cookie-finder-web -f"
+	@echo "Recent logs:   sudo journalctl -u cookie-finder-web -n 30 --no-pager"
+
+# Print reachable IPv4 addresses and the web app URL/port (Pi only).
+# Also prints a terminal QR code when qrencode is installed.
+on-the-pi-web-url:
+	@port="$(WEB_PORT)"; \
+	if [ -f "$(WEB_SYSTEMD_UNIT)" ]; then \
+		unit_port=$$(sed -n 's/.*--port[[:space:]]\+\([0-9][0-9]*\).*/\1/p' "$(WEB_SYSTEMD_UNIT)" | head -1); \
+		[ -n "$$unit_port" ] && port="$$unit_port"; \
+	fi; \
+	echo "port: $$port"; \
+	echo "ips:"; \
+	ips=$$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $$2, $$4}' | sed 's|/.*||'); \
+	if [ -z "$$ips" ]; then \
+		echo "  (none — no global IPv4 yet)"; \
+		exit 0; \
+	fi; \
+	primary=""; \
+	echo "$$ips" | while read -r iface addr; do \
+		[ -z "$$addr" ] && continue; \
+		echo "  $$iface  $$addr"; \
+		echo "  url: http://$$addr:$$port"; \
+	done; \
+	primary=$$(echo "$$ips" | awk -v p="$$port" ' \
+		$$1 ~ /^wlan/ { print "http://" $$2 ":" p; found=1; exit } \
+		!found && NF { first="http://" $$2 ":" p } \
+		END { if (!found && first) print first }'); \
+	if [ -n "$$primary" ]; then \
+		echo "primary: $$primary"; \
+		if command -v qrencode >/dev/null 2>&1; then \
+			echo ""; \
+			qrencode -t ANSIUTF8 "$$primary"; \
+		else \
+			echo "qr: install with: sudo apt-get install -y qrencode"; \
+		fi; \
+	fi; \
+	if systemctl is-active --quiet cookie-finder-web.service 2>/dev/null; then \
+		echo "service: cookie-finder-web (active)"; \
+	else \
+		echo "service: cookie-finder-web (not active — start with: make on-the-pi-web-daemon)"; \
+	fi
+
 # WiFi button + LED daemon (independent of web app)
 on-the-pi-wifi-gpio-daemon-install:
 	@test -x "$(WIFI_PYTHON)" || { \
@@ -678,7 +786,8 @@ on-the-pi-wifi-gpio-daemon-status:
         rust-deploy rust-deploy-cookie rust-deploy-remote rust-deploy-cookie-remote \
         rust-daemon rust-run run-with-rust rust-home rust-keyboard \
         wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status \
-        wifi-status
+        web-daemon web-daemon-install web-daemon-stop web-daemon-status \
+        web-url wifi-status
 
 # Installation
 install: on-the-pi-install
@@ -760,3 +869,11 @@ wifi-gpio-daemon-stop: on-the-pi-wifi-gpio-daemon-stop
 wifi-gpio-daemon-status: on-the-pi-wifi-gpio-daemon-status
 wifi-status: on-the-pi-wifi-status
 wifi-configure-clients: on-the-pi-wifi-configure-clients
+wifi-fix: on-the-pi-wifi-fix
+
+# Web server daemon
+web-daemon: on-the-pi-web-daemon
+web-daemon-install: on-the-pi-web-daemon-install
+web-daemon-stop: on-the-pi-web-daemon-stop
+web-daemon-status: on-the-pi-web-daemon-status
+web-url: on-the-pi-web-url

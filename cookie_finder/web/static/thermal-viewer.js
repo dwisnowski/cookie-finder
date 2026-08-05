@@ -502,26 +502,65 @@ function connectWebSocket() {
             updateBluetoothUI();
         } else if (msg.type === 'bluetooth_scan_started') {
             bluetoothScanning = true;
-            bluetoothDevices = [];
             updateBluetoothUI();
-        } else if (msg.type === 'bluetooth_connect_result') {
-            console.log('[BT] Connect result incoming:', msg);
-            bluetoothConnectingDevices.delete(msg.address);
+        } else if (msg.type === 'bluetooth_pair_result') {
+            bluetoothPairingDevices.delete(msg.address);
             updateBluetoothUI();
-            if (!msg.success) {
-                const statusDisplay = document.getElementById('btStatusDisplay');
-                if (statusDisplay) {
-                    statusDisplay.textContent = `❌ Connection failed to ${msg.address}`;
+            const statusDisplay = document.getElementById('btStatusDisplay');
+            if (statusDisplay) {
+                if (msg.success) {
+                    statusDisplay.textContent = msg.message || `Paired ${msg.address}`;
+                    statusDisplay.style.color = '';
+                } else {
+                    statusDisplay.textContent = msg.message || `Pair failed: ${msg.address}`;
                     statusDisplay.style.color = '#ff4444';
                     setTimeout(() => {
                         statusDisplay.style.color = '';
                         if (!bluetoothScanning) statusDisplay.textContent = 'Ready to scan';
-                    }, 5000);
+                    }, 6000);
                 }
+            }
+        } else if (msg.type === 'bluetooth_connect_result') {
+            console.log('[BT] Connect result incoming:', msg);
+            bluetoothConnectingDevices.delete(msg.address);
+            updateBluetoothUI();
+            const statusDisplay = document.getElementById('btStatusDisplay');
+            if (!msg.success) {
+                if (statusDisplay) {
+                    statusDisplay.textContent = msg.message || `Connection failed to ${msg.address}`;
+                    statusDisplay.style.color = '#ff4444';
+                    setTimeout(() => {
+                        statusDisplay.style.color = '';
+                        if (!bluetoothScanning) statusDisplay.textContent = 'Ready to scan';
+                    }, 6000);
+                }
+            } else if (statusDisplay) {
+                statusDisplay.textContent = msg.message || 'Connected';
+                statusDisplay.style.color = '';
+            }
+        } else if (msg.type === 'bluetooth_remove_result') {
+            updateBluetoothUI();
+            const statusDisplay = document.getElementById('btStatusDisplay');
+            if (statusDisplay) {
+                statusDisplay.textContent = msg.message || (msg.success ? 'Removed' : 'Remove failed');
+                statusDisplay.style.color = msg.success ? '' : '#ff4444';
+                setTimeout(() => {
+                    statusDisplay.style.color = '';
+                    if (!bluetoothScanning) statusDisplay.textContent = 'Ready to scan';
+                }, 4000);
             }
         } else if (msg.type === 'bluetooth_scan_stopped') {
             bluetoothScanning = false;
             updateBluetoothUI();
+        } else if (msg.type === 'bluetooth_disconnect_result') {
+            updateBluetoothUI();
+            if (!msg.success) {
+                const statusDisplay = document.getElementById('btStatusDisplay');
+                if (statusDisplay) {
+                    statusDisplay.textContent = msg.message || 'Disconnect failed';
+                    statusDisplay.style.color = '#ff4444';
+                }
+            }
         } else if (msg.type === 'wifi_status') {
             applyWifiStatus(msg.data);
         }
@@ -1298,12 +1337,19 @@ if (verticalPresetBtn) {
     });
 }
 
-// === BLUETOOTH FUNCTIONALITY ===
+// === PI BLUETOOTH GAMEPAD (BlueZ HID on the robot) ===
 let bluetoothDevices = [];
 let bluetoothScanning = false;
 let hideUnknownDevices = true; // Default: hide Unknown Device
 let bluetoothConnectedDevices = [];
 let bluetoothConnectingDevices = new Set(); // Track devices being connected
+let bluetoothPairingDevices = new Set();
+
+function bluetoothDeviceStatusText(device) {
+    if (device.connected) return 'Connected';
+    if (device.paired) return 'Paired';
+    return 'Available';
+}
 
 function updateBluetoothUI() {
     const devicesList = document.getElementById('btDevicesList');
@@ -1349,9 +1395,21 @@ function updateBluetoothUI() {
 
     devicesList.innerHTML = displayDevices.map(device => {
         const addressShort = device.address.substring(device.address.length - 5).toUpperCase();
-        const statusClass = device.connected ? 'connected' : device.paired ? 'paired' : '';
-        const statusText = device.connected ? '🔗 Connected' : device.paired ? '✓ Paired' : '⊗ Available';
+        const statusText = bluetoothDeviceStatusText(device);
         const isConnecting = bluetoothConnectingDevices.has(device.address);
+        const isPairing = bluetoothPairingDevices.has(device.address);
+        const busy = isConnecting || isPairing;
+        let actionButtons = '';
+        if (!device.paired) {
+            actionButtons += `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px; ${busy ? 'opacity: 0.6; cursor: not-allowed;' : ''}" onclick="bluetoothPair('${device.address}')" ${busy ? 'disabled' : ''}>${isPairing ? 'Pairing...' : 'Pair'}</button>`;
+        }
+        if (!device.connected) {
+            actionButtons += `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px; ${busy ? 'opacity: 0.6; cursor: not-allowed;' : ''}" onclick="bluetoothConnect('${device.address}')" ${busy ? 'disabled' : ''}>${isConnecting ? 'Connecting...' : 'Connect'}</button>`;
+        } else {
+            actionButtons += `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>`;
+        }
+        actionButtons += `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothSetActive('${device.address}')">Set Active</button>`;
+        actionButtons += `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothRemove('${device.address}')">Remove</button>`;
 
         return `
             <div style="
@@ -1367,16 +1425,14 @@ function updateBluetoothUI() {
                         ${device.name || 'Unknown Device'}
                     </div>
                     <div style="font-size: 9px; color: var(--text-tertiary);">
-                        ${addressShort} ${device.signal_strength}
+                        ${addressShort}
                     </div>
                 </div>
                 <div style="margin-bottom: 4px; font-size: 10px; color: var(--accent);">
-                    ${isConnecting ? '<span style="animation: blink 1s infinite;">🔄 Connecting...</span>' : statusText}
+                    ${isConnecting ? 'Connecting...' : isPairing ? 'Pairing...' : statusText}
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 3px;">
-                    ${!device.connected ? `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px; ${isConnecting ? 'opacity: 0.6; cursor: not-allowed;' : ''}" id="btn_connect_${device.address}" onclick="bluetoothConnect('${device.address}')" ${isConnecting ? 'disabled' : ''}>${isConnecting ? '⏳ Connecting...' : 'Connect'}</button>` : `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>`}
-                    <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothSetActive('${device.address}')">Set Active</button>
-                    <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;"  onclick="bluetoothRemove('${device.address}')">Remove</button>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
+                    ${actionButtons}
                 </div>
             </div>
         `;
@@ -1393,7 +1449,6 @@ function updateConnectedBluetoothUI() {
 
     connectedList.innerHTML = bluetoothConnectedDevices.map(device => {
         const addressShort = device.address.substring(device.address.length - 5).toUpperCase();
-        const signalBar = device.signal_strength || '▓░░░░';
         const isActive = device.is_active;
 
         return `
@@ -1408,14 +1463,14 @@ function updateConnectedBluetoothUI() {
             ">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
                     <div style="font-weight: 600; color: var(--accent); display: flex; align-items: center; gap: 6px;">
-                        🔗 ${device.name || 'Unknown Device'}
-                        ${isActive ? '⭐' : ''}
+                        ${device.name || 'Unknown Device'}
+                        ${isActive ? '(active)' : ''}
                     </div>
                     <div style="font-size: 9px; color: var(--text-tertiary);">
-                        ${addressShort} ${signalBar}
+                        ${addressShort}
                     </div>
                 </div>
-                ${isActive ? '<div style="font-size: 9px; color: var(--accent); margin-bottom: 4px; font-weight: bold;">● ACTIVE INPUT</div>' : ''}
+                ${isActive ? '<div style="font-size: 9px; color: var(--accent); margin-bottom: 4px; font-weight: bold;">ACTIVE INPUT</div>' : ''}
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 3px;">
                     ${!isActive ? `<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothSetActive('${device.address}')">Set Active</button>` : '<button class="btn-toggle" style="padding: 4px 6px; font-size: 9px; opacity: 0.5; cursor: default;">Active</button>'}
                     <button class="btn-toggle" style="padding: 4px 6px; font-size: 9px;" onclick="bluetoothDisconnect('${device.address}')">Disconnect</button>
@@ -1431,8 +1486,21 @@ function applyBluetoothConnected(data) {
     updateConnectedBluetoothUI();
 }
 
+function bluetoothPair(address) {
+    bluetoothPairingDevices.add(address);
+    updateBluetoothUI();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'bluetooth_pair',
+            address: address
+        }));
+    } else {
+        bluetoothPairingDevices.delete(address);
+        updateBluetoothUI();
+    }
+}
+
 function bluetoothConnect(address) {
-    // Mark device as connecting
     bluetoothConnectingDevices.add(address);
     updateBluetoothUI();
 
@@ -1441,7 +1509,6 @@ function bluetoothConnect(address) {
             action: 'bluetooth_connect',
             address: address
         }));
-        // Removed hardcoded setTimeout - we now wait for bluetooth_connect_result via WS
     } else {
         bluetoothConnectingDevices.delete(address);
         updateBluetoothUI();
@@ -1451,7 +1518,14 @@ function bluetoothConnect(address) {
 function bluetoothSetActive(address) {
     fetch(`/bluetooth/set-active/${address}`, { method: 'POST' })
         .then(r => r.json())
-        .then(data => console.log('[BT] Set active response:', data))
+        .then(data => {
+            console.log('[BT] Set active response:', data);
+            const statusDisplay = document.getElementById('btStatusDisplay');
+            if (statusDisplay && data.message) {
+                statusDisplay.textContent = data.message;
+                statusDisplay.style.color = data.status === 'success' ? '' : '#ff4444';
+            }
+        })
         .catch(e => console.error('Error setting active device:', e));
 }
 
@@ -1465,7 +1539,7 @@ function bluetoothDisconnect(address) {
 }
 
 function bluetoothRemove(address) {
-    if (confirm(`Remove device ${address}?`)) {
+    if (confirm(`Remove (unpair) device ${address} from this robot?`)) {
         if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({
                 action: 'bluetooth_remove',
@@ -1478,7 +1552,6 @@ function bluetoothRemove(address) {
 function startBluetoothScan() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         bluetoothScanning = true;
-        bluetoothDevices = [];
         updateBluetoothUI();
         ws.send(JSON.stringify({
             action: 'bluetooth_start_scan'

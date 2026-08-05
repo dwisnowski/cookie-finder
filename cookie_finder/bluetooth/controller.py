@@ -1,34 +1,48 @@
 """
-Bluetooth device scanning and connection management using bleak.
-Async-friendly BLE (Bluetooth Low Energy) controller for Orange Pi and other platforms.
+BlueZ Classic HID Bluetooth device manager for gamepads on Linux (Orange Pi).
+
+Uses bluetoothctl for scan/pair/trust/connect/disconnect/remove. Input is read
+from the Linux joystick stack via pygame after the OS exposes /dev/input/*.
 """
 
-import asyncio
-import threading
-import traceback
+from __future__ import annotations
+
 import subprocess
-import platform
-import sys
-from typing import List, Dict, Optional, Callable, Set
-from bleak import BleakScanner, BleakClient, BleakError
+import threading
+import time
+import traceback
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 try:
     import pygame
 except ImportError:
-    pygame = None  # Fallback if pygame not installed
+    pygame = None
+
+
+def normalize_address(address: str) -> str:
+    """Normalize a Bluetooth MAC to uppercase colon-separated form."""
+    return address.strip().upper()
 
 
 class BluetoothDevice:
-    """Represents a discovered Bluetooth device."""
-    
-    def __init__(self, address: str, name: str, rssi: int, advertised_services: List[str] = None):
-        self.address = address
-        self.name = name or f"Unknown ({address[-5:]})"
-        self.rssi = rssi  # Signal strength in dBm
-        self.paired = False  # bleak doesn't track pairing state directly
-        self.connected = False
-        self.advertised_services = advertised_services or []
-    
+    """Represents a BlueZ-known Bluetooth device."""
+
+    def __init__(
+        self,
+        address: str,
+        name: str,
+        rssi: int = -100,
+        paired: bool = False,
+        connected: bool = False,
+        trusted: bool = False,
+    ):
+        self.address = normalize_address(address)
+        self.name = name or f"Unknown ({self.address[-5:]})"
+        self.rssi = rssi
+        self.paired = paired
+        self.connected = connected
+        self.trusted = trusted
+
     def to_dict(self) -> Dict:
         return {
             "address": self.address,
@@ -36,998 +50,648 @@ class BluetoothDevice:
             "rssi": self.rssi,
             "paired": self.paired,
             "connected": self.connected,
+            "trusted": self.trusted,
             "signal_strength": self._rssi_to_bars(self.rssi),
-            "advertised_services": len(self.advertised_services)
         }
-    
+
     @staticmethod
     def _rssi_to_bars(rssi: int) -> str:
-        """Convert RSSI to signal strength bars."""
         if rssi >= -50:
             return "▓▓▓▓▓"
-        elif rssi >= -60:
+        if rssi >= -60:
             return "▓▓▓▓░"
-        elif rssi >= -70:
+        if rssi >= -70:
             return "▓▓▓░░"
-        elif rssi >= -80:
+        if rssi >= -80:
             return "▓▓░░░"
-        else:
-            return "▓░░░░"
+        return "▓░░░░"
 
 
 class BluetoothController:
-    """Manages Bluetooth device discovery and connection using bleak."""
-    
+    """Manages Classic Bluetooth HID devices via BlueZ (bluetoothctl)."""
+
+    SCAN_DURATION_S = 15.0
+    SCAN_POLL_S = 1.5
+
     def __init__(self):
         self.scanning = False
         self.devices: Dict[str, BluetoothDevice] = {}
-        self.connected_devices: Dict[str, BleakClient] = {}
-        self.connected_device_address: Optional[str] = None  # Track active input device
+        self.connected_device_address: Optional[str] = None
         self.scan_thread: Optional[threading.Thread] = None
         self.status_callback: Optional[Callable] = None
-        self.last_input_data: Dict = {"pan_axis": 0.0, "tilt_axis": 0.0}  # Cached input
-        self.notification_data: Dict[str, bytes] = {}  # Store latest notification data per characteristic
-        self.joystick_thread: Optional[threading.Thread] = None  # Thread for reading joystick
+        self.last_error: Optional[str] = None
+        self.last_input_data: Dict = {"pan_axis": 0.0, "tilt_axis": 0.0}
+        self.joystick_thread: Optional[threading.Thread] = None
         self.joystick_running = False
-        self.last_joystick_input: Dict = {"pan_axis": 0.0, "tilt_axis": 0.0, "buttons": {}}  # Latest joystick state
-        
-        # Caching for system device checks
-        self.last_system_check = 0
-        self._cached_system_connected = set()
-        self.system_check_cooldown = 10.0  # Seconds between physical checks
-    
-    def _get_system_connected_devices(self) -> Set[str]:
-        """Query system Bluetooth adapter for actually connected devices (Linux)."""
-        import time
-        now = time.time()
-        
-        # Return cached result if within cooldown period
-        if now - self.last_system_check < self.system_check_cooldown:
-            return self._cached_system_connected
-            
-        connected = set()
+        self.last_joystick_input: Dict = {
+            "pan_axis": 0.0,
+            "tilt_axis": 0.0,
+            "buttons": {},
+        }
+        self._btctl_lock = threading.Lock()
+        self._refresh_known_devices()
+
+    # --- BlueZ helpers -----------------------------------------------------
+
+    def _run_bt(
+        self, *args: str, timeout: float = 30.0
+    ) -> Tuple[bool, str, str]:
+        """Run bluetoothctl with the given args. Returns (ok, stdout, stderr)."""
         try:
-            self.last_system_check = now
-            # Try to get connected devices from bluetoothctl
-            result = subprocess.run(
-                ['bluetoothctl', '--', 'devices', 'Connected'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            
-            if result.returncode == 0:
-                # Parse output: "Device <address> <name>"
-                for line in result.stdout.strip().split('\n'):
-                    if line.startswith('Device '):
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            address = parts[1]
-                            connected.add(address.upper())
-                # print(f"[BT] System-connected devices: {connected}")
-            else:
-                # print(f"[BT] bluetoothctl returned code {result.returncode}: {result.stderr}")
-                pass
-        except subprocess.TimeoutExpired:
-            print(f"[BT] Warning: bluetoothctl connection query timed out (using cached results)")
-            return self._cached_system_connected
+            with self._btctl_lock:
+                result = subprocess.run(
+                    ["bluetoothctl", "--", *args],
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout,
+                )
+            stdout = (result.stdout or "").strip()
+            stderr = (result.stderr or "").strip()
+            ok = result.returncode == 0
+            if not ok and not stderr and stdout:
+                # bluetoothctl often puts failure text on stdout
+                stderr = stdout
+            return ok, stdout, stderr
         except FileNotFoundError:
-            print(f"[BT] bluetoothctl not found - is bluez installed? Run: sudo apt install bluez")
+            msg = "bluetoothctl not found — install bluez (sudo apt install bluez)"
+            return False, "", msg
+        except subprocess.TimeoutExpired:
+            return False, "", f"bluetoothctl timed out: {' '.join(args)}"
         except Exception as e:
-            print(f"[BT] Error querying system devices: {e}")
-        
-        self._cached_system_connected = connected
-        return connected
-    
-    def _get_device_name_from_system(self, address: str) -> Optional[str]:
-        """Query device name from bluetoothctl (Linux only)."""
-        try:
-            # Use bluetoothctl to get device info
-            result = subprocess.run(
-                ['bluetoothctl', '--', 'info', address],
-                capture_output=True,
-                text=True,
-                timeout=5
+            return False, "", f"{type(e).__name__}: {e}"
+
+    def _ensure_adapter(self) -> Tuple[bool, str]:
+        ok, _, err = self._run_bt("power", "on", timeout=10)
+        if not ok:
+            return False, err or "Failed to power on Bluetooth adapter"
+        self._run_bt("agent", "on", timeout=5)
+        self._run_bt("default-agent", timeout=5)
+        return True, ""
+
+    def _parse_devices_output(self, stdout: str) -> Dict[str, str]:
+        """Parse `Device <addr> <name>` lines → {ADDRESS: name}."""
+        found: Dict[str, str] = {}
+        for line in stdout.splitlines():
+            line = line.strip()
+            if not line.startswith("Device "):
+                continue
+            parts = line.split(None, 2)
+            if len(parts) < 2:
+                continue
+            address = normalize_address(parts[1])
+            name = parts[2] if len(parts) >= 3 else f"Unknown ({address[-5:]})"
+            found[address] = name
+        return found
+
+    def _parse_info(self, address: str, stdout: str) -> Dict:
+        info = {
+            "address": normalize_address(address),
+            "name": None,
+            "paired": False,
+            "trusted": False,
+            "connected": False,
+            "rssi": -100,
+        }
+        for line in stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("Name:"):
+                info["name"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("Alias:") and not info["name"]:
+                info["name"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("Paired:"):
+                info["paired"] = "yes" in stripped.lower()
+            elif stripped.startswith("Trusted:"):
+                info["trusted"] = "yes" in stripped.lower()
+            elif stripped.startswith("Connected:"):
+                info["connected"] = "yes" in stripped.lower()
+            elif stripped.startswith("RSSI:"):
+                try:
+                    info["rssi"] = int(stripped.split(":", 1)[1].strip())
+                except ValueError:
+                    pass
+        return info
+
+    def _get_info(self, address: str) -> Optional[Dict]:
+        address = normalize_address(address)
+        ok, stdout, _ = self._run_bt("info", address, timeout=8)
+        if not ok or not stdout:
+            return None
+        return self._parse_info(address, stdout)
+
+    def _upsert_device_from_info(self, address: str, fallback_name: str = "") -> BluetoothDevice:
+        address = normalize_address(address)
+        info = self._get_info(address)
+        existing = self.devices.get(address)
+        if info:
+            name = info["name"] or fallback_name or (existing.name if existing else None)
+            device = BluetoothDevice(
+                address=address,
+                name=name or f"Unknown ({address[-5:]})",
+                rssi=info["rssi"],
+                paired=info["paired"],
+                connected=info["connected"],
+                trusted=info["trusted"],
             )
-            
-            if result.returncode == 0:
-                # Parse output looking for "Name: <device name>"
-                for line in result.stdout.strip().split('\n'):
-                    if line.startswith('Name:'):
-                        # Extract name after "Name: "
-                        name = line.replace('Name:', '').strip()
-                        if name:
-                            return name
-        except Exception:
-            pass
-        
-        return None
-    
-    def set_status_callback(self, callback: Callable):
-        """Set callback for status updates."""
-        self.status_callback = callback
-    
-    def _emit_status(self, status: str, data: Optional[Dict] = None):
-        """Emit status update via callback."""
-        if self.status_callback:
-            self.status_callback({
-                "status": status,
-                "data": data or {}
-            })
-    
-    def _run_async(self, coro, timeout=12):
-        """Helper to run async code from sync context."""
-        try:
-            # Try to get existing event loop
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                # No event loop in current thread
-                loop = None
-            
-            if loop and loop.is_running():
-                # Loop is already running, schedule as task
-                future = asyncio.run_coroutine_threadsafe(coro, loop)
-                return future.result(timeout=timeout)
-            elif loop:
-                # Loop exists but not running, use it
-                return loop.run_until_complete(coro)
+        else:
+            device = existing or BluetoothDevice(
+                address, fallback_name or f"Unknown ({address[-5:]})"
+            )
+        self.devices[address] = device
+        return device
+
+    def _refresh_known_devices(self) -> None:
+        """Refresh cache from BlueZ known + connected devices."""
+        ok, stdout, _ = self._run_bt("devices", timeout=8)
+        known = self._parse_devices_output(stdout) if ok else {}
+
+        ok_c, stdout_c, _ = self._run_bt("devices", "Connected", timeout=8)
+        connected = set(self._parse_devices_output(stdout_c).keys()) if ok_c else set()
+
+        # Merge newly known devices; keep prior entries that disappeared from
+        # the brief scan window only if still paired (checked via info below).
+        for address, name in known.items():
+            self._upsert_device_from_info(address, fallback_name=name)
+
+        for address in connected:
+            if address not in self.devices:
+                self._upsert_device_from_info(address)
             else:
-                # No loop, create new one
-                return asyncio.run(coro)
-        except RuntimeError as e:
-            if "different loop" in str(e):
-                # Event loop conflict - just log and continue
-                print(f"[BT] Event loop warning (non-critical): {e}")
-                return False
-            raise
-    
+                self.devices[address].connected = True
+
+        # Drop stale non-paired entries that BlueZ no longer lists
+        stale = [
+            addr
+            for addr, dev in self.devices.items()
+            if addr not in known and addr not in connected and not dev.paired
+        ]
+        for addr in stale:
+            del self.devices[addr]
+
+    def _get_system_connected_devices(self) -> Set[str]:
+        """Return uppercase MACs currently Connected in BlueZ."""
+        ok, stdout, _ = self._run_bt("devices", "Connected", timeout=8)
+        if not ok:
+            return set()
+        return set(self._parse_devices_output(stdout).keys())
+
+    def _get_device_name_from_system(self, address: str) -> Optional[str]:
+        info = self._get_info(address)
+        if info and info.get("name"):
+            return info["name"]
+        return None
+
+    def _set_error(self, message: str) -> None:
+        self.last_error = message
+        print(f"[BT] {message}")
+
+    def _clear_error(self) -> None:
+        self.last_error = None
+
+    # --- Status / public list API ------------------------------------------
+
+    def set_status_callback(self, callback: Callable):
+        self.status_callback = callback
+
+    def _emit_status(self, status: str, data: Optional[Dict] = None):
+        if self.status_callback:
+            self.status_callback({"status": status, "data": data or {}})
+
+    def get_devices_list(self) -> List[Dict]:
+        self._refresh_known_devices()
+        return [d.to_dict() for d in self.devices.values()]
+
+    def get_device(self, address: str) -> Optional[BluetoothDevice]:
+        address = normalize_address(address)
+        if address in self.devices:
+            return self._upsert_device_from_info(address, self.devices[address].name)
+        device = self._upsert_device_from_info(address)
+        # If BlueZ knows nothing about it, still return a placeholder so UI
+        # can attempt pair/connect after a scan discovery race.
+        return device
+
+    def get_connected_device(self) -> Optional[str]:
+        return self.connected_device_address
+
+    def get_last_error(self) -> Optional[str]:
+        return self.last_error
+
+    # --- Scan --------------------------------------------------------------
+
     def start_scan(self) -> bool:
-        """Start scanning for Bluetooth devices."""
         if self.scanning:
             return False
-        
+
+        ok, err = self._ensure_adapter()
+        if not ok:
+            self._set_error(err)
+            self._emit_status("scan_error", {"error": err})
+            return False
+
         self.scanning = True
-        self.devices = {}
-        
-        print("[BT] Starting device scan...")
+        self._clear_error()
+        # Preserve paired/connected devices; refresh merges new discoveries.
+        print("[BT] Starting BlueZ scan...")
         self._emit_status("scan_started")
-        
         self.scan_thread = threading.Thread(target=self._scan_worker, daemon=True)
         self.scan_thread.start()
-        
         return True
-    
+
     def stop_scan(self):
-        """Stop Bluetooth scanning."""
+        was_scanning = self.scanning
         self.scanning = False
-        if self.scan_thread:
+        self._run_bt("scan", "off", timeout=5)
+        if self.scan_thread and self.scan_thread.is_alive():
             self.scan_thread.join(timeout=3)
-        
-        print("[BT] Scan stopped")
-        self._emit_status("scan_stopped", {"devices": self.get_devices_list()})
-    
+        if was_scanning:
+            print("[BT] Scan stopped")
+            self._refresh_known_devices()
+            self._emit_status("scan_stopped", {"devices": self.get_devices_list()})
+
     def _scan_worker(self):
-        """Background worker for Bluetooth scanning."""
         try:
-            self._run_async(self._scan_async())
+            # Non-interactive discovery for SCAN_DURATION_S
+            scan_proc = subprocess.Popen(
+                [
+                    "bluetoothctl",
+                    "--timeout",
+                    str(int(self.SCAN_DURATION_S)),
+                    "scan",
+                    "on",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            deadline = time.time() + self.SCAN_DURATION_S
+            while self.scanning and time.time() < deadline:
+                self._refresh_known_devices()
+                self._emit_status(
+                    "scan_update", {"devices": [d.to_dict() for d in self.devices.values()]}
+                )
+                time.sleep(self.SCAN_POLL_S)
+
+            self.scanning = False
+            if scan_proc.poll() is None:
+                scan_proc.terminate()
+                try:
+                    scan_proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    scan_proc.kill()
+            self._run_bt("scan", "off", timeout=5)
+            self._refresh_known_devices()
+            devices = [d.to_dict() for d in self.devices.values()]
+            print(f"[BT] Scan complete. {len(devices)} device(s) known")
+            if not devices:
+                print(
+                    "[BT] No devices found. Put the gamepad in pairing mode and "
+                    "ensure bluez is running (systemctl status bluetooth)."
+                )
+            self._emit_status("scan_complete", {"devices": devices})
         except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            tb = traceback.format_exc()
-            print(f"[BT] Scan error: {error_msg}")
-            print(f"[BT] Traceback:\n{tb}")
+            error_msg = f"{type(e).__name__}: {e}"
+            print(f"[BT] Scan error: {error_msg}\n{traceback.format_exc()}")
             self.scanning = False
+            self._set_error(error_msg)
             self._emit_status("scan_error", {"error": error_msg})
-    
-    async def _scan_async(self):
-        """Async scanning using bleak."""
-        try:
-            print("[BT] Starting BLE scan...")
-            print("[BT] Scanning for Bluetooth Low Energy (BLE) devices advertising nearby")
-            print("[BT] This will run for ~6 seconds. Ensure your target device is:")
-            print("[BT]   1. Powered ON")
-            print("[BT]   2. In pairing/advertising mode")
-            print("[BT]   3. Within Bluetooth range (~10 meters)")
-            
-            devices_found_count = 0
-            
-            # Scan for devices - detection_callback is called as devices are found
-            def on_detection(device, advertisement_data):
-                """Callback when a device is discovered."""
-                nonlocal devices_found_count
-                devices_found_count += 1
-                
-                address = device.address
-                
-                # Extract name from advertisement data (multiple possible locations)
-                name = None
-                if advertisement_data.local_name:
-                    name = advertisement_data.local_name
-                elif device.name:
-                    name = device.name
-                
-                # Fallback to address if no name found
-                if not name:
-                    name = f"Unknown Device ({address[-5:]})"
-                
-                rssi = advertisement_data.rssi or -100
-                services = list(advertisement_data.service_uuids) if advertisement_data.service_uuids else []
-                
-                ble_device = BluetoothDevice(address, name, rssi, services)
-                self.devices[address] = ble_device
-                
-                # Emit periodic update
-                devices_list = self.get_devices_list()
-                self._emit_status("scan_update", {"devices": devices_list})
-                print(f"[BT] Found: {name} ({address}) RSSI={rssi} dBm")
-            
-            # Run scanner for ~6 seconds
-            async with BleakScanner(detection_callback=on_detection) as scanner:
-                await asyncio.sleep(6)
-            
-            print(f"[BT] Scan complete. Found {devices_found_count} devices during scan, {len(self.devices)} total in cache")
-            
-            if len(self.devices) == 0:
-                print(f"[BT] No BLE devices found. Debugging steps:")
-                print(f"[BT] 1. Check Bluetooth adapter status:")
-                print(f"[BT]    sudo hciconfig")
-                print(f"[BT]    (Look for 'UP RUNNING' - if 'DOWN', run: sudo hciconfig hci0 up)")
-                print(f"[BT] 2. Check Bluetooth service:")
-                print(f"[BT]    sudo systemctl status bluetooth")
-                print(f"[BT] 3. Manually scan with bluetoothctl:")
-                print(f"[BT]    bluetoothctl scan on")
-                print(f"[BT] 4. Verify target device is:")
-                print(f"[BT]    - Powered ON and advertising")
-                print(f"[BT]    - Within ~10 meters of this system")
-                print(f"[BT]    - Not already connected to another device")
-            
-            self.scanning = False
-            self._emit_status("scan_complete", {"devices": self.get_devices_list()})
-        
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            
-            # Handle common adapter issues with specific advice
-            if "No Bluetooth adapters found" in str(e) or "BleakBluetoothNotAvailableError" in type(e).__name__:
-                error_msg = "No Bluetooth adapter found. Try: 'sudo hciconfig hci0 up' or 'sudo systemctl restart bluetooth'."
-            
-            tb = traceback.format_exc()
-            print(f"[BT] Scan error: {error_msg}")
-            print(f"[BT] Traceback:\n{tb}")
-            self.scanning = False
-            self._emit_status("scan_error", {"error": error_msg})
-    
-    def connect_device(self, address: str, retries: int = 1) -> bool:
-        """Attempt to connect to a device with optional retries."""
+
+    # --- Pair / connect / disconnect / remove ------------------------------
+
+    def pair_device(self, address: str) -> bool:
+        """Pair and trust a device (does not require connect)."""
+        address = normalize_address(address)
+        self._clear_error()
+        ok, err = self._ensure_adapter()
+        if not ok:
+            self._set_error(err)
+            self._emit_status("device_pair_failed", {"address": address, "error": err})
+            return False
+
+        print(f"[BT] Pairing {address}...")
+        info = self._get_info(address)
+        if info and info.get("paired"):
+            if not info.get("trusted"):
+                self._run_bt("trust", address, timeout=15)
+            device = self._upsert_device_from_info(address)
+            self._emit_status(
+                "device_paired", {"address": address, "name": device.name}
+            )
+            return True
+
+        ok, stdout, stderr = self._run_bt("pair", address, timeout=45)
+        # Some BlueZ versions return non-zero if already paired
+        if not ok and "AlreadyExists" not in (stdout + stderr):
+            msg = stderr or stdout or "Pair failed"
+            self._set_error(msg)
+            self._emit_status(
+                "device_pair_failed", {"address": address, "error": msg}
+            )
+            return False
+
+        self._run_bt("trust", address, timeout=15)
+        device = self._upsert_device_from_info(address)
+        device.paired = True
+        print(f"[BT] Paired {address} ({device.name})")
+        self._emit_status("device_paired", {"address": address, "name": device.name})
+        return True
+
+    def connect_device(self, address: str, retries: int = 2) -> bool:
+        """Pair (if needed), connect via BlueZ, and mark as active input device."""
+        address = normalize_address(address)
+        self._clear_error()
+
         for attempt in range(1, retries + 1):
-            try:
-                if attempt > 1:
-                    print(f"[BT] Retry attempt {attempt}/{retries} for {address}")
-                print(f"[BT] Connecting to {address}...")
-                result = self._run_async(self._connect_async(address))
-                if result:
-                    return True
-            except Exception as e:
-                error_msg = f"{type(e).__name__}: {str(e)}"
-                tb = traceback.format_exc()
-                print(f"[BT] Connection error (attempt {attempt}/{retries}): {error_msg}")
-                print(f"[BT] Traceback:\n{tb}")
-                
-                if attempt < retries:
-                    print(f"[BT] Waiting 2 seconds before retry...")
-                    import time
-                    time.sleep(2)
-                else:
-                    self._emit_status("device_connect_error", {"address": address, "error": error_msg})
-        
-        return False
-    
-    async def _connect_async(self, address: str) -> bool:
-        """Async connect to device."""
-        try:
-            # Check if already connected
-            if address in self.connected_devices:
-                print(f"[BT] Already connected to {address}")
+            if attempt > 1:
+                print(f"[BT] Retry connect {attempt}/{retries} for {address}")
+                time.sleep(1.5)
+
+            ok, err = self._ensure_adapter()
+            if not ok:
+                self._set_error(err)
+                continue
+
+            info = self._get_info(address)
+            if info and info.get("connected"):
+                print(f"[BT] Already connected at BlueZ level: {address}")
+                device = self._upsert_device_from_info(address)
                 self.connected_device_address = address
+                self._start_joystick_reading_thread()
+                self._emit_status(
+                    "device_connected", {"address": address, "name": device.name}
+                )
                 return True
-            
-            # Create and connect client
-            device = self.devices.get(address)
-            if not device:
-                print(f"[BT] Device {address} not in discovered list")
-                return False
-            
-            print(f"[BT] Creating BleakClient for {address} ({device.name})")
-            print(f"[BT] Device info: RSSI={device.rssi}, Services={device.advertised_services}")
-            
-            # Create client with timeout hints for faster connection
-            client = BleakClient(address, timeout=10.0)
-            
-            # Check if device is already system-connected
-            system_connected = self._get_system_connected_devices()
-            is_system_connected = address.upper() in system_connected
-            
-            if is_system_connected:
-                print(f"[BT] Device is already connected at system level, using existing connection")
-                print(f"[BT] Skipping Bleak connection (input via /dev/input/jsX)")
-                # Don't call connect() for system-connected devices
-                # Just track as connected and let joystick thread handle input
-            else:
-                print(f"[BT] Attempting connection to {address} (timeout: 10s)")
-                try:
-                    # Use a 10-second timeout on the actual connect call
-                    await asyncio.wait_for(client.connect(), timeout=10.0)
-                    print(f"[BT] Connection established")
-                except asyncio.TimeoutError:
-                    print(f"[BT] Connection timeout after 10 seconds - device may be out of range or not responding")
-                    print(f"[BT] Device signal: RSSI={device.rssi} (range: -50 to -100 dBm)")
-                    print(f"[BT] Troubleshooting:")
-                    print(f"[BT]   - Ensure device is powered on and in pairing mode")
-                    print(f"[BT]   - Check Bluetooth adapter: hciconfig, systemctl status bluetooth")
-                    print(f"[BT]   - Try: bluetoothctl -> pair {address} -> connect {address}")
-                    raise TimeoutError(f"Connection to {address} timed out - device not responding")
-            
-            self.connected_devices[address] = client
-            self.connected_device_address = address  # Set as active input device
-            
-            # Update device state
-            device.connected = True
-            device.paired = True
-            
-            print(f"[BT] Successfully connected to {address}")
-            
-            # Only inspect GATT if we actually connected (not for system-connected devices)
-            if not is_system_connected:
-                # Inspect device and setup appropriate input method
-                await self._inspect_device_gatt(client, address)
-            
-            self._emit_status("device_connected", {"address": address, "name": device.name})
-            return True
-        
-        except asyncio.TimeoutError as e:
-            error_msg = f"TimeoutError: Connection timeout - device not responding"
-            print(f"[BT] Connection timeout: {error_msg}")
-            self._emit_status("device_connect_failed", {"address": address, "error": error_msg})
-            return False
-        except BleakError as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[BT] Bleak error during connection: {error_msg}")
-            self._emit_status("device_connect_failed", {"address": address, "error": error_msg})
-            return False
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            tb = traceback.format_exc()
-            print(f"[BT] Connection error (unexpected): {error_msg}")
-            print(f"[BT] Traceback:\n{tb}")
-            self._emit_status("device_connect_failed", {"address": address, "error": error_msg})
-            return False
-    
-    async def _inspect_device_gatt(self, client: BleakClient, address: str):
-        """Inspect and log device's GATT services and characteristics."""
-        try:
-            print(f"\n[BT] ========== GATT PROFILE FOR {address} ==========")
-            
-            # Try to get services - method differs by Bleak version
-            try:
-                # Newer Bleak versions (0.19+)
-                services = client.services
-            except (AttributeError, TypeError):
-                # Older Bleak versions
-                services = await client.get_services()
-            
-            # Detect input method: vendor-specific (notifications) vs standard HID (polling)
-            vendor_notify_chars = []
-            standard_hid_available = False
-            
-            for service in services:
-                service_uuid = service.uuid
-                print(f"[BT] Service: {service_uuid}")
-                
-                for char in service.characteristics:
-                    char_uuid = char.uuid
-                    props = ", ".join(char.properties) if char.properties else "none"
-                    print(f"[BT]   └─ Char: {char_uuid}")
-                    print(f"[BT]      Properties: {props}")
-                    
-                    # Detect vendor-specific characteristics with notify
-                    if "notify" in char.properties and "f000ff" in char_uuid.lower():
-                        vendor_notify_chars.append(char_uuid)
-                        print(f"[BT]      [VENDOR-SPECIFIC INPUT DETECTED]")
-                    
-                    # Detect standard HID Input Report
-                    if char_uuid.lower() == "00002a4d-0000-1000-8000-00805f9b34fb":
-                        standard_hid_available = True
-                        print(f"[BT]      [STANDARD HID INPUT DETECTED]")
-                    
-                    # Try to read if it's readable and not too risky
-                    if "read" in char.properties:
-                        try:
-                            # Skip reading non-essential characteristics to avoid timeouts
-                            # Only read device info, battery, or vendor characteristics
-                            skip_read = char_uuid.lower() in [
-                                "00002b2a-0000-1000-8000-00805f9b34fb",  # GATT Database Hash
-                            ]
-                            
-                            if not skip_read:
-                                data = await asyncio.wait_for(client.read_gatt_char(char_uuid), timeout=1.0)
-                                hex_str = " ".join(f"{b:02x}" for b in data[:20])
-                                ascii_str = "".join(chr(b) if 32 <= b < 127 else "." for b in data[:20])
-                                print(f"[BT]      Data (read): {hex_str}")
-                                if ascii_str.strip():
-                                    print(f"[BT]      ASCII: {ascii_str}")
-                        except asyncio.TimeoutError:
-                            print(f"[BT]      Data (read timeout)")
-                        except Exception as read_err:
-                            print(f"[BT]      Data (read failed): {type(read_err).__name__}")
-            
-            # Setup input method based on what's available
-            if vendor_notify_chars:
-                print(f"[BT] Using NOTIFICATION mode (vendor-specific): {vendor_notify_chars}")
-                await self._setup_notification_listeners(client, address, vendor_notify_chars)
-            elif standard_hid_available:
-                print(f"[BT] Using POLLING mode (standard HID)")
-            else:
-                print(f"[BT] WARNING: No recognized input characteristics found")
-            
-            print(f"[BT] ====================================================\n")
-        
-        except Exception as e:
-            print(f"[BT] GATT inspection error: {type(e).__name__}: {e}")
-    
-    async def _setup_notification_listeners(self, client: BleakClient, address: str, char_uuids: List[str]):
-        """Setup notification listeners on vendor-specific characteristics."""
-        def notification_handler(char_uuid: str):
-            """Factory to create a notification handler with captured uuid."""
-            def handler(sender, data: bytearray):
-                print(f"[BT] Notification on {char_uuid}: {data.hex()}")
-                self.notification_data[char_uuid] = bytes(data)
-            return handler
-        
-        try:
-            for char_uuid in char_uuids:
-                handler = notification_handler(char_uuid)
-                
-                # Start notifications
-                await client.start_notify(char_uuid, handler)
-                print(f"[BT] Started notifications on {char_uuid}")
-                
-                # Try to enable CCCD (Client Characteristic Configuration Descriptor)
-                # Different Bleak versions use different methods
-                try:
-                    services = client.services
-                    for service in services:
-                        for char in service.characteristics:
-                            if char.uuid.lower() == char_uuid.lower():
-                                # Found the characteristic, look for its CCCD descriptor
-                                for descriptor in char.descriptors:
-                                    if descriptor.uuid.lower() == "00002902-0000-1000-8000-00805f9b34fb":
-                                        # Try writing to CCCD using different methods
-                                        try:
-                                            # Method 1: Direct write with descriptor.handle (older Bleak)
-                                            await client.write_gatt_descriptor(descriptor.handle, bytes([0x01, 0x00]))
-                                            print(f"[BT] Enabled CCCD (handle) for {char_uuid}")
-                                        except (AttributeError, TypeError):
-                                            # Method 2: Use descriptor UUID directly (newer Bleak)
-                                            await client.write_gatt_descriptor(descriptor.uuid, bytes([0x01, 0x00]))
-                                            print(f"[BT] Enabled CCCD (uuid) for {char_uuid}")
-                                        break
-                except Exception as cccd_err:
-                    print(f"[BT] CCCD write skipped: {type(cccd_err).__name__}")
-                
-                # Also try writing an enable command to the characteristic itself
-                # (some vendor devices need this to activate input mode)
-                try:
-                    print(f"[BT] Writing enable command to {char_uuid}...")
-                    # Try different enable commands - start with simple ones
-                    for enable_cmd in [bytes([0x01]), bytes([0xFF]), bytes([0x01, 0x00])]:
-                        try:
-                            await client.write_gatt_char(char_uuid, enable_cmd, response=False)
-                            print(f"[BT] Sent enable command: {enable_cmd.hex()}")
-                            break
-                        except:
-                            pass
-                except Exception as cmd_err:
-                    print(f"[BT] Enable command write failed: {type(cmd_err).__name__} (may not be needed)")
-        
-        except Exception as e:
-            print(f"[BT] Failed to setup notifications: {type(e).__name__}: {e}")
-    
-    def disconnect_device(self, address: str) -> bool:
-        """Disconnect from a device."""
-        try:
-            print(f"[BT] Disconnecting from {address}...")
-            result = self._run_async(self._disconnect_async(address))
-            return result
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            tb = traceback.format_exc()
-            print(f"[BT] Disconnection error: {error_msg}")
-            print(f"[BT] Traceback:\n{tb}")
-            return False
-    
-    async def _disconnect_async(self, address: str) -> bool:
-        """Async disconnect from device."""
-        try:
-            if address not in self.connected_devices:
-                return False
-            
-            # Stop joystick reading if we're disconnecting the active device
-            if self.connected_device_address == address:
-                self.joystick_running = False
-            
-            client = self.connected_devices[address]
-            try:
-                await client.disconnect()
-            except RuntimeError as e:
-                if "different loop" in str(e):
-                    # Event loop conflict - try to force close
-                    print(f"[BT] Forcing disconnect due to event loop conflict")
-                    try:
-                        # Try to close without waiting for proper disconnect
-                        if hasattr(client, '_close_client'):
-                            client._close_client()
-                    except:
-                        pass
-                else:
-                    raise
-            
-            del self.connected_devices[address]
-            
-            # Clear active input device if this was it
-            if self.connected_device_address == address:
-                self.connected_device_address = None
-            
-            # Update device state
-            if address in self.devices:
-                self.devices[address].connected = False
-            
-            print(f"[BT] Successfully disconnected from {address}")
-            self._emit_status("device_disconnected", {"address": address})
-            return True
-        
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            if "different loop" not in error_msg:
-                tb = traceback.format_exc()
-                print(f"[BT] Disconnect error: {error_msg}")
-                print(f"[BT] Traceback:\n{tb}")
-            return False
-    
-    def remove_device(self, address: str) -> bool:
-        """Remove/forget a device (disconnect first)."""
-        try:
-            # Disconnect first if connected
-            if address in self.connected_devices:
-                self.disconnect_device(address)
-            
-            # Remove from list
-            if address in self.devices:
-                del self.devices[address]
-            
-            print(f"[BT] Removed device {address}")
-            self._emit_status("device_removed", {"address": address})
-            return True
-        
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            tb = traceback.format_exc()
-            print(f"[BT] Remove error: {error_msg}")
-            print(f"[BT] Traceback:\n{tb}")
-            return False
-    
-    def get_devices_list(self) -> List[Dict]:
-        """Get list of discovered devices as dictionaries, including system-connected devices."""
-        # Check system for actual connections
-        system_connected = self._get_system_connected_devices()
-        # print(f"[BT] get_devices_list() called, system_connected={system_connected}")
-        
-        devices_list = []
-        seen_addresses = set()
-        
-        # Add discovered devices (with updated connection status from system)
-        for address, device in self.devices.items():
-            seen_addresses.add(address.upper())
-            device_dict = device.to_dict()
-            # Mark as connected if it's actually connected at system level
-            if address.upper() in system_connected:
-                device_dict["connected"] = True
-                # print(f"[BT] Marking discovered device as connected: {address} → connected={device_dict.get('connected')}")
-            else:
-                # print(f"[BT] Device {address} not in system_connected")
-                pass
-            devices_list.append(device_dict)
-        
-        # Add system-connected devices that weren't discovered
-        # print(f"[BT] Checking for system-only devices: system_connected={system_connected}, seen={seen_addresses}")
-        for sys_address in system_connected:
-            if sys_address not in seen_addresses:
-                # Device is connected at system level but not in our discovered list
-                # Query the system for the device name
-                device_name = self._get_device_name_from_system(sys_address)
-                if not device_name:
-                    device_name = f"Connected Device ({sys_address[-5:]})"
-                
-                device = BluetoothDevice(sys_address, device_name, -100)
+
+            if not info or not info.get("paired"):
+                print(f"[BT] Not paired yet — pairing {address} first")
+                if not self.pair_device(address):
+                    continue
+
+            print(f"[BT] Connecting to {address}...")
+            ok, stdout, stderr = self._run_bt("connect", address, timeout=30)
+            if not ok:
+                msg = stderr or stdout or "Connect failed"
+                # Already connected is success
+                if "AlreadyConnected" not in (stdout + stderr):
+                    self._set_error(msg)
+                    print(f"[BT] Connect failed: {msg}")
+                    if attempt < retries:
+                        continue
+                    self._emit_status(
+                        "device_connect_failed",
+                        {"address": address, "error": msg},
+                    )
+                    return False
+
+            # Wait briefly for HID /dev/input node
+            time.sleep(1.0)
+            device = self._upsert_device_from_info(address)
+            if not device.connected:
+                # bluetoothctl sometimes lags; re-check Connected set
+                if address not in self._get_system_connected_devices():
+                    msg = "BlueZ connect returned ok but device is not Connected"
+                    self._set_error(msg)
+                    if attempt < retries:
+                        continue
+                    self._emit_status(
+                        "device_connect_failed",
+                        {"address": address, "error": msg},
+                    )
+                    return False
                 device.connected = True
-                device.paired = True
-                
-                # IMPORTANT: Store it in self.devices so _connect_async can find it
-                self.devices[sys_address] = device
-                
-                device_dict = device.to_dict()
-                devices_list.append(device_dict)
-                # print(f"[BT] Added system-connected device: {sys_address} ({device_name}) with connected={device_dict.get('connected')}")
-        
-        # print(f"[BT] get_devices_list() returning {len(devices_list)} total devices (system_connected count: {len(system_connected)})")
-        # for i, d in enumerate(devices_list):
-        #     print(f"[BT]   [{i}] {d.get('address')}: connected={d.get('connected')}")
-        return devices_list
-    
-    def get_device(self, address: str) -> Optional[BluetoothDevice]:
-        """Get a specific device by address. Checks system devices if not in cache."""
-        # Check if already in cache
-        if address in self.devices:
-            return self.devices[address]
-        
-        # Check if it's a system-connected device
-        system_connected = self._get_system_connected_devices()
-        if address.upper() in system_connected:
-            device_name = self._get_device_name_from_system(address)
-            if not device_name:
-                device_name = f"Connected Device ({address[-5:]})"
-            
-            device = BluetoothDevice(address, device_name, -100)
-            device.paired = True
-            device.connected = True
-            self.devices[address] = device
-            print(f"[BT] Found system-connected device: {address} ({device_name})")
-            return device
-        
-        return None
-    
-    def read_characteristic(self, device_address: str, uuid: str) -> Optional[bytes]:
-        """Read a characteristic value from a connected device."""
-        try:
-            result = self._run_async(self._read_characteristic_async(device_address, uuid))
-            return result
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[BT] Read characteristic error: {error_msg}")
-            return None
-    
-    async def _read_characteristic_async(self, device_address: str, uuid: str) -> Optional[bytes]:
-        """Async read characteristic."""
-        try:
-            if device_address not in self.connected_devices:
-                print(f"[BT] Device {device_address} not connected")
-                return None
-            
-            client = self.connected_devices[device_address]
-            value = await client.read_gatt_char(uuid)
-            return value
-        
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[BT] Read error: {error_msg}")
-            return None
-    
-    def write_characteristic(self, device_address: str, uuid: str, data: bytes) -> bool:
-        """Write a characteristic value to a connected device."""
-        try:
-            result = self._run_async(self._write_characteristic_async(device_address, uuid, data))
-            return result
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[BT] Write characteristic error: {error_msg}")
-            return False
-    
-    async def _write_characteristic_async(self, device_address: str, uuid: str, data: bytes) -> bool:
-        """Async write characteristic."""
-        try:
-            if device_address not in self.connected_devices:
-                print(f"[BT] Device {device_address} not connected")
-                return False
-            
-            client = self.connected_devices[device_address]
-            await client.write_gatt_char(uuid, data)
+
+            self.connected_device_address = address
+            self._start_joystick_reading_thread()
+            print(f"[BT] Connected and active: {address} ({device.name})")
+            self._emit_status(
+                "device_connected", {"address": address, "name": device.name}
+            )
             return True
-        
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[BT] Write error: {error_msg}")
+
+        return False
+
+    def set_active_device(self, address: str) -> bool:
+        """Mark a BlueZ-connected device as the active gimbal input source."""
+        address = normalize_address(address)
+        device = self.get_device(address)
+        if not device:
+            self._set_error(f"Device {address} not found")
             return False
-    
+        if not device.connected:
+            return self.connect_device(address)
+        self.connected_device_address = address
+        self._start_joystick_reading_thread()
+        self._emit_status(
+            "device_connected", {"address": address, "name": device.name}
+        )
+        return True
+
+    def disconnect_device(self, address: str) -> bool:
+        address = normalize_address(address)
+        self._clear_error()
+        print(f"[BT] Disconnecting {address}...")
+
+        if self.connected_device_address == address:
+            self.joystick_running = False
+            self.connected_device_address = None
+
+        ok, stdout, stderr = self._run_bt("disconnect", address, timeout=15)
+        if not ok and "not available" not in (stdout + stderr).lower():
+            # Device may already be disconnected
+            if address in self._get_system_connected_devices():
+                msg = stderr or stdout or "Disconnect failed"
+                self._set_error(msg)
+                return False
+
+        if address in self.devices:
+            self.devices[address].connected = False
+
+        print(f"[BT] Disconnected {address}")
+        self._emit_status("device_disconnected", {"address": address})
+        return True
+
+    def remove_device(self, address: str) -> bool:
+        """Disconnect and forget (unpair) a device in BlueZ."""
+        address = normalize_address(address)
+        self._clear_error()
+
+        if address in self._get_system_connected_devices() or (
+            address in self.devices and self.devices[address].connected
+        ):
+            self.disconnect_device(address)
+
+        print(f"[BT] Removing {address}...")
+        ok, stdout, stderr = self._run_bt("remove", address, timeout=15)
+        if not ok:
+            msg = stderr or stdout or "Remove failed"
+            # Already gone is fine
+            if "not available" not in msg.lower() and "Does Not Exist" not in msg:
+                self._set_error(msg)
+                return False
+
+        self.devices.pop(address, None)
+        if self.connected_device_address == address:
+            self.connected_device_address = None
+            self.joystick_running = False
+
+        print(f"[BT] Removed {address}")
+        self._emit_status("device_removed", {"address": address})
+        return True
+
     def cleanup(self):
-        """Cleanup: disconnect all devices and stop scanning."""
         if self.scanning:
             self.stop_scan()
-        
-        # Disconnect all connected devices
-        for address in list(self.connected_devices.keys()):
-            self.disconnect_device(address)
-    
-    def get_connected_device(self) -> Optional[str]:
-        """Get the address of the currently active input device."""
-        return self.connected_device_address
-    
+        self.joystick_running = False
+        # Do not forcibly disconnect BlueZ devices on app shutdown —
+        # leave OS pairing/connection intact.
+
+    # --- Joystick input (pygame / Linux HID) -------------------------------
+
     def read_controller_input(self) -> Dict:
-        """
-        Read input from connected device.
-        Returns: {"pan_axis": float, "tilt_axis": float, "buttons": dict}
-        
-        pan_axis and tilt_axis are normalized values from -1.0 to 1.0
-        """
+        """Read axes/buttons from the active gamepad via pygame."""
         try:
             if not self.connected_device_address:
                 return {"pan_axis": 0.0, "tilt_axis": 0.0, "buttons": {}}
-            
-            result = self._run_async(self._read_input_async(self.connected_device_address))
-            if result:
-                self.last_input_data = result
-                return result
-            return self.last_input_data
-        
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[BT] Error reading input: {error_msg}")
-            return self.last_input_data
-    
-    async def _read_input_async(self, device_address: str) -> Optional[Dict]:
-        """
-        Async read input from joystick device.
-        Since the gamepad is system-connected, we read from /dev/input/jsX via the inputs library.
-        """
-        try:
-            if device_address not in self.connected_devices:
-                return None
-            
-            # Ensure joystick reading thread is running
+
             if not self.joystick_running:
                 self._start_joystick_reading_thread()
-            
-            # Return the latest joystick state
-            if self.last_joystick_input != self.last_input_data:
-                result = self.last_joystick_input.copy()
-                # Only log when values actually change
-                if (abs(result.get('pan_axis', 0) - self.last_input_data.get('pan_axis', 0)) > 0.05 or
-                    abs(result.get('tilt_axis', 0) - self.last_input_data.get('tilt_axis', 0)) > 0.05):
-                    print(f"[INPUT] pan={result.get('pan_axis'):.2f}, tilt={result.get('tilt_axis'):.2f}")
-                return result
-            
-            return self.last_joystick_input
-        
+
+            result = self.last_joystick_input.copy()
+            if (
+                abs(result.get("pan_axis", 0) - self.last_input_data.get("pan_axis", 0))
+                > 0.05
+                or abs(
+                    result.get("tilt_axis", 0)
+                    - self.last_input_data.get("tilt_axis", 0)
+                )
+                > 0.05
+            ):
+                print(
+                    f"[INPUT] pan={result.get('pan_axis'):.2f}, "
+                    f"tilt={result.get('tilt_axis'):.2f}"
+                )
+            self.last_input_data = result
+            return result
         except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[INPUT] Read error: {error_msg}")
-            return None
-    
+            print(f"[BT] Error reading input: {type(e).__name__}: {e}")
+            return self.last_input_data
+
     def _start_joystick_reading_thread(self):
-        """Start a background thread to read joystick input."""
         if not pygame:
-            print("[INPUT] pygame library not available, cannot read joystick")
+            print("[INPUT] pygame not available, cannot read joystick")
             return
-        
         if self.joystick_running:
             return
-        
         print("[INPUT] Starting joystick reading thread...")
         self.joystick_running = True
-        self.joystick_thread = threading.Thread(target=self._joystick_read_loop, daemon=True)
+        self.joystick_thread = threading.Thread(
+            target=self._joystick_read_loop, daemon=True
+        )
         self.joystick_thread.start()
-    
-    def _find_gamepad_device(self, retry_attempts=3, retry_delay=1.0):
-        """Find the gamepad input device using pygame with retry logic.
-        
-        Args:
-            retry_attempts: Number of times to retry if no joystick found
-            retry_delay: Seconds to wait between retry attempts
-        """
+
+    def _find_gamepad_device(self, retry_attempts=5, retry_delay=1.0):
         if not pygame:
             return None
-        
+
         for attempt in range(1, retry_attempts + 1):
             try:
                 pygame.init()
                 pygame.joystick.init()
-                
-                joystick_count = pygame.joystick.get_count()
-                print(f"[INPUT] Attempt {attempt}/{retry_attempts}: Found {joystick_count} joystick(s)")
-                
-                if joystick_count == 0:
+                count = pygame.joystick.get_count()
+                print(
+                    f"[INPUT] Attempt {attempt}/{retry_attempts}: "
+                    f"Found {count} joystick(s)"
+                )
+                if count == 0:
                     if attempt < retry_attempts:
-                        print(f"[INPUT] No joysticks detected yet, waiting {retry_delay}s before retry...")
-                        import time
                         time.sleep(retry_delay)
                         continue
-                    else:
-                        print("[INPUT] No joysticks detected after all retries")
-                        return None
-                
-                # Use the first joystick
+                    return None
                 joystick = pygame.joystick.Joystick(0)
                 joystick.init()
-                print(f"[INPUT] ✓ Using joystick: {joystick.get_name()}")
+                print(f"[INPUT] Using joystick: {joystick.get_name()}")
                 return joystick
-            
             except Exception as e:
-                print(f"[INPUT] Error initializing pygame (attempt {attempt}/{retry_attempts}): {type(e).__name__}: {e}")
+                print(
+                    f"[INPUT] pygame init error "
+                    f"(attempt {attempt}/{retry_attempts}): {type(e).__name__}: {e}"
+                )
                 if attempt < retry_attempts:
-                    import time
                     time.sleep(retry_delay)
-                    continue
-                else:
-                    return None
-        
         return None
-    
+
     def _joystick_read_loop(self):
-        """Background thread loop to read joystick events via pygame."""
         try:
             if not pygame:
-                print("[INPUT] pygame not available")
                 self.joystick_running = False
                 return
-            
-            # Find and initialize pygame joystick
+
             joystick = self._find_gamepad_device()
             if not joystick:
-                print("[INPUT] ✗ No gamepad device found")
-                print("[INPUT] Troubleshooting:")
-                print("[INPUT]   1. Ensure your Bluetooth gamepad is fully connected (check 'bluetoothctl devices Connected')")
-                print("[INPUT]   2. Check if device appears in /dev/input/: ls -la /dev/input/js*")
-                print("[INPUT]   3. Test manually: jstest /dev/input/js0")
-                print("[INPUT]   4. Check Bluetooth device settings - may need explicit pairing")
+                print("[INPUT] No gamepad device found under pygame")
+                print(
+                    "[INPUT] Check: bluetoothctl devices Connected; "
+                    "ls /dev/input/js*; jstest /dev/input/js0"
+                )
                 self.joystick_running = False
                 return
-            
-            print(f"[INPUT] Opened joystick: {joystick.get_name()}")
-            print(f"[INPUT]   Axes: {joystick.get_numaxes()}")
-            print(f"[INPUT]   Buttons: {joystick.get_numbuttons()}")
-            print(f"[INPUT]   Hats: {joystick.get_numhats()}")
-            
-            # Track current state
+
+            print(
+                f"[INPUT] Opened {joystick.get_name()} "
+                f"(axes={joystick.get_numaxes()}, "
+                f"buttons={joystick.get_numbuttons()})"
+            )
             state = {
-                "pan_axis": 0.0,     # Left stick X
-                "tilt_axis": 0.0,    # Left stick Y
-                "right_x": 0.0,      # Right stick X
-                "right_y": 0.0,      # Right stick Y
-                "buttons": {}        # Button states
+                "pan_axis": 0.0,
+                "tilt_axis": 0.0,
+                "right_x": 0.0,
+                "right_y": 0.0,
+                "buttons": {},
             }
-            
-            print("[INPUT] Joystick reading thread started")
-            
-            # Create a clock for event processing timing (avoid blocking)
             clock = pygame.time.Clock()
-            
+            button_map = {
+                0: "a",
+                1: "b",
+                2: "x",
+                3: "y",
+                4: "lb",
+                5: "rb",
+                6: "select",
+                7: "start",
+                8: "l_stick",
+                9: "r_stick",
+            }
+            axis_map = {
+                0: "pan_axis",
+                1: "tilt_axis",
+                2: "right_x",
+                3: "right_y",
+            }
+
             while self.joystick_running:
-                try:
-                    # Process pygame events
-                    for event in pygame.event.get():
-                        if event.type == pygame.JOYAXISMOTION:
-                            # Analog stick axes - normalize with deadzone
-                            axis_map = {
-                                0: "pan_axis",      # Left stick X
-                                1: "tilt_axis",     # Left stick Y
-                                2: "right_x",       # Right stick X
-                                3: "right_y",       # Right stick Y
-                            }
-                            
-                            if event.axis in axis_map:
-                                # Apply deadzone
-                                value = event.value
-                                if abs(value) < 0.05:
-                                    value = 0.0
-                                
-                                state[axis_map[event.axis]] = value
-                        
-                        elif event.type == pygame.JOYBUTTONDOWN:
-                            button_map = {
-                                0: "a",
-                                1: "b",
-                                2: "x",
-                                3: "y",
-                                4: "lb",
-                                5: "rb",
-                                6: "select",
-                                7: "start",
-                                8: "l_stick",
-                                9: "r_stick",
-                            }
-                            if event.button in button_map:
-                                state["buttons"][button_map[event.button]] = True
-                        
-                        elif event.type == pygame.JOYBUTTONUP:
-                            button_map = {
-                                0: "a",
-                                1: "b",
-                                2: "x",
-                                3: "y",
-                                4: "lb",
-                                5: "rb",
-                                6: "select",
-                                7: "start",
-                                8: "l_stick",
-                                9: "r_stick",
-                            }
-                            if event.button in button_map:
-                                state["buttons"][button_map[event.button]] = False
-                        
-                        elif event.type == pygame.JOYHATMOTION:
-                            # D-pad (hat switch)
-                            x, y = event.value
-                            state["buttons"]["d_up"] = y > 0
-                            state["buttons"]["d_down"] = y < 0
-                            state["buttons"]["d_left"] = x < 0
-                            state["buttons"]["d_right"] = x > 0
-                    
-                    # Update shared state
-                    self.last_joystick_input = state.copy()
-                    
-                    # Limit event processing frequency to avoid busy-waiting
-                    clock.tick(60)  # 60 Hz max
-                
-                except Exception as e:
-                    if self.joystick_running:
-                        print(f"[INPUT] Event processing error: {type(e).__name__}: {e}")
-                    break
-        
+                for event in pygame.event.get():
+                    if event.type == pygame.JOYAXISMOTION and event.axis in axis_map:
+                        value = event.value
+                        if abs(value) < 0.05:
+                            value = 0.0
+                        state[axis_map[event.axis]] = value
+                    elif event.type == pygame.JOYBUTTONDOWN and event.button in button_map:
+                        state["buttons"][button_map[event.button]] = True
+                    elif event.type == pygame.JOYBUTTONUP and event.button in button_map:
+                        state["buttons"][button_map[event.button]] = False
+                    elif event.type == pygame.JOYHATMOTION:
+                        x, y = event.value
+                        state["buttons"]["d_up"] = y > 0
+                        state["buttons"]["d_down"] = y < 0
+                        state["buttons"]["d_left"] = x < 0
+                        state["buttons"]["d_right"] = x > 0
+                self.last_joystick_input = state.copy()
+                clock.tick(60)
         except Exception as e:
             print(f"[INPUT] Joystick thread error: {type(e).__name__}: {e}")
         finally:
             print("[INPUT] Joystick reading thread stopped")
             try:
-                pygame.quit()
-            except:
+                if pygame:
+                    pygame.quit()
+            except Exception:
                 pass
             self.joystick_running = False
-    
-    def _parse_hid_input(self, data: bytes) -> Dict:
-        """
-        Parse HID input data from a Bluetooth controller.
-        
-        Generic HID format (simplified):
-        - Bytes 0-1: Left stick X, Y (0-255, center at 128)
-        - Bytes 2-3: Right stick X, Y (0-255, center at 128)
-        - Byte 4: Buttons (bit flags)
-        """
-        if not data or len(data) < 5:
-            return {"pan_axis": 0.0, "tilt_axis": 0.0, "buttons": {}}
-        
-        try:
-            # Normalize stick values from 0-255 to -1.0 to 1.0
-            left_x = (data[0] - 128) / 128.0  # Pan axis (horizontal)
-            left_y = (data[1] - 128) / 128.0  # Tilt axis (vertical, inverted)
-            
-            # Clamp to -1.0 to 1.0
-            left_x = max(-1.0, min(1.0, left_x))
-            left_y = max(-1.0, min(1.0, left_y))
-            
-            # Simple dead zone: values close to 0 are treated as 0
-            if abs(left_x) < 0.1:
-                left_x = 0.0
-            if abs(left_y) < 0.1:
-                left_y = 0.0
-            
-            buttons = {}
-            if len(data) > 4:
-                buttons_byte = data[4]
-                buttons = {
-                    "a": bool(buttons_byte & 0x01),
-                    "b": bool(buttons_byte & 0x02),
-                    "x": bool(buttons_byte & 0x04),
-                    "y": bool(buttons_byte & 0x08),
-                }
-            
-            return {
-                "pan_axis": left_x,
-                "tilt_axis": left_y,
-                "buttons": buttons
-            }
-        
-        except Exception as e:
-            error_msg = f"{type(e).__name__}: {str(e)}"
-            print(f"[BT] Parse error: {error_msg}")
-            return {"pan_axis": 0.0, "tilt_axis": 0.0, "buttons": {}}
-        
-        print("[BT] Bluetooth controller cleaned up")
-

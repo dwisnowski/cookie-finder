@@ -19,6 +19,29 @@ make run
 
 Starts the server on `http://0.0.0.0:8000`. Open `http://<device-ip>:8000` in any browser on the same network.
 
+## Web Server as systemd Daemon (Orange Pi)
+
+To install and start the web app on boot:
+
+```bash
+make on-the-pi-web-daemon
+```
+
+That installs `cookie-finder-web.service`, enables it on boot, and starts it. Useful commands:
+
+```bash
+make on-the-pi-web-daemon-status
+make on-the-pi-web-daemon-stop
+make on-the-pi-web-url               # print IP(s) + http://…:port (+ QR in terminal)
+sudo journalctl -u cookie-finder-web -f
+```
+
+Override bind address/port when installing:
+
+```bash
+make on-the-pi-web-daemon WEB_HOST=0.0.0.0 WEB_PORT=8080
+```
+
 ## Custom Host / Port
 
 ```bash
@@ -92,7 +115,7 @@ In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspo
 - AP URL: `http://192.168.12.1:8000`
 - LED: solid = client, slow blink (~1 Hz) = AP, fast blink (~5 Hz) = switching
 
-Wiring details: [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led).
+Wiring details: [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led). Networking prerequisites (NM-only Wi‑Fi, no netplan Wi‑Fi, optional fast-boot mask): [Orange Pi setup §4](../setup/orange-pi.md#4-configure-wifi-networkmanager-only).
 
 ---
 

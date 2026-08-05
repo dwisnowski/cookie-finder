@@ -38,29 +38,61 @@ echo '/usr/sbin/iw dev wlan0 set power_save off' | sudo tee -a /etc/rc.local
 
 ---
 
-## 4. Configure WiFi
+## 4. Configure WiFi (NetworkManager only)
+
+Cookie Finder (`scripts/wifi-mode.sh`, `cookie-finder-wifi`) expects **NetworkManager** to own `wlan0`. Do **not** also manage Wi‑Fi via Armbian netplan / `systemd-networkd` — that fight leaves `nmcli` showing `wlan0:unavailable`.
+
+### One-time: remove netplan Wi‑Fi (keep Ethernet on networkd)
+
+Armbian first-login often creates `/etc/netplan/30-wifis-dhcp.yaml`, which starts a separate `wpa_supplicant -c /run/netplan/wpa-wlan0.conf`. Remove it so NM is the only Wi‑Fi manager:
 
 ```bash
-sudo nano /etc/wpa_supplicant/wpa_supplicant.conf
+sudo cp /etc/netplan/30-wifis-dhcp.yaml /etc/netplan/30-wifis-dhcp.yaml.bak 2>/dev/null || true
+sudo rm -f /etc/netplan/30-wifis-dhcp.yaml
+sudo netplan generate
+sudo netplan apply
+sudo pkill -f '/run/netplan/wpa-wlan0.conf' 2>/dev/null || true
+sudo systemctl restart NetworkManager
+sleep 3
+sudo nmcli device set wlan0 managed yes
+nmcli -t -f DEVICE,STATE,CONNECTION device status
+# Expect: wlan0:disconnected:  or  wlan0:connected:…  — not unavailable
 ```
 
-Add or modify the `network` block:
+Leave `10-dhcp-all-interfaces.yaml` / `armbian.yaml` alone (`renderer: networkd` for Ethernet is fine; `eth0:unmanaged` in `nmcli` is expected).
 
-```
-ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
-update_config=1
-country=US
+### Join / save client networks
 
-network={
-    ssid="YOUR_SSID"
-    psk="YOUR_PASSWORD"
-    key_mgmt=WPA-PSK
-    freq_list=2412 2437 2462
-    bgscan="simple:30:-70:86400"
-}
+```bash
+sudo nmcli device wifi connect "YOUR_SSID" password "YOUR_PASSWORD"
+nmcli -t -f NAME,TYPE,AUTOCONNECT connection show
 ```
 
-Save with `Ctrl+X`, `Y`, `Enter`.
+Verify only NM’s D-Bus `wpa_supplicant` is running (no `/run/netplan/wpa-*.conf`):
+
+```bash
+ps aux | grep wpa_supplicant | grep -v grep
+```
+
+### Faster serial login (optional but recommended)
+
+With Ethernet on networkd and no cable plugged in, `systemd-networkd-wait-online` can block `network-online.target` for **~2 minutes**, which delays `rc-local` and the serial getty. Mask it if you do not need to wait for Ethernet before login:
+
+```bash
+sudo systemctl disable --now systemd-networkd-wait-online.service
+sudo systemctl mask systemd-networkd-wait-online.service
+# After reboot: systemd-analyze  → userspace ~10–15s instead of ~2min
+```
+
+Ethernet still works when plugged in; only the boot-time wait is removed.
+
+### Symptoms if this regresses
+
+| Symptom | Likely cause |
+|---------|--------------|
+| `wlan0:unavailable` / empty `nmcli device wifi list` | Netplan Wi‑Fi restored (`30-wifis-dhcp.yaml`) or netplan `wpa_supplicant` holding the radio |
+| Login prompt ~2 minutes after reboot | `systemd-networkd-wait-online` unmasked / waiting on unplugged `eth0` |
+| Two `wpa_supplicant` processes (one with `/run/netplan/…`) | Dual stack — remove netplan Wi‑Fi again |
 
 ---
 
