@@ -22,6 +22,48 @@ THERMAL_PALETTES = [
     ("BlackHot", cv2.COLORMAP_TWILIGHT),
 ]
 
+# Modes accepted by set_mode / WebSocket toggle_mode
+KNOWN_MODES = frozenset(
+    {
+        "heat_seeker_mode",
+        "heat_cluster_mode",
+        "motion_mode",
+        "upscale_mode",
+        "superres_mode",
+        "openvino_sr_mode",
+        "palette_mode",
+        "denoise_mode",
+        "normalize_mode",
+        "enhance_mode",
+        "stabilize_mode",
+        "stabilize_super",
+        "threshold_mode",
+        "show_text",
+        "yolo_mode",
+        "optical_flow_mode",
+        "optical_flow_masked_mode",
+        "isotherm_mode",
+    }
+)
+
+# Parameters accepted by set_parameter / WebSocket set_param
+KNOWN_PARAMETERS = frozenset(
+    {
+        "palette_idx",
+        "threshold_value",
+        "optical_flow_threshold",
+        "isotherm_min",
+        "isotherm_max",
+        "heat_seeker_max_boxes",
+        "heat_seeker_min_brightness",
+        "stabilize_strength",
+        "stabilize_smooth",
+        "phase_strength",
+        "phase_buffer_size",
+        "orb_buffer_size",
+    }
+)
+
 
 class ThermalProcessor:
     """Stateful thermal frame processor."""
@@ -149,6 +191,9 @@ class ThermalProcessor:
     
     def set_mode(self, mode_name, enabled):
         """Toggle a detection mode on/off. Mutually exclusive modes turn off others."""
+        if mode_name not in KNOWN_MODES:
+            raise ValueError(f"Unknown mode: {mode_name}")
+
         exclusive_modes = [
             'heat_seeker_mode', 'heat_cluster_mode', 'motion_mode',
             'palette_mode', 'threshold_mode', 'yolo_mode',
@@ -165,6 +210,9 @@ class ThermalProcessor:
     
     def set_parameter(self, param_name, value):
         """Set a parameter value with appropriate bounds checking."""
+        if param_name not in KNOWN_PARAMETERS:
+            raise ValueError(f"Unknown parameter: {param_name}")
+
         if param_name == 'palette_idx':
             self.palette_idx = int(value) % len(THERMAL_PALETTES)
         elif param_name == 'threshold_value':
@@ -189,8 +237,6 @@ class ThermalProcessor:
             self.phase_buffer_size = max(1, min(20, int(value)))
         elif param_name == 'orb_buffer_size':
             self.orb_buffer_size = max(1, min(20, int(value)))
-        else:
-            setattr(self, param_name, value)
     
     # ========== Utility Functions (Stateless) ==========
     
@@ -551,7 +597,9 @@ class ThermalProcessor:
             from ultralytics import YOLO
             project_root = Path(__file__).parent.parent.parent
             model_path = project_root / 'yolov8n.pt'
-            self.yolo_model = YOLO(str(model_path))
+            # Prefer a local weights file; otherwise Ultralytics downloads yolov8n.pt.
+            weights = str(model_path) if model_path.is_file() else 'yolov8n.pt'
+            self.yolo_model = YOLO(weights)
             return self.yolo_model
         except ImportError:
             print("Error: ultralytics not installed. Run: make install-yolo")

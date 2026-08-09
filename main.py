@@ -29,7 +29,7 @@ cv2.setLogLevel(0)
 
 import numpy as np
 
-from cookie_finder.camera.processor import ThermalProcessor, THERMAL_PALETTES
+from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.web.server import run_webserver
 
 

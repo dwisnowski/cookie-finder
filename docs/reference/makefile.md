@@ -1,115 +1,113 @@
 # Makefile Reference
 
-All available `make` targets.
+Prefer host-prefixed targets: `on-the-mac-*` (run on a MacBook) and `on-the-pi-*` (run on the Orange Pi). Short names (`install`, `run`, `serial-*`, `rust-*`, …) remain as **legacy aliases**.
+
+```bash
+make help              # points at Mac vs Pi help
+make on-the-mac-help   # full Mac target list
+make on-the-pi-help    # full Pi target list
+```
 
 ---
 
 ## Install
 
-| Target | Description |
-|--------|-------------|
-| `make install` | `uv sync` — install core dependencies |
-| `make install-yolo` | `uv sync --extra yolo` — add YOLO/PyTorch deps |
-| `make install-docs` | `uv sync --extra docs` — add MkDocs + Material theme |
-| `make install-ffmpeg` | `brew install ffmpeg` (macOS) |
-| `make install-libusb` | `brew install libusb` (macOS, needed for USB probing) |
-| `make init` | Add user to Bluetooth group (Orange Pi) |
-| `make init-wifi` | Install WiFi AP tools, captive DNS drop-in, sudoers, and `cookie-finder-wifi` button/LED service |
-| `make on-the-pi-mdns` / `make mdns` | Set hostname + Avahi for `http://cookie-finder.local/` |
-| `make on-the-pi-wifi-gpio-daemon` | Install/start WiFi button+LED systemd service |
-| `make on-the-pi-wifi-gpio-daemon-status` | Show WiFi button+LED service status |
-| `make on-the-pi-wifi-gpio-daemon-stop` | Stop WiFi button+LED service |
+| Target | Host | Description |
+|--------|------|-------------|
+| `make on-the-pi-install` / `make install` | Pi | `uv sync` — core dependencies |
+| `make on-the-pi-install-yolo` / `make install-yolo` | Pi | `uv sync --extra yolo` (YOLO/PyTorch) |
+| `make on-the-mac-install-docs` / `make install-docs` | Mac | `uv sync --extra docs` |
+| `make on-the-mac-install-ffmpeg` / `make install-ffmpeg` | Mac | `brew install ffmpeg` |
+| `make on-the-mac-install-libusb` / `make install-libusb` | Mac | `brew install libusb` |
+| `make on-the-pi-init` / `make init` | Pi | Add user to Bluetooth group |
+| `make on-the-pi-init-wifi` / `make init-wifi` | Pi | AP deps, captive DNS, sudoers, WiFi GPIO service |
+| `make on-the-pi-mdns` / `make mdns` | Pi | Hostname + Avahi for `http://cookie-finder.local/` |
+| `make on-the-mac-tool-setup` | Mac | Rustup + cross + Docker check |
+| `make on-the-pi-tool-setup` | Pi | apt build deps + Rustup |
 
 ---
 
 ## Run
 
-| Target | Description |
-|--------|-------------|
-| `make run` | Alias for `run-web` — start web server on :80 + :443 (foreground) |
-| `make run-web` | Start FastAPI on HTTP :80 and HTTPS :443 (foreground) |
-| `make run-standalone` | Start OpenCV GUI mode (requires display) |
-| `make run-web-custom` | Prompt for host + ports, then start web server |
-| `make on-the-pi-web-daemon` | Install/start web server systemd service (`cookie-finder-web`) on :80 + :443 |
-| `make on-the-pi-web-daemon-status` | Show web server service status |
-| `make on-the-pi-web-daemon-stop` | Stop web server service |
-| `make on-the-pi-web-url` / `make web-url` | Print device IPv4 address(es) + web URL (+ terminal QR if `qrencode` is installed) |
+| Target | Host | Description |
+|--------|------|-------------|
+| `make on-the-pi-run` / `make run` | Pi | Web server foreground (`:80` + `:443`) |
+| `make on-the-pi-run-web` / `make run-web` | Pi | Same as `on-the-pi-run` |
+| `make on-the-pi-run-standalone` / `make run-standalone` | Pi | OpenCV GUI mode |
+| `make on-the-pi-run-web-custom` / `make run-web-custom` | Pi | Prompt for host + ports |
+| `make on-the-pi-web-daemon` / `make web-daemon` | Pi | Install/start `cookie-finder-web` systemd unit |
+| `make on-the-pi-web-daemon-status` / `make web-daemon-status` | Pi | Service status |
+| `make on-the-pi-web-daemon-stop` / `make web-daemon-stop` | Pi | Stop service |
+| `make on-the-pi-web-url` / `make web-url` | Pi | Print IPv4 + URL (+ QR if `qrencode` installed) |
 
 ---
 
-## Motor Tests
+## WiFi
+
+| Target | Host | Description |
+|--------|------|-------------|
+| `make on-the-pi-wifi-status` / `make wifi-status` | Pi | Mode + IPs via `scripts/wifi-mode.sh` |
+| `make on-the-pi-wifi-configure-clients` / `make wifi-configure-clients` | Pi | Save NM client profiles from `.wifi.env` |
+| `make on-the-pi-wifi-fix` / `make wifi-fix` | Pi | Recover wedged client radio |
+| `make on-the-pi-wifi-gpio-daemon` / `make wifi-gpio-daemon` | Pi | Install/start button+LED service |
+| `make on-the-pi-wifi-gpio-daemon-status` | Pi | Button+LED service status |
+| `make on-the-pi-wifi-gpio-daemon-stop` | Pi | Stop button+LED service |
+
+Copy `.wifi.env.example` → `.wifi.env` and set `WIFI_HOME_PSK` / `WIFI_HOTSPOT_PSK` before `wifi-configure-clients`. Never commit `.wifi.env`.
+
+---
+
+## Motor / hardware tests (Pi)
 
 | Target | Description |
 |--------|-------------|
-| `make test-motors` | Print motor test help and run auto sequence |
-| `make test-motors-pan-cw` | Step pan motor clockwise 50 steps |
-| `make test-motors-pan-ccw` | Step pan motor counter-clockwise 50 steps (`sudo`) |
-| `make test-motors-tilt-cw` | Step tilt motor clockwise 50 steps |
-| `make test-motors-tilt-ccw` | Step tilt motor counter-clockwise 50 steps |
-| `make test-motors-home` | Home both motors to limit switches |
-| `make test-pan-step` | Direct `gpioset` shell loop on gpiochip1 — confirms hardware pin offsets |
-| `make test-all-gpio` | Scan and blink every GPIO pin on all chips |
+| `make on-the-pi-test-motors` / `make test-motors` | Help + auto sequence (`sudo`) |
+| `make on-the-pi-test-motors-pan-cw` … `-tilt-ccw` | Step one axis 50 steps (`sudo`) |
+| `make on-the-pi-test-motors-home` / `make test-motors-home` | Home both motors |
+| `make on-the-pi-test-pan-step` / `make test-pan-step` | Direct `gpioset` wave-drive loop |
+| `make on-the-pi-test-all-gpio` / `make test-all-gpio` | Blink every GPIO line |
+| `make on-the-pi-test-bluetooth-input` | Log gamepad input (~60s) |
+| `make on-the-pi-test-gimbal-gamepad` | Gimbal + gamepad smoke test |
+| `make on-the-pi-rust-keyboard` / `make rust-keyboard` | Keyboard pan/tilt + drive mode / wiring |
 
 ---
 
 ## Camera
 
-| Target | Description |
-|--------|-------------|
-| `make find-camera` | `ls /dev/video*` + `v4l2-ctl --list-devices` + python scan |
-| `make list-devices` | List UVC devices via `uvc_controls.py` |
-| `make list-controls` | List UVC camera controls |
-| `make get-control` | Prompt for control name, print current value |
-| `make set-control` | Prompt for control name + value, apply it |
-| `make list-cameras` | `ffmpeg -f avfoundation -list_devices` (macOS only) |
-| `make list-camera-formats` | Capture 1 TIFF frame via ffmpeg |
+| Target | Host | Description |
+|--------|------|-------------|
+| `make on-the-pi-find-camera` / `make find-camera` | Pi | `/dev/video*` + `v4l2-ctl` + Python scan |
+| `make on-the-pi-list-devices` / `make list-devices` | Pi | UVC devices |
+| `make on-the-pi-list-controls` / `make list-controls` | Pi | UVC controls |
+| `make on-the-pi-get-control` / `make get-control` | Pi | Prompt + get control |
+| `make on-the-pi-set-control` / `make set-control` | Pi | Prompt + set control |
+| `make on-the-mac-list-cameras` / `make list-cameras` | Mac | `ffmpeg` avfoundation list |
+| `make on-the-mac-list-camera-formats` | Mac | Capture one TIFF frame |
 
 ---
 
-## Probing
+## Probing (Mac)
 
 | Target | Description |
 |--------|-------------|
-| `make probe` | Run all probe scripts |
-| `make probe-install` | `brew install libusb` |
-| `make probe-usb` | Probe USB descriptors |
-| `make probe-cdc` | Probe CDC interface |
-| `make probe-serial` | Probe serial interface |
-| `make probe-resolution` | Probe supported resolutions |
-| `make probe-xu` | Probe UVC extension units |
+| `make on-the-mac-probe` / `make probe` | Run all probe scripts |
+| `make on-the-mac-probe-install` / `make probe-install` | `brew install libusb` |
+| `make on-the-mac-probe-usb` … `-xu` | Individual USB/CDC/serial/resolution/XU probes |
 
 ---
 
-## Docs
+## Serial console (Mac → Pi)
+
+USB-TTL UART when WiFi is down. Configure via `.serial.env` (copy from `.serial.env.example`).
 
 | Target | Description |
 |--------|-------------|
-| `make docs` | Serve MkDocs locally at `http://127.0.0.1:8001` |
-
----
-
-## Utilities
-
-| Target | Description |
-|--------|-------------|
-| `make clean` | Remove `__pycache__` directories and `.pyc` files |
-
----
-
-## Serial Console
-
-USB-TTL UART access when WiFi is unavailable. Configure via `.serial.env` (copy from `.serial.env.example`).
-
-| Target | Description |
-|--------|-------------|
-| `make serial-help` | List serial targets and current config |
-| `make serial-list` | List `/dev/tty.usbserial*` devices on macOS |
-| `make serial-connect` | Open `screen` on `SERIAL_DEVICE` at `SERIAL_BAUD` |
-| `make serial-run SERIAL_CMD='…'` | Log in and run one shell command on the Pi |
-| `make serial-deploy` | Tarball project, transfer over serial, run `uv sync` on Pi |
-| `make serial-deploy-rust` | Cross-compile Rust binary and copy to Pi over serial |
-
-Variables (defaults in Makefile, override in `.serial.env`):
+| `make on-the-mac-serial-help` / `make serial-help` | List serial targets + config |
+| `make on-the-mac-serial-list` / `make serial-list` | List `/dev/tty.usbserial*` devices |
+| `make on-the-mac-serial-connect` / `make serial-connect` | Open interactive `screen` session |
+| `make on-the-mac-serial-run SERIAL_CMD='…'` | Run one remote command |
+| `make on-the-mac-serial-deploy` / `make serial-deploy` | Tarball sync + `uv sync` on Pi |
+| `make on-the-mac-serial-deploy-rust` | Cross-compile Rust binary + copy over serial |
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -118,3 +116,31 @@ Variables (defaults in Makefile, override in `.serial.env`):
 | `SERIAL_USER` | `cookie` | Pi login username |
 | `SERIAL_PASSWORD` | *(required)* | Pi login password |
 | `SERIAL_REMOTE_DIR` | `~/cookie-finder` | Remote project directory |
+
+---
+
+## Rust gimbal daemon
+
+| Target | Host | Description |
+|--------|------|-------------|
+| `make on-the-mac-rust-check` | Mac | `cargo check` (cross target) |
+| `make on-the-mac-rust-build` | Mac | Cross-compile for Pi (`cross` + Docker) |
+| `make on-the-mac-rust-deploy` / `make rust-deploy` | Mac | Build + `scp` to `PI_HOST` |
+| `make on-the-mac-rust-deploy-cookie` / `make rust-deploy-cookie` | Mac | Build + `scp` via SSH config host |
+| `make on-the-mac-rust-build-remote` | Mac | Build on Pi over SSH |
+| `make on-the-mac-rust-daemon` | Mac | Deploy + start **foreground** daemon over SSH |
+| `make on-the-pi-rust-build` | Pi | Native `cargo build --release` |
+| `make on-the-pi-rust-daemon` | Pi | Install/start **systemd** `cookie-finder.service` |
+| `make on-the-pi-rust-daemon-stop` / `-status` | Pi | Stop / status systemd unit |
+
+**Alias gotcha:** `make rust-daemon` → `on-the-mac-rust-daemon` (SSH foreground), **not** Pi systemd. Use `make on-the-pi-rust-daemon` on the board.
+
+---
+
+## Docs / utilities
+
+| Target | Host | Description |
+|--------|------|-------------|
+| `make on-the-mac-docs` / `make docs` | Mac | Serve MkDocs at `http://127.0.0.1:8001` |
+| `make on-the-pi-clean` / `make clean` | Pi | Remove `__pycache__` / `.pyc` |
+| `make on-the-pi-armbian-home-screen` | Pi | Print Armbian MOTD |

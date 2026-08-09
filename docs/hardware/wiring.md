@@ -70,11 +70,14 @@ The pan motor is a 4-wire unipolar stepper driven by a ULN2003 driver board.
 |----------|-------|
 | Motor model | 28BYJ-48 |
 | Driver | ULN2003 |
-| Step sequence | Full-step: `(1,0,0,0)→(0,1,0,0)→(0,0,1,0)→(0,0,0,1)` |
+| Step sequence (default) | Wave drive (1-coil): `(1,0,0,0)→(0,1,0,0)→(0,0,1,0)→(0,0,0,1)` |
+| Full-step (2-coil) | `(1,1,0,0)→(0,1,1,0)→(0,0,1,1)→(1,0,0,1)` — select via Rust drive mode `full` |
 | Steps/revolution | 4076 |
 | Degrees per step | ~0.0883° |
 | Default step speed | 500 Hz |
 | Homing speed | 200 Hz |
+
+> Wave drive was historically mislabeled “full-step” in this repo. The Rust daemon (`DriveMode::Wave` / `FullStep`) uses the correct names.
 
 ### Quick Verification
 
@@ -84,7 +87,7 @@ Test the pan motor without running the full application:
 make test-pan-step
 ```
 
-This runs 20 full-step cycles directly via `gpioset` on the confirmed pin offsets.
+This runs 20 wave-drive cycles directly via `gpioset` on the confirmed pin offsets.
 
 If the motor buzzes or does not spin smoothly, run the [Stepper Wiring Test](stepper-wiring-test.md) to find the correct `pan_phase_order`.
 
@@ -102,12 +105,12 @@ If the motor buzzes or does not spin smoothly, run the [Stepper Wiring Test](ste
 
 ## Tilt Motor (28BYJ-48 + ULN2003)
 
-| Signal   | gpiochip1 Offset | Orange Pi GPIO Label | ULN2003 Pin | Wire Color (typical) |
-|----------|------------------|----------------------|-------------|----------------------|
-| TILT IN1 | 262              | RXD.2 / PH0          | IN1         | Orange               |
-| TILT IN2 | 229              | CE.0 / PH1           | IN2         | Yellow               |
-| TILT IN3 | 233              | CE.1 / PI01          | IN3         | Pink                 |
-| TILT IN4 | 265              | SCL.2 / PI14         | IN4         | Blue                 |
+| Signal   | gpiochip1 Offset | Orange Pi GPIO Label | Physical | ULN2003 Pin | Wire Color (typical) |
+|----------|------------------|----------------------|----------|-------------|----------------------|
+| TILT IN1 | 262              | RXD.2                | 22       | IN1         | Orange               |
+| TILT IN2 | 229              | CE.0                 | 24       | IN2         | Yellow               |
+| TILT IN3 | 233              | CE.1                 | 26       | IN3         | Pink                 |
+| TILT IN4 | 265              | SCL.2                | 28       | IN4         | Blue                 |
 
 ### Phase order (coil mapping)
 

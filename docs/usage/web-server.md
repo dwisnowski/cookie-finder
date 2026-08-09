@@ -86,7 +86,7 @@ Valid mode names match the processor attributes: `heat_seeker_mode`, `heat_clust
 }
 ```
 
-Settable parameters: `threshold_value`, `optical_flow_threshold`, `isotherm_min`, `isotherm_max`, `heat_seeker_max_boxes`, `heat_seeker_min_brightness`, `stabilize_strength`, `stabilize_smooth`.
+Settable parameters: `palette_idx`, `threshold_value`, `optical_flow_threshold`, `isotherm_min`, `isotherm_max`, `heat_seeker_max_boxes`, `heat_seeker_min_brightness`, `stabilize_strength`, `stabilize_smooth`, `phase_strength`, `phase_buffer_size`, `orb_buffer_size`. Unknown names are rejected.
 
 ### Request full state
 
@@ -98,15 +98,42 @@ Settable parameters: `threshold_value`, `optical_flow_threshold`, `isotherm_min`
 
 Returns the same JSON as `GET /state`.
 
-### Gimbal control (stub — not yet fully wired)
+### Gimbal control
+
+Discrete button start/stop (also used by on-screen arrows and keyboard):
 
 ```json
 {
   "action": "motor_command",
-  "pan_angle": 45.0,
-  "tilt_angle": 10.0
+  "command": "motor_left",
+  "state": "start"
 }
 ```
+
+`command` is one of `motor_up`, `motor_down`, `motor_left`, `motor_right`, or `motor_home` (home ignores `state`). Use `"state": "stop"` to end continuous stepping.
+
+Browser / host gamepad analog angles:
+
+```json
+{
+  "action": "motor_command",
+  "command": "gamepad_input",
+  "pan": 45.0,
+  "tilt": 10.0
+}
+```
+
+Motor step rate (Hz):
+
+```json
+{
+  "action": "set_motor_speed",
+  "pan_hz": 100,
+  "tilt_hz": 100
+}
+```
+
+The server prefers the Rust gimbal daemon (`RustGimbalClient`); if the Unix socket is unavailable it falls back to the Python GPIO `PanTiltGimbal`.
 
 ---
 

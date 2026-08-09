@@ -57,7 +57,7 @@ Creates a binary mask of pixels above a specific brightness value.
 Real-time object detection using YOLOv8n Nano.
 
 - Detects people, animals, and common objects
-- Loaded lazily on first activation — requires `make install-yolo`
+- Loaded lazily on first activation — requires `make install-yolo` (weights download automatically if missing)
 - Runs on CPU; uses `imgsz=320` for performance on single-board computers
 - Bounding boxes persist across frames for smooth visual feedback
 

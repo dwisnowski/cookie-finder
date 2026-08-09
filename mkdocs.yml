@@ -21,6 +21,7 @@ nav:
   - Hardware:
       - Camera: hardware/camera.md
       - Wiring: hardware/wiring.md
+      - Stepper Wiring Test: hardware/stepper-wiring-test.md
   - Setup:
       - Orange Pi: setup/orange-pi.md
       - Development: setup/development.md
