@@ -10,6 +10,13 @@ pub const GPIO_CHIP: &str = "/dev/gpiochip1";
 pub const PAN_CONTROL_PINS: [u32; 4] = [271, 268, 258, 272];
 pub const TILT_CONTROL_PINS: [u32; 4] = [262, 229, 233, 265];
 
+// Center-Off SPDT limit switches (COM→GND, NO channels→GPIO, active-low).
+// Physical: pan 12/13, tilt 15/16. UART0 pins 8/10 are reserved for serial debug.
+pub const PAN_LIMIT_MIN_PIN: u32 = 257; // physical 12, PI01 (CCW / home)
+pub const PAN_LIMIT_MAX_PIN: u32 = 227; // physical 13, RXD.5 (CW)
+pub const TILT_LIMIT_MIN_PIN: u32 = 261; // physical 15, TXD.2 (CCW / home)
+pub const TILT_LIMIT_MAX_PIN: u32 = 270; // physical 16, PWM4 (CW)
+
 pub const MAX_PAN: f64 = 150.0;
 pub const MAX_TILT: f64 = 60.0;
 pub const DEFAULT_PAN_HZ: f64 = 500.0;

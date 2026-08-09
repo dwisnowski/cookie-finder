@@ -1,7 +1,8 @@
 use super::stepper::{DriveMode, StepperMotor};
 use crate::config::{
     validate_phase_order, DEFAULT_PAN_HZ, DEFAULT_TILT_HZ, GimbalConfig, MAX_PAN, MAX_TILT,
-    PAN_CONTROL_PINS, TILT_CONTROL_PINS,
+    PAN_CONTROL_PINS, PAN_LIMIT_MAX_PIN, PAN_LIMIT_MIN_PIN, TILT_CONTROL_PINS, TILT_LIMIT_MAX_PIN,
+    TILT_LIMIT_MIN_PIN,
 };
 use std::sync::Mutex;
 
@@ -30,8 +31,20 @@ impl PanTiltGimbal {
             max_pan: MAX_PAN,
             max_tilt: MAX_TILT,
             inner: Mutex::new(Inner {
-                pan: StepperMotor::new("Pan", PAN_CONTROL_PINS, config.pan_phase_order, MAX_PAN),
-                tilt: StepperMotor::new("Tilt", TILT_CONTROL_PINS, config.tilt_phase_order, MAX_TILT),
+                pan: StepperMotor::new(
+                    "Pan",
+                    PAN_CONTROL_PINS,
+                    config.pan_phase_order,
+                    MAX_PAN,
+                    Some((PAN_LIMIT_MIN_PIN, PAN_LIMIT_MAX_PIN)),
+                ),
+                tilt: StepperMotor::new(
+                    "Tilt",
+                    TILT_CONTROL_PINS,
+                    config.tilt_phase_order,
+                    MAX_TILT,
+                    Some((TILT_LIMIT_MIN_PIN, TILT_LIMIT_MAX_PIN)),
+                ),
                 commanded_pan: 0.0,
                 commanded_tilt: 0.0,
             }),
