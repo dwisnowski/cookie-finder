@@ -10,7 +10,6 @@ import asyncio
 import threading
 import time
 import numpy as np
-from io import BytesIO
 from queue import Queue
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -80,7 +79,6 @@ gimbal = None  # PanTiltGimbal or RustGimbalClient
 gimbal_uses_rust = False
 motor_moving = {}  # Track which motors are moving: {command: True/False}
 bluetooth_controller = None  # BluetoothController instance
-bt_active_clients = set()  # WebSocket clients listening to BT updates
 gimbal_position = {"pan": 0.0, "tilt": 0.0}  # Current gimbal angles
 gimbal_lock = threading.Lock()  # Thread-safe access to gimbal_position
 bt_device_connected = False  # Track if BT device is connected for input
@@ -133,7 +131,6 @@ async def broadcast_to_clients(message: dict) -> None:
 
     for client in disconnected_clients:
         active_clients.discard(client)
-        bt_active_clients.discard(client)
 
 
 def broadcast_to_clients_threadsafe(message: dict) -> None:
@@ -441,7 +438,7 @@ def poll_bluetooth_controller():
     When Rust daemon is active, only gates evdev input via set_input_enabled.
     """
     global gimbal, gimbal_uses_rust, bluetooth_controller, gimbal_position, gimbal_lock
-    global bt_device_connected, bt_active_clients
+    global bt_device_connected
 
     print("[BT] Input polling thread started")
     last_pan = 0.0
@@ -633,7 +630,11 @@ def create_app(camera_id=None):
     
     @app.post("/reconnect")
     def reconnect():
+        """Force the capture thread to release and reopen the current camera."""
+        global camera_switch_id, camera_switch_event
         print("Manual reconnect requested...")
+        camera_switch_id = camera_id_current
+        camera_switch_event.set()
         return {"status": "reconnect_triggered", "message": "Attempting to reconnect..."}
     
     @app.post("/switch-camera/{new_camera_id}")
@@ -895,7 +896,6 @@ def create_app(camera_id=None):
         
         await websocket.accept()
         active_clients.add(websocket)
-        bt_active_clients.add(websocket)
         
         try:
             await websocket.send_json({"type": "state", "data": processor.get_state()})
@@ -934,29 +934,50 @@ def create_app(camera_id=None):
 
             while True:
                 data = await websocket.receive_text()
-                command = json.loads(data)
+                try:
+                    command = json.loads(data)
+                except json.JSONDecodeError:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Invalid JSON command",
+                    })
+                    continue
+                if not isinstance(command, dict):
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Command must be a JSON object",
+                    })
+                    continue
                 action = command.get("action")
                 
                 if action == "toggle_mode":
                     mode = command.get("mode")
-                    current = getattr(processor, mode, False)
-                    processor.set_mode(mode, not current)
+                    try:
+                        current = getattr(processor, mode, False)
+                        processor.set_mode(mode, not current)
+                    except (TypeError, ValueError) as e:
+                        await websocket.send_json({"type": "error", "message": str(e)})
+                        continue
                     state = processor.get_state()
                     for client in active_clients:
                         try:
                             await client.send_json({"type": "state", "data": state})
-                        except:
+                        except Exception:
                             pass
                 
                 elif action == "set_param":
                     param = command.get("param")
                     value = command.get("value")
-                    processor.set_parameter(param, value)
+                    try:
+                        processor.set_parameter(param, value)
+                    except (TypeError, ValueError) as e:
+                        await websocket.send_json({"type": "error", "message": str(e)})
+                        continue
                     state = processor.get_state()
                     for client in active_clients:
                         try:
                             await client.send_json({"type": "state", "data": state})
-                        except:
+                        except Exception:
                             pass
 
                 elif action == "set_motor_speed":
@@ -1193,7 +1214,6 @@ def create_app(camera_id=None):
         
         except WebSocketDisconnect:
             active_clients.discard(websocket)
-            bt_active_clients.discard(websocket)
     
     @app.get("/")
     async def root(request: Request):

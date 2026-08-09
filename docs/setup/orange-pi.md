@@ -68,6 +68,12 @@ sudo nmcli device wifi connect "YOUR_SSID" password "YOUR_PASSWORD"
 nmcli -t -f NAME,TYPE,AUTOCONNECT connection show
 ```
 
+To save the project’s preferred home + phone hotspot profiles (priorities for AP→client restore), copy `.wifi.env.example` to `.wifi.env`, set the PSKs, then:
+
+```bash
+make on-the-pi-wifi-configure-clients
+```
+
 Verify only NM’s D-Bus `wpa_supplicant` is running (no `/run/netplan/wpa-*.conf`):
 
 ```bash
@@ -199,7 +205,7 @@ make serial-run SERIAL_CMD='…'   # run a single command
 
 See [Makefile reference](../reference/makefile.md#serial-console) for all serial targets.
 
-> **Note:** Pins 8 (TXD.0) and 10 (RXD.0) are reserved for UART0 serial debugging. Do not wire motors or limit switches to them. Tilt motor IN1 is physical pin 22 (RXD.2 / offset 262).
+> **Note:** Pins **8** (TXD.0) and **10** (RXD.0) are reserved for UART0 serial debugging — do not wire motors or limit switches to them. Tilt motor IN1 is physical pin **22** (RXD.2, gpiochip1 offset 262), a different UART, not shared with the USB-TTL console.
 
 ---
 

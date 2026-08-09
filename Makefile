@@ -10,6 +10,15 @@ SERIAL_BAUD       ?= 115200
 SERIAL_USER       ?= cookie
 SERIAL_REMOTE_DIR ?= ~/cookie-finder
 
+# Client WiFi profiles (copy .wifi.env.example to .wifi.env — never commit PSKs)
+-include .wifi.env
+export WIFI_HOME_SSID WIFI_HOME_PSK WIFI_HOME_PRIORITY
+export WIFI_HOTSPOT_SSID WIFI_HOTSPOT_PSK WIFI_HOTSPOT_PRIORITY
+WIFI_HOME_SSID       ?= HSH-5G
+WIFI_HOME_PRIORITY   ?= 100
+WIFI_HOTSPOT_SSID    ?= Ghostwire
+WIFI_HOTSPOT_PRIORITY ?= 50
+
 # --- Rust gimbal daemon (Orange Pi Zero 2W, aarch64) ---
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 RUST_DIR     := cookie_finder_rust
@@ -50,7 +59,7 @@ help:
 # Internal recipes (do not call directly — use on-the-mac-* or on-the-pi-*)
 # =============================================================================
 
-.PHONY: _install _install-yolo _install-docs _docs _clean _init \
+.PHONY: _install _install-yolo _install-docs _docs _clean _init _init-wifi \
         _run-standalone _run-web _run-web-custom \
         _test-motors _test-motors-pan-cw _test-motors-pan-ccw _test-motors-tilt-cw \
         _test-motors-tilt-ccw _test-motors-home _test-bluetooth-input _test-gimbal-gamepad \
@@ -146,7 +155,7 @@ _test-motors:
 	@sudo uv run tools/test_motors.py auto
 
 _test-motors-pan-cw:
-	@uv run tools/test_motors.py pan-cw
+	@sudo uv run tools/test_motors.py pan-cw
 
 _test-motors-pan-ccw:
 	@sudo uv run tools/test_motors.py pan-ccw
@@ -283,7 +292,8 @@ _serial-list:
 _serial-connect:
 	@command -v screen >/dev/null || (echo "Install screen: brew install screen" && exit 1)
 	@test -e $(SERIAL_DEVICE) || (echo "Serial device not found: $(SERIAL_DEVICE)" && $(MAKE) on-the-mac-serial-list && exit 1)
-	@echo "TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)"
+	@echo "Opening serial console: $(SERIAL_DEVICE) @ $(SERIAL_BAUD) (detach: Ctrl-A then D)"
+	@TERM=xterm-256color screen $(SERIAL_DEVICE) $(SERIAL_BAUD)
 
 _serial-run:
 	@test -n "$(SERIAL_CMD)" || (echo "Usage: make on-the-mac-serial-run SERIAL_CMD='your command'" && exit 1)
@@ -375,10 +385,11 @@ on-the-mac-help:
 	@echo "  make on-the-mac-rust-build-remote          Build on Pi via SSH (PI_HOST=$(PI_HOST))"
 	@echo "  make on-the-mac-rust-deploy-remote         Build on Pi via SSH + install binary"
 	@echo "  make on-the-mac-rust-deploy-cookie-remote  Build on Pi via SSH config host"
-	@echo "  make on-the-mac-rust-daemon                Deploy + start daemon on Pi"
+	@echo "  make on-the-mac-rust-daemon                Deploy + start foreground daemon on Pi (via SSH)"
 	@echo "  make on-the-mac-rust-run                   Deploy + run one-shot command on Pi"
 	@echo "  make on-the-mac-rust-home                  Send home command to daemon on Pi"
 	@echo "  make on-the-mac-run-with-rust              Deploy + daemon + web server on Pi"
+	@echo "  (Pi systemd daemon: make on-the-pi-rust-daemon — not the rust-daemon alias)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make on-the-mac-clean              Remove Python cache files"
@@ -493,7 +504,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-status            Show WiFi mode + IP addresses"
-	@echo "  make on-the-pi-wifi-configure-clients Save home + phone WiFi profiles (NM)"
+	@echo "  make on-the-pi-wifi-configure-clients Save NM client profiles from .wifi.env"
 	@echo "  make on-the-pi-wifi-fix              Recover wedged client WiFi (NM + wpa fallback)"
 	@echo "  make on-the-pi-mdns                   Set hostname + Avahi for cookie-finder.local"
 	@echo ""
@@ -552,23 +563,28 @@ on-the-pi-wifi-status:
 	@ip -4 -br addr show 2>/dev/null || hostname -I
 
 # Save preferred client WiFi profiles for NetworkManager restore.
-# HSH-5G (pri 100) then iPhone hotspot (pri 50). Does not require both
-# SSIDs to be in range — association is attempted after profiles are saved.
+# Credentials come from .wifi.env (see .wifi.env.example) — never hardcode PSKs.
+# Does not require both SSIDs to be in range — association is attempted after save.
 on-the-pi-wifi-configure-clients:
 	@command -v nmcli >/dev/null 2>&1 || { echo "nmcli not found (install network-manager)"; exit 1; }
-	@echo "Saving WiFi client profiles..."
-	@nmcli connection delete id "HSH-5G" >/dev/null 2>&1 || true
-	@nmcli connection add type wifi con-name "HSH-5G" ifname "*" ssid "HSH-5G" \
-		wifi-sec.key-mgmt wpa-psk wifi-sec.psk "wisnowskishome" \
-		connection.autoconnect yes connection.autoconnect-priority 100
-	@nmcli connection delete id "Ghostwire" >/dev/null 2>&1 || true
-	@nmcli connection add type wifi con-name "Ghostwire" ifname "*" \
-		ssid "Ghostwire" \
-		wifi-sec.key-mgmt wpa-psk wifi-sec.psk 'connectifyoudare' \
-		connection.autoconnect yes connection.autoconnect-priority 50
-	@echo "Bringing up preferred network (HSH-5G, else iPhone)..."
-	@nmcli -w 15 connection up "HSH-5G" \
-		|| nmcli -w 15 connection up "Ghostwire" \
+	@if [ -z "$(WIFI_HOME_PSK)" ] || [ -z "$(WIFI_HOTSPOT_PSK)" ]; then \
+		echo "error: WiFi PSKs not set."; \
+		echo "Copy .wifi.env.example to .wifi.env and set WIFI_HOME_PSK / WIFI_HOTSPOT_PSK."; \
+		exit 1; \
+	fi
+	@echo "Saving WiFi client profiles ($$WIFI_HOME_SSID pri $$WIFI_HOME_PRIORITY, $$WIFI_HOTSPOT_SSID pri $$WIFI_HOTSPOT_PRIORITY)..."
+	@nmcli connection delete id "$(WIFI_HOME_SSID)" >/dev/null 2>&1 || true
+	@nmcli connection add type wifi con-name "$(WIFI_HOME_SSID)" ifname "*" ssid "$(WIFI_HOME_SSID)" \
+		wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$(WIFI_HOME_PSK)" \
+		connection.autoconnect yes connection.autoconnect-priority $(WIFI_HOME_PRIORITY)
+	@nmcli connection delete id "$(WIFI_HOTSPOT_SSID)" >/dev/null 2>&1 || true
+	@nmcli connection add type wifi con-name "$(WIFI_HOTSPOT_SSID)" ifname "*" \
+		ssid "$(WIFI_HOTSPOT_SSID)" \
+		wifi-sec.key-mgmt wpa-psk wifi-sec.psk "$(WIFI_HOTSPOT_PSK)" \
+		connection.autoconnect yes connection.autoconnect-priority $(WIFI_HOTSPOT_PRIORITY)
+	@echo "Bringing up preferred network ($(WIFI_HOME_SSID), else $(WIFI_HOTSPOT_SSID))..."
+	@nmcli -w 15 connection up "$(WIFI_HOME_SSID)" \
+		|| nmcli -w 15 connection up "$(WIFI_HOTSPOT_SSID)" \
 		|| echo "Profiles saved; neither network associated yet (out of range?)."
 	@echo "---"
 	@nmcli -t -f NAME,TYPE,AUTOCONNECT,AUTOCONNECT-PRIORITY connection show
@@ -883,6 +899,7 @@ on-the-pi-wifi-gpio-daemon-status:
         rust-deploy rust-deploy-cookie rust-deploy-remote rust-deploy-cookie-remote \
         rust-daemon rust-run run-with-rust rust-home rust-keyboard \
         wifi-gpio-daemon wifi-gpio-daemon-install wifi-gpio-daemon-stop wifi-gpio-daemon-status \
+        wifi-configure-clients wifi-fix \
         web-daemon web-daemon-install web-daemon-stop web-daemon-status \
         web-url wifi-status mdns mdns-install
 
@@ -953,6 +970,8 @@ rust-deploy: on-the-mac-rust-deploy
 rust-deploy-cookie: on-the-mac-rust-deploy-cookie
 rust-deploy-remote: on-the-mac-rust-deploy-remote
 rust-deploy-cookie-remote: on-the-mac-rust-deploy-cookie-remote
+# Legacy alias: Mac SSH deploy + foreground daemon (NOT Pi systemd).
+# Prefer: make on-the-mac-rust-daemon  or  make on-the-pi-rust-daemon
 rust-daemon: on-the-mac-rust-daemon
 rust-run: on-the-mac-rust-run
 rust-home: on-the-mac-rust-home

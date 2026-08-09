@@ -141,4 +141,4 @@ YOLO is loaded lazily on first use. The `yolo` extra must be installed:
 make install-yolo
 ```
 
-Then press `y` in the UI or keyboard to activate.
+Weights (`yolov8n.pt`) are **not** checked into the repo; Ultralytics downloads them on first activation if missing. Then press `y` in the UI or keyboard to activate.

@@ -27,3 +27,12 @@ cookie_finder_rust/target/
 
 # Local serial console credentials (copy from .serial.env.example)
 .serial.env
+
+# Local WiFi client credentials (copy from .wifi.env.example)
+.wifi.env
+
+# macOS AppleDouble metadata
+._*
+
+# YOLO / Ultralytics weights (downloaded on first use after make install-yolo)
+*.pt
