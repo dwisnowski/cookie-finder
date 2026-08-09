@@ -3,6 +3,7 @@
 use crate::config::STEPS_PER_REV;
 #[cfg(target_os = "linux")]
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Wave drive (1-coil): lowest torque; many 24BYJ motors will not self-start.
 const WAVE_DRIVE: [[u8; 4]; 4] = [
@@ -31,6 +32,9 @@ const HALF_STEP: [[u8; 4]; 8] = [
     [0, 0, 0, 1],
     [1, 0, 0, 1],
 ];
+
+const HOME_SPEED_HZ: f64 = 200.0;
+const HOME_TIMEOUT_SECS: u64 = 10;
 
 /// Coil energization algorithm for ULN2003 unipolar steppers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -89,6 +93,8 @@ impl DriveMode {
 pub struct StepperMotor {
     name: String,
     pins: [u32; 4],
+    /// Center-Off SPDT channels: (min/CCW/home, max/CW). None if not configured.
+    limit_pins: Option<(u32, u32)>,
     phase_order: [usize; 4],
     drive_mode: DriveMode,
     max_angle: f64,
@@ -99,13 +105,22 @@ pub struct StepperMotor {
     moving: bool,
     #[cfg(target_os = "linux")]
     handles: Option<Mutex<Vec<gpio_cdev::LineHandle>>>,
+    #[cfg(target_os = "linux")]
+    limit_handles: Option<Mutex<(gpio_cdev::LineHandle, gpio_cdev::LineHandle)>>,
 }
 
 impl StepperMotor {
-    pub fn new(name: &str, pins: [u32; 4], phase_order: [usize; 4], max_angle: f64) -> Self {
+    pub fn new(
+        name: &str,
+        pins: [u32; 4],
+        phase_order: [usize; 4],
+        max_angle: f64,
+        limit_pins: Option<(u32, u32)>,
+    ) -> Self {
         let mut motor = Self {
             name: name.to_string(),
             pins,
+            limit_pins,
             phase_order,
             drive_mode: DriveMode::default(),
             max_angle,
@@ -116,6 +131,8 @@ impl StepperMotor {
             moving: false,
             #[cfg(target_os = "linux")]
             handles: None,
+            #[cfg(target_os = "linux")]
+            limit_handles: None,
         };
         motor.init_gpio();
         motor
@@ -147,6 +164,54 @@ impl StepperMotor {
                     tracing::info!("[{}] GPIO ok pins {:?}", self.name, self.pins);
                     self.handles = Some(Mutex::new(handles));
                 }
+
+                // gpio-cdev v1 has no bias flags; lines are INPUT (active-low when
+                // COM→GND). Prefer a 10k pull-up to 3.3V on each channel if floating.
+                if let Some((min_pin, max_pin)) = self.limit_pins {
+                    let min_h = match chip.get_line(min_pin).and_then(|l| {
+                        l.request(
+                            LineRequestFlags::INPUT,
+                            0,
+                            &format!("{}_limit_min", self.name),
+                        )
+                    }) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            tracing::warn!(
+                                "[{}] limit min pin {} failed: {}",
+                                self.name,
+                                min_pin,
+                                e
+                            );
+                            return;
+                        }
+                    };
+                    let max_h = match chip.get_line(max_pin).and_then(|l| {
+                        l.request(
+                            LineRequestFlags::INPUT,
+                            0,
+                            &format!("{}_limit_max", self.name),
+                        )
+                    }) {
+                        Ok(h) => h,
+                        Err(e) => {
+                            tracing::warn!(
+                                "[{}] limit max pin {} failed: {}",
+                                self.name,
+                                max_pin,
+                                e
+                            );
+                            return;
+                        }
+                    };
+                    tracing::info!(
+                        "[{}] limit switches ok min={} max={}",
+                        self.name,
+                        min_pin,
+                        max_pin
+                    );
+                    self.limit_handles = Some(Mutex::new((min_h, max_h)));
+                }
             }
             Err(e) => tracing::warn!("[{}] GPIO init failed: {}", self.name, e),
         }
@@ -155,6 +220,31 @@ impl StepperMotor {
     #[cfg(not(target_os = "linux"))]
     fn init_gpio(&mut self) {
         tracing::warn!("[{}] GPIO unavailable (not Linux)", self.name);
+    }
+
+    /// Active-low: tripped channel reads 0. Returns (min_hit, max_hit).
+    pub fn limit_state(&self) -> (bool, bool) {
+        #[cfg(target_os = "linux")]
+        {
+            let Some(handles) = &self.limit_handles else {
+                return (false, false);
+            };
+            let Ok(guard) = handles.lock() else {
+                return (false, false);
+            };
+            let min_hit = guard.0.get_value().unwrap_or(1) == 0;
+            let max_hit = guard.1.get_value().unwrap_or(1) == 0;
+            return (min_hit, max_hit);
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            (false, false)
+        }
+    }
+
+    fn direction_blocked(&self, direction: i32) -> bool {
+        let (min_hit, max_hit) = self.limit_state();
+        (direction < 0 && min_hit) || (direction > 0 && max_hit)
     }
 
     #[cfg(target_os = "linux")]
@@ -242,7 +332,15 @@ impl StepperMotor {
         std::time::Duration::from_secs_f64(1.0 / self.speed_hz)
     }
 
-    fn advance_step(&mut self, direction: i32) {
+    fn advance_step(&mut self, direction: i32) -> bool {
+        if self.direction_blocked(direction) {
+            tracing::debug!(
+                "[{}] step blocked by limit (dir={})",
+                self.name,
+                direction
+            );
+            return false;
+        }
         let len = self.drive_mode.sequence_len();
         self.current_step = (self.current_step + direction).rem_euclid(len);
         // Half-step advances half the mechanical angle of wave/full per index.
@@ -254,6 +352,7 @@ impl StepperMotor {
         self.current_angle =
             (self.current_angle + direction as f64 * deg).clamp(0.0, self.max_angle);
         self.write_step(self.current_step);
+        true
     }
 
     /// Step once toward target. Returns true if a step was taken.
@@ -265,14 +364,21 @@ impl StepperMotor {
             return false;
         }
         let dir: i32 = if diff > 0.0 { 1 } else { -1 };
-        self.advance_step(dir);
+        if !self.advance_step(dir) {
+            self.moving = false;
+            self.target_angle = self.current_angle;
+            self.write_step(self.current_step);
+            return false;
+        }
         self.moving = (self.target_angle - self.current_angle).abs() >= 0.5;
         true
     }
 
     pub fn step_fixed(&mut self, direction: i32, steps: u32) {
         for _ in 0..steps {
-            self.advance_step(direction);
+            if !self.advance_step(direction) {
+                break;
+            }
             std::thread::sleep(self.step_interval());
         }
         self.target_angle = self.current_angle;
@@ -281,11 +387,67 @@ impl StepperMotor {
     }
 
     pub fn home(&mut self) {
-        tracing::warn!("[{}] home skipped (no limit switch)", self.name);
+        #[cfg(target_os = "linux")]
+        let limits_ready = self.limit_handles.is_some();
+        #[cfg(not(target_os = "linux"))]
+        let limits_ready = false;
+
+        if self.limit_pins.is_none() || !limits_ready {
+            tracing::warn!("[{}] home skipped (no limit switch)", self.name);
+            self.current_angle = 0.0;
+            self.target_angle = 0.0;
+            self.current_step = 0;
+            self.moving = false;
+            self.set_pins_low();
+            return;
+        }
+
+        tracing::info!("[{}] homing toward min limit…", self.name);
+        self.moving = false;
+        let saved_hz = self.speed_hz;
+        self.speed_hz = HOME_SPEED_HZ;
+        let deadline = Instant::now() + Duration::from_secs(HOME_TIMEOUT_SECS);
+        let home_interval = Duration::from_secs_f64(1.0 / HOME_SPEED_HZ);
+
+        while Instant::now() < deadline {
+            let (min_hit, _) = self.limit_state();
+            if min_hit {
+                self.current_angle = 0.0;
+                self.target_angle = 0.0;
+                self.current_step = 0;
+                self.moving = false;
+                self.speed_hz = saved_hz;
+                self.write_step(self.current_step);
+                tracing::info!("[{}] homed at 0°", self.name);
+                return;
+            }
+            if !self.advance_step(-1) {
+                // Blocked by min limit — treat as home.
+                let (min_hit, _) = self.limit_state();
+                if min_hit {
+                    self.current_angle = 0.0;
+                    self.target_angle = 0.0;
+                    self.current_step = 0;
+                    self.moving = false;
+                    self.speed_hz = saved_hz;
+                    self.write_step(self.current_step);
+                    tracing::info!("[{}] homed at 0°", self.name);
+                    return;
+                }
+                break;
+            }
+            std::thread::sleep(home_interval);
+        }
+
+        tracing::warn!(
+            "[{}] homing timed out or blocked; zeroing angle anyway",
+            self.name
+        );
         self.current_angle = 0.0;
         self.target_angle = 0.0;
         self.current_step = 0;
         self.moving = false;
+        self.speed_hz = saved_hz;
         self.set_pins_low();
     }
 
@@ -297,12 +459,15 @@ impl StepperMotor {
 
     pub fn cleanup(&mut self) {
         #[cfg(target_os = "linux")]
-        if let Some(handles) = self.handles.take() {
-            if let Ok(guard) = handles.lock() {
-                for h in guard.iter() {
-                    let _ = h.set_value(0);
+        {
+            if let Some(handles) = self.handles.take() {
+                if let Ok(guard) = handles.lock() {
+                    for h in guard.iter() {
+                        let _ = h.set_value(0);
+                    }
                 }
             }
+            self.limit_handles.take();
         }
     }
 }

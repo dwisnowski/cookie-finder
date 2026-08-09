@@ -22,23 +22,31 @@ import time
 # Orange Pi Zero 2W GPIO offsets (gpiochip1)
 # Pan motor:  271(PI15), 268(PI12), 258(PI02), 272(PI16)
 PAN_PINS = (271, 268, 258, 272)
+PAN_LIMIT_MIN = 257  # physical 12
+PAN_LIMIT_MAX = 227  # physical 13
 
-# Tilt motor: 262(PI6), 229(PH5), 233(PH9), 265(PI9)
+# Tilt motor: 262(RXD.2), 229(CE.0), 233(CE.1), 265(SCL.2)
 TILT_PINS = (262, 229, 233, 265)
+TILT_LIMIT_MIN = 261  # physical 15
+TILT_LIMIT_MAX = 270  # physical 16
 
 def run_command(command, steps=50):
     """Execute motor control command."""
-    
+
     # Initialize pan motor
     pan_motor = StepperMotor(
         control_pins=PAN_PINS,
+        limit_min_pin=PAN_LIMIT_MIN,
+        limit_max_pin=PAN_LIMIT_MAX,
         max_angle=180.0,
         motor_name="Pan"
     )
-    
+
     # Initialize tilt motor
     tilt_motor = StepperMotor(
         control_pins=TILT_PINS,
+        limit_min_pin=TILT_LIMIT_MIN,
+        limit_max_pin=TILT_LIMIT_MAX,
         max_angle=180.0,
         motor_name="Tilt"
     )

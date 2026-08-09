@@ -93,13 +93,28 @@ If the motor buzzes or does not spin smoothly, run the [Stepper Wiring Test](ste
 
 ---
 
-## Pan Limit Switch
+## Pan Limit Switch (Center-Off SPDT)
 
-> **TBD** — Pin not yet confirmed from hardware testing.
+Momentary center-off SPDT: COM is common; both side channels are **normally open** until the lever is pushed to that side. Used as dual endstops (min / max).
 
-| Signal | gpiochip1 Offset | Notes |
-|--------|-----------------|-------|
-| Pan Limit | _TBD_ | Active low (triggered = 0) |
+### Connections
+
+| Signal | Physical | gpiochip1 Offset | Label | Notes |
+|--------|----------|------------------|-------|-------|
+| Pan limit COM | — | — | — | Wire to GND |
+| Pan limit min (CCW / home) | 12 | 257 | PI01 | NO channel A → GPIO (pull-up) |
+| Pan limit max (CW) | 13 | 227 | RXD.5 | NO channel B → GPIO (pull-up) |
+
+```
+COM  ──► GND
+NO-A ──► physical 12 (PI01 / offset 257)   # min / home
+NO-B ──► physical 13 (RXD.5 / offset 227)  # max
+```
+
+- **Active-low:** tripped channel reads 0. Python enables internal pull-up; the Rust daemon requests INPUT only (`gpio-cdev` v1 has no bias flags) — if a channel floats when open, add a 10 kΩ pull-up to 3.3 V on that GPIO.
+- **Direction-aware:** min blocks CCW only; max blocks CW only. Motion away from a tripped limit is allowed.
+- **Homing:** drive CCW until min trips, then set angle to 0°.
+- If mechanical direction is inverted, swap the two channel wires.
 
 ---
 
@@ -126,13 +141,25 @@ To discover the right values without rewiring, see [Stepper Wiring Test](stepper
 
 ---
 
-## Tilt Limit Switch
+## Tilt Limit Switch (Center-Off SPDT)
 
-> **TBD** — Pin not yet confirmed from hardware testing.
+Same Center-Off SPDT wiring as pan. Pins are reserved in software even if the tilt switch is not installed yet (pull-ups keep both channels high / not tripped).
 
-| Signal | gpiochip1 Offset | Notes |
-|--------|-----------------|-------|
-| Tilt Limit | _TBD_ | Active low (triggered = 0) |
+### Connections
+
+| Signal | Physical | gpiochip1 Offset | Label | Notes |
+|--------|----------|------------------|-------|-------|
+| Tilt limit COM | — | — | — | Wire to GND |
+| Tilt limit min (CCW / home) | 15 | 261 | TXD.2 | NO channel A → GPIO (pull-up) |
+| Tilt limit max (CW) | 16 | 270 | PWM4 | NO channel B → GPIO (pull-up) |
+
+```
+COM  ──► GND
+NO-A ──► physical 15 (TXD.2 / offset 261)  # min / home
+NO-B ──► physical 16 (PWM4 / offset 270)   # max
+```
+
+Behavior matches pan (active-low, direction-aware stop, home on min).
 
 ---
 
@@ -220,4 +247,5 @@ If WiFi is disconnected (client mode but no SSID), the button repairs home WiFi 
 
 - All GPIO access requires `sudo` or appropriate group permissions on Armbian.
 - GPIO offsets are defined in `cookie_finder_rust/cookie-finder-ctl/src/config.rs` and `cookie_finder/gimbal/pan_tilt.py`. Phase order is in `config/gimbal.toml`.
-- When limit switch pins are confirmed, update this file and the constants in the gimbal modules.
+- Limit switch pins are defined in `cookie_finder_rust/cookie-finder-ctl/src/config.rs` and `cookie_finder/gimbal/pan_tilt.py`.
+- Physical pins **8** (TXD.0) and **10** (RXD.0) are reserved for UART0 serial debugging — do not use for GPIO.
