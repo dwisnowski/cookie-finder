@@ -31,9 +31,9 @@ make on-the-pi-install
 make on-the-pi-run
 ```
 
-Open `http://<device-ip>:8000` in a browser.
+Open `http://<device-ip>/` (or `http://cookie-finder.local/` after `make mdns`) in a browser.
 
-To run as a systemd service (starts on boot):
+To run as a systemd service (starts on boot, HTTP :80 + HTTPS :443):
 
 ```bash
 make on-the-pi-web-daemon
@@ -49,7 +49,7 @@ When home WiFi is unavailable, the Pi can host its own hotspot (GPIO button or S
 |--|--|
 | **SSID** | `cookie-finder` |
 | **Password** | none (open network) |
-| **URL** | `http://192.168.12.1:8000` |
+| **URL** | `http://192.168.12.1/` (captive portal opens this automatically) |
 
 One-time setup on the Pi: `make on-the-pi-init-wifi` (or `make init-wifi`). Details: [WiFi AP mode](docs/usage/running.md#wifi-access-point-mode), [Orange Pi setup](docs/setup/orange-pi.md#5-enable-wifi-access-point-mode-optional).
 

@@ -1,6 +1,6 @@
 # Web Server API
 
-Started with `make run` (or `uv run main.py --web`). Serves on `http://0.0.0.0:8000` by default.
+Started with `make run` (or `uv run main.py --web`). Serves on **HTTP :80** and **HTTPS :443** by default (self-signed cert). Use `--https-port 0` to disable TLS, or `--port 8000` for unprivileged local dev.
 
 ---
 
@@ -9,6 +9,7 @@ Started with `make run` (or `uv run main.py --web`). Serves on `http://0.0.0.0:8
 | Method | Route | Description |
 |--------|-------|-------------|
 | `GET` | `/` | Browser UI (`index.html`) |
+| `GET` | `/generate_204`, `/hotspot-detect.html`, … | Captive-portal probes → redirect to `http://192.168.12.1/` |
 | `GET` | `/video` | MJPEG stream (~50 FPS, JPEG quality 65) |
 | `GET` | `/state` | Full processor state as JSON |
 | `GET` | `/camera-status` | `{connected, camera_id, message}` |

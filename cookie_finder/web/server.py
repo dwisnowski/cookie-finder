@@ -20,7 +20,7 @@ os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
 cv2.setLogLevel(0)
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, FileSystemLoader
@@ -29,11 +29,37 @@ from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
-from cookie_finder.wifi import get_switch_instructions, get_wifi_status, set_wifi_mode
+from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
 
 
 def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").lower() in ("1", "true", "yes")
+
+
+# Captive-portal probe paths used by Android / Apple / Windows / Firefox.
+# DNS hijack in AP mode sends these to us; we redirect to the web app home.
+_CAPTIVE_PROBE_PATHS = frozenset(
+    {
+        "/generate_204",
+        "/gen_204",
+        "/hotspot-detect.html",
+        "/library/test/success.html",
+        "/connecttest.txt",
+        "/ncsi.txt",
+        "/success.txt",
+        "/canonical.html",
+        "/redirect",
+        "/kindle-wifi/wifiredirect.html",
+        "/kindle-wifi/wifistub.html",
+    }
+)
+
+_CAPTIVE_HOME = os.environ.get(
+    "COOKIE_FINDER_CAPTIVE_URL", f"http://{AP_GATEWAY}/"
+)
+_TLS_DIR = Path(
+    os.environ.get("COOKIE_FINDER_TLS_DIR", "/var/lib/cookie-finder/tls")
+)
 
 
 # Verbose console chatter (MJPEG wait loops, etc.)
@@ -584,6 +610,17 @@ def create_app(camera_id=None):
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def captive_portal_middleware(request: Request, call_next):
+        """Redirect OS captive-portal probes to the web app home page."""
+        if request.method in ("GET", "HEAD"):
+            path = request.url.path.rstrip("/") or "/"
+            # Match with and without trailing slash (probe set has no slash).
+            probe = path if path != "/" else "/"
+            if probe in _CAPTIVE_PROBE_PATHS or request.url.path in _CAPTIVE_PROBE_PATHS:
+                return RedirectResponse(url=_CAPTIVE_HOME, status_code=302)
+        return await call_next(request)
     
     # Add all the routes
     @app.get("/camera-status")
@@ -1168,23 +1205,140 @@ def create_app(camera_id=None):
     return app
 
 
-def run_webserver(host="0.0.0.0", port=8000, camera_id=None):
-    """Launch FastAPI web server with specified camera."""
+def _ensure_tls_certs(certfile: Path, keyfile: Path) -> bool:
+    """Create a self-signed cert for HTTPS if missing. Returns True on success."""
+    if certfile.is_file() and keyfile.is_file():
+        return True
+    import subprocess
+
+    try:
+        certfile.parent.mkdir(parents=True, exist_ok=True)
+        # openssl config for SAN (cookie-finder.local + AP gateway)
+        conf = certfile.parent / "openssl-san.cnf"
+        conf.write_text(
+            "\n".join(
+                [
+                    "[req]",
+                    "default_bits = 2048",
+                    "prompt = no",
+                    "default_md = sha256",
+                    "distinguished_name = dn",
+                    "x509_extensions = v3_req",
+                    "[dn]",
+                    "CN = cookie-finder.local",
+                    "[v3_req]",
+                    "subjectAltName = @alt_names",
+                    "basicConstraints = CA:FALSE",
+                    "keyUsage = digitalSignature, keyEncipherment",
+                    "extendedKeyUsage = serverAuth",
+                    "[alt_names]",
+                    "DNS.1 = cookie-finder.local",
+                    "DNS.2 = localhost",
+                    f"IP.1 = {AP_GATEWAY}",
+                    "IP.2 = 127.0.0.1",
+                    "",
+                ]
+            )
+        )
+        subprocess.run(
+            [
+                "openssl",
+                "req",
+                "-x509",
+                "-nodes",
+                "-newkey",
+                "rsa:2048",
+                "-keyout",
+                str(keyfile),
+                "-out",
+                str(certfile),
+                "-days",
+                "3650",
+                "-config",
+                str(conf),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        print(f"Generated self-signed TLS cert: {certfile}")
+        return True
+    except (OSError, subprocess.CalledProcessError, FileNotFoundError) as exc:
+        print(f"WARNING: could not create TLS cert ({exc}); HTTPS disabled")
+        return False
+
+
+def run_webserver(
+    host="0.0.0.0",
+    port=80,
+    https_port=443,
+    camera_id=None,
+    ssl_certfile=None,
+    ssl_keyfile=None,
+):
+    """Launch FastAPI on HTTP (and optionally HTTPS).
+
+    Defaults: port 80 and HTTPS 443. Set https_port=0 (or None) to disable TLS.
+    """
+    import asyncio
     import uvicorn
-    
-    camera_desc = f"/dev/video{camera_id}" if camera_id is not None else "auto-detect (none found)"
+    from uvicorn import Config, Server
+
+    camera_desc = (
+        f"/dev/video{camera_id}" if camera_id is not None else "auto-detect (none found)"
+    )
     print(f"Creating FastAPI app (camera: {camera_desc})...")
     app = create_app(camera_id)
-    
-    print(f"Starting web server on {host}:{port}")
-    print(f"Open browser: http://{host}:{port}")
-    
+
     access_log = _env_flag("COOKIE_FINDER_ACCESS_LOG")
     log_level = "info" if access_log else "warning"
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        log_level=log_level,
-        access_log=access_log,
-    )
+
+    certfile = Path(ssl_certfile) if ssl_certfile else _TLS_DIR / "cert.pem"
+    keyfile = Path(ssl_keyfile) if ssl_keyfile else _TLS_DIR / "key.pem"
+    use_https = bool(https_port) and https_port > 0
+
+    if use_https and not _ensure_tls_certs(certfile, keyfile):
+        use_https = False
+
+    print(f"Starting web server on http://{host}:{port}")
+    if use_https:
+        print(f"Starting web server on https://{host}:{https_port}")
+    print(f"Open browser: http://{host}:{port}" + ("" if port == 80 else ""))
+
+    async def _serve() -> None:
+        servers: list[Server] = []
+        http_cfg = Config(
+            app,
+            host=host,
+            port=port,
+            log_level=log_level,
+            access_log=access_log,
+        )
+        servers.append(Server(http_cfg))
+
+        if use_https:
+            # Lifespan already runs on the HTTP server; skip on HTTPS.
+            https_cfg = Config(
+                app,
+                host=host,
+                port=https_port,
+                log_level=log_level,
+                access_log=access_log,
+                ssl_certfile=str(certfile),
+                ssl_keyfile=str(keyfile),
+                lifespan="off",
+            )
+            servers.append(Server(https_cfg))
+
+        await asyncio.gather(*(s.serve() for s in servers))
+
+    try:
+        asyncio.run(_serve())
+    except OSError as exc:
+        if getattr(exc, "errno", None) in (1, 13) or "Permission" in str(exc):
+            print(
+                f"ERROR: cannot bind port {port}"
+                + (f"/{https_port}" if use_https else "")
+                + " — need root or CAP_NET_BIND_SERVICE "
+                "(use: make on-the-pi-web-daemon)"
+            )
+        raise

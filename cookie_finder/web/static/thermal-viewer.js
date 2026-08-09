@@ -89,7 +89,7 @@ let wifiStatus = {
     ap_ssid: 'cookie-finder',
     ap_passphrase: null,
     open_network: true,
-    ap_url: 'http://192.168.12.1:8000',
+    ap_url: 'http://192.168.12.1/',
     switching: false,
 };
 let wifiTargetMode = null;
@@ -1051,7 +1051,7 @@ function updateWifiSettingsUI() {
         toggleBtn.disabled = false;
         toggleBtn.textContent = 'Switch to Client Mode';
         if (hint) {
-            hint.innerHTML = `Open network (no password) · <strong>${wifiStatus.ap_url || 'http://192.168.12.1:8000'}</strong>`;
+            hint.innerHTML = `Open network (no password) · <strong>${wifiStatus.ap_url || 'http://192.168.12.1/'}</strong>`;
         }
         return;
     }
@@ -1107,7 +1107,7 @@ function openWifiConfirm(targetMode, instructions) {
             creds.innerHTML = `
                 <div><span>Network</span><strong>${instructions.ssid || 'cookie-finder'}</strong></div>
                 ${passRow}
-                <div><span>URL</span><strong>${instructions.url || 'http://192.168.12.1:8000'}</strong></div>
+                <div><span>URL</span><strong>${instructions.url || 'http://192.168.12.1/'}</strong></div>
             `;
         } else {
             creds.hidden = true;

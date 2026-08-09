@@ -31,7 +31,7 @@ make install
 make run
 ```
 
-Then open `http://<device-ip>:8000` in a browser.
+Then open `http://<device-ip>/` (or `http://cookie-finder.local/`) in a browser.
 
 ## Documentation
 

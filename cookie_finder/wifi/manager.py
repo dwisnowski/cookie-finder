@@ -21,7 +21,8 @@ AP_SSID = "cookie-finder"
 # Open SoftAP by default — WPA SoftAP on Zero 2W (UWE5622) often fails phone joins.
 AP_PASSPHRASE = ""
 AP_GATEWAY = "192.168.12.1"
-AP_URL = f"http://{AP_GATEWAY}:8000"
+# Web app listens on :80 / :443 — no port suffix needed for the captive/AP URL.
+AP_URL = f"http://{AP_GATEWAY}/"
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _SCRIPT = _REPO_ROOT / "scripts" / "wifi-mode.sh"
@@ -571,7 +572,7 @@ def _switch_instructions(mode: str) -> dict[str, Any]:
             "You will lose this browser connection as soon as the switch starts.",
             "Reconnect your phone/laptop to your normal WiFi network.",
             "Find the Orange Pi’s new IP address (router DHCP list or SSH).",
-            "Open http://<orange-pi-ip>:8000 in your browser.",
+            "Open http://cookie-finder.local/ or http://<orange-pi-ip>/ in your browser.",
         ],
         "ssid": None,
         "passphrase": None,
