@@ -214,11 +214,12 @@ Wire one side to **GPIO 40 (PI03)** and the other side to **GND (pin 39)** (e.g.
 
 ### LED blink legend
 
-| WiFi state | LED |
-|------------|-----|
+| State | LED |
+|-------|-----|
 | Client mode | Solid ON |
 | AP mode | Slow blink ~1 Hz (500 ms on / 500 ms off) |
 | Switching modes | Fast blink ~5 Hz (100 ms on / 100 ms off) |
+| Shutting down | Chirp: blink rate sweeps slow → fast → slow (~2.4 s cycle) |
 | Unavailable / error | OFF |
 
 ### Service
@@ -231,7 +232,7 @@ make on-the-pi-wifi-gpio-daemon-status
 sudo journalctl -u cookie-finder-wifi -f
 ```
 
-Press the button to toggle between client WiFi and the `cookie-finder` access point.
+Press once (or twice) to toggle between client WiFi and the `cookie-finder` access point. A single press waits ~0.6 s so a third click can still be recognized. Triple-click in quick succession to shut down the Orange Pi (the LED chirps slow → fast → slow, then the board powers off).
 
 | | |
 |--|--|

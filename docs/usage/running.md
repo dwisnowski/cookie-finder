@@ -116,18 +116,18 @@ On the Orange Pi, run once (after `make install`):
 make init-wifi
 ```
 
-This installs AP tooling, passwordless sudo for `scripts/wifi-mode.sh`, and the always-on **WiFi button + LED** systemd service (`cookie-finder-wifi`). The physical button works even when the web app is not running.
+This installs AP tooling, passwordless sudo for `scripts/wifi-mode.sh` and `scripts/system-power.sh`, and the always-on **WiFi button + LED** systemd service (`cookie-finder-wifi`). The physical button works even when the web app is not running.
 
 The home screen badge shows **Client · …** or **AP · cookie-finder**.
 
-In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspot. A confirmation dialog lists reconnect steps before the radio switches. The GPIO button does the same toggle.
+In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspot. A confirmation dialog lists reconnect steps before the radio switches. One or two presses on the GPIO button do the same toggle. Triple-click shuts the board down (confirm from **Settings → Device Controls → Shut down**).
 
 **Boot policy:** AP mode does **not** survive a full reboot (power cycle). After reboot, `cookie-finder-wifi` restores client (home/office) WiFi. A plain `systemctl restart` while already in AP leaves AP alone. If the radio looks like client but has no SSID, the button repairs client mode instead of entering AP.
 
 - AP SSID: `cookie-finder`
 - AP password: none (open SoftAP — WPA SoftAP is unreliable on this WiFi chip)
 - AP URL: `http://192.168.12.1/` (captive portal redirects guests here)
-- LED: solid = client, slow blink (~1 Hz) = AP, fast blink (~5 Hz) = switching
+- LED: solid = client, slow blink (~1 Hz) = AP, fast blink (~5 Hz) = switching, slow→fast→slow chirp = shutting down
 
 Wiring details: [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led). Networking prerequisites (NM-only Wi‑Fi, no netplan Wi‑Fi, optional fast-boot mask): [Orange Pi setup §4](../setup/orange-pi.md#4-configure-wifi-networkmanager-only).
 

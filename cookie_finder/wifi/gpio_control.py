@@ -6,19 +6,26 @@ Pins (gpiochip1) — kept clear of pan/tilt motor pins (phys 22–28, 31–37):
   Button physical 40 / PI03 / offset 259  (active-low, internal pull-up)
 
 LED patterns:
-  client     solid ON
-  ap         slow blink ~1 Hz  (500 ms on / 500 ms off)
-  switching  fast blink ~5 Hz  (100 ms on / 100 ms off)
-  other      OFF
+  client       solid ON
+  ap           slow blink ~1 Hz  (500 ms on / 500 ms off)
+  switching    fast blink ~5 Hz  (100 ms on / 100 ms off)
+  shutting down chirp: half-period sweeps 450 ms → 50 ms → 450 ms (~2.4 s cycle)
+  other        OFF
+
+Button:
+  1–2 clicks (0.6 s quiet after last press)  toggle client ↔ AP
+  3+ clicks                                  graceful power-off
 """
 
 from __future__ import annotations
 
+import math
 import platform
 import threading
 import time
 from typing import Optional
 
+from cookie_finder.poweroff import is_powering_off, request_poweroff
 from cookie_finder.wifi.manager import get_desired_mode, get_wifi_status, set_wifi_mode
 
 try:
@@ -46,6 +53,21 @@ FAST_BLINK_HALF_S = 0.1  # ~5 Hz
 BUTTON_STARTUP_GRACE_S = 2.0
 # Ignore further presses after a switch so bounce cannot flip AP→client.
 BUTTON_SWITCH_COOLDOWN_S = 8.0
+# Quiet gap after the last press before 1–2 clicks become a WiFi toggle
+# (so a third click can still become shutdown).
+CLICK_GAP_S = 0.6
+SHUTDOWN_CLICKS = 3
+SHUTDOWN_CYCLE_S = 2.4
+SHUTDOWN_SLOW_HALF_S = 0.45
+SHUTDOWN_FAST_HALF_S = 0.05
+
+
+def shutdown_blink_half_s(elapsed_s: float) -> float:
+    """Half-period for the shutdown chirp at *elapsed_s* since the sequence started."""
+    phase = (elapsed_s % SHUTDOWN_CYCLE_S) / SHUTDOWN_CYCLE_S
+    # 0 → slow, 0.5 → fast, 1 → slow
+    sweep = 0.5 * (1.0 - math.cos(2.0 * math.pi * phase))
+    return SHUTDOWN_SLOW_HALF_S + (SHUTDOWN_FAST_HALF_S - SHUTDOWN_SLOW_HALF_S) * sweep
 
 
 class WifiGpioController:
@@ -75,6 +97,8 @@ class WifiGpioController:
         self._cached_status: dict = {}
         self._status_deadline = 0.0
         self._button_armed_at = 0.0
+        self._click_times: list[float] = []
+        self._shutdown_led_t0: Optional[float] = None
 
     @property
     def available(self) -> bool:
@@ -194,12 +218,17 @@ class WifiGpioController:
         return self._cached_status
 
     def _handle_button(self, now: float) -> None:
+        if is_powering_off():
+            self._click_times.clear()
+            return
+
         if now < self._button_armed_at:
             # Keep baseline in sync during grace so a held button after arm
             # does not look like a fresh press.
             raw_released = self._read_button_released()
             self._last_button_raw = raw_released
             self._stable_button = raw_released
+            self._click_times.clear()
             return
 
         raw_released = self._read_button_released()
@@ -219,6 +248,32 @@ class WifiGpioController:
         if raw_released:
             return
 
+        self._click_times.append(now)
+        print(
+            f"[wifi-gpio] click {len(self._click_times)} "
+            f"(1–2 = WiFi, {SHUTDOWN_CLICKS}+ = shutdown)"
+        )
+
+    def _dispatch_clicks_if_idle(self, now: float) -> None:
+        if is_powering_off() or not self._click_times:
+            return
+        if now - self._click_times[-1] < CLICK_GAP_S:
+            return
+        n = len(self._click_times)
+        self._click_times.clear()
+        if n >= SHUTDOWN_CLICKS:
+            self._begin_shutdown()
+            return
+        self._toggle_wifi_from_button(now)
+
+    def _begin_shutdown(self) -> None:
+        print("[wifi-gpio] triple-click → poweroff")
+        result = request_poweroff(delay_seconds=0.0)
+        print(
+            f"[wifi-gpio] poweroff {result.get('status')}: {result.get('message')}"
+        )
+
+    def _toggle_wifi_from_button(self, now: float) -> None:
         status = self._refresh_status(now)
         if not status.get("supported", True):
             print(f"[wifi-gpio] button ignored: {status.get('reason') or 'unsupported'}")
@@ -264,6 +319,19 @@ class WifiGpioController:
             )
 
     def _update_led(self, now: float, status: dict) -> None:
+        if is_powering_off():
+            if self._shutdown_led_t0 is None:
+                self._shutdown_led_t0 = now
+                self._blink_deadline = 0.0
+            half = shutdown_blink_half_s(now - self._shutdown_led_t0)
+            if now >= self._blink_deadline:
+                self._blink_phase = not self._blink_phase
+                self._blink_deadline = now + half
+                self._set_led(self._blink_phase)
+            return
+
+        self._shutdown_led_t0 = None
+
         if status.get("switching"):
             half = FAST_BLINK_HALF_S
         elif status.get("mode") == "ap":
@@ -287,6 +355,7 @@ class WifiGpioController:
             now = time.monotonic()
             try:
                 self._handle_button(now)
+                self._dispatch_clicks_if_idle(now)
                 status = self._refresh_status(now)
                 self._update_led(now, status)
             except Exception as e:

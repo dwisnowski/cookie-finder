@@ -19,6 +19,7 @@ Started with `make run` (or `uv run main.py --web`). Serves on **HTTP :80** and 
 | `GET` | `/wifi/status` | Current WiFi mode (`client` / `ap`) + SSID details |
 | `GET` | `/wifi/instructions/{mode}` | Confirmation-dialog copy for switching to `ap` or `client` |
 | `POST` | `/wifi/mode/{mode}` | Switch WiFi to `ap` or `client` (background; disconnects current link) |
+| `POST` | `/system/poweroff` | Graceful halt (LED chirp, then `systemctl poweroff`; returns immediately) |
 | `POST` | `/bluetooth/scan` | Start BlueZ discovery scan |
 | `POST` | `/bluetooth/stop-scan` | Stop scan |
 | `GET` | `/bluetooth/devices` | Known / discovered BlueZ devices |

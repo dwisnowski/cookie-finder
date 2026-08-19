@@ -91,6 +91,7 @@ let wifiStatus = {
     open_network: true,
     ap_url: 'http://192.168.12.1/',
     switching: false,
+    powering_off: false,
 };
 let wifiTargetMode = null;
 
@@ -997,6 +998,12 @@ function updateWifiBadge() {
     if (!badge || !dot || !text) return;
 
     badge.classList.remove('badge-wifi-ap', 'badge-wifi-client', 'badge-wifi-unknown');
+    if (wifiStatus.powering_off) {
+        badge.classList.add('badge-wifi-unknown');
+        dot.classList.remove('active');
+        text.textContent = 'Shutting down…';
+        return;
+    }
     if (wifiStatus.switching) {
         badge.classList.add('badge-wifi-unknown');
         dot.classList.remove('active');
@@ -1035,6 +1042,15 @@ function updateWifiSettingsUI() {
         toggleBtn.disabled = true;
         toggleBtn.textContent = 'AP Mode Unavailable';
         if (hint) hint.textContent = 'Requires Orange Pi Linux with sudo access for scripts/wifi-mode.sh.';
+        return;
+    }
+
+    if (wifiStatus.powering_off) {
+        summary.textContent = 'The Orange Pi is shutting down. Watch the WiFi LED (slow → fast → slow).';
+        toggleBtn.disabled = true;
+        toggleBtn.textContent = 'Shutting down…';
+        const shutdownBtn = document.getElementById('btn_poweroff_settings');
+        if (shutdownBtn) shutdownBtn.disabled = true;
         return;
     }
 
@@ -1268,6 +1284,101 @@ if (reconnectBtnSettings) {
     reconnectBtnSettings.addEventListener('click', () => {
         fetch('/reconnect', { method: 'POST' })
             .catch(e => console.error('Reconnect error:', e));
+    });
+}
+
+function openPoweroffConfirm() {
+    const overlay = document.getElementById('poweroffConfirmOverlay');
+    const summary = document.getElementById('poweroffConfirmSummary');
+    const confirmBtn = document.getElementById('btn_poweroff_confirm');
+    const cancelBtn = document.getElementById('btn_poweroff_cancel');
+    if (!overlay) return;
+    if (summary) {
+        summary.textContent =
+            'The WiFi LED will pulse slow → fast → slow, then the Orange Pi will power off. ' +
+            'To turn it back on, unplug and replug power.';
+    }
+    if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Shut down';
+    }
+    if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Cancel';
+    }
+    overlay.classList.add('active');
+}
+
+function closePoweroffConfirm() {
+    const overlay = document.getElementById('poweroffConfirmOverlay');
+    if (overlay) overlay.classList.remove('active');
+}
+
+function confirmPoweroff() {
+    const confirmBtn = document.getElementById('btn_poweroff_confirm');
+    const cancelBtn = document.getElementById('btn_poweroff_cancel');
+    const closeBtn = document.getElementById('closePoweroffConfirmBtn');
+    const settingsShutdownBtn = document.getElementById('btn_poweroff_settings');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.textContent = 'Shutting down…';
+    }
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (closeBtn) closeBtn.disabled = true;
+    if (settingsShutdownBtn) settingsShutdownBtn.disabled = true;
+
+    fetch('/system/poweroff', { method: 'POST' })
+        .then((r) => r.json())
+        .then((data) => {
+            if (data.powering_off) {
+                applyWifiStatus({ powering_off: true });
+            }
+            if (data.status === 'error') {
+                alert(data.message || 'Shutdown failed');
+                if (confirmBtn) {
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Shut down';
+                }
+                if (cancelBtn) cancelBtn.disabled = false;
+                if (closeBtn) closeBtn.disabled = false;
+                if (settingsShutdownBtn) settingsShutdownBtn.disabled = false;
+                return;
+            }
+            const summary = document.getElementById('poweroffConfirmSummary');
+            if (summary) {
+                summary.textContent = data.message ||
+                    'Shutting down… watch the WiFi LED (slow → fast → slow). This page will disconnect.';
+            }
+            if (cancelBtn) {
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Close';
+            }
+        })
+        .catch((e) => {
+            console.error('Poweroff error:', e);
+            const summary = document.getElementById('poweroffConfirmSummary');
+            if (summary) {
+                summary.textContent =
+                    'Connection lost — the Orange Pi is likely powering off. Watch the WiFi LED.';
+            }
+            applyWifiStatus({ powering_off: true });
+        });
+}
+
+const poweroffSettingsBtn = document.getElementById('btn_poweroff_settings');
+if (poweroffSettingsBtn) {
+    poweroffSettingsBtn.addEventListener('click', openPoweroffConfirm);
+}
+const poweroffConfirmOverlay = document.getElementById('poweroffConfirmOverlay');
+const closePoweroffConfirmBtn = document.getElementById('closePoweroffConfirmBtn');
+const poweroffCancelBtn = document.getElementById('btn_poweroff_cancel');
+const poweroffConfirmBtn = document.getElementById('btn_poweroff_confirm');
+if (closePoweroffConfirmBtn) closePoweroffConfirmBtn.addEventListener('click', closePoweroffConfirm);
+if (poweroffCancelBtn) poweroffCancelBtn.addEventListener('click', closePoweroffConfirm);
+if (poweroffConfirmBtn) poweroffConfirmBtn.addEventListener('click', confirmPoweroff);
+if (poweroffConfirmOverlay) {
+    poweroffConfirmOverlay.addEventListener('click', (e) => {
+        if (e.target === poweroffConfirmOverlay) closePoweroffConfirm();
     });
 }
 

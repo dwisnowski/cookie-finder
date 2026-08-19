@@ -107,6 +107,11 @@ _init-wifi:
 	echo "cookie ALL=(root) NOPASSWD: $$SCRIPT_PATH" | sudo tee /etc/sudoers.d/cookie-finder-wifi >/dev/null; \
 	sudo chmod 440 /etc/sudoers.d/cookie-finder-wifi; \
 	sudo visudo -cf /etc/sudoers.d/cookie-finder-wifi
+	@POWER_SCRIPT="$$(cd "$(CURDIR)" && pwd)/scripts/system-power.sh"; \
+	echo "Configuring passwordless sudo for $$POWER_SCRIPT..."; \
+	echo "cookie ALL=(root) NOPASSWD: $$POWER_SCRIPT" | sudo tee /etc/sudoers.d/cookie-finder-poweroff >/dev/null; \
+	sudo chmod 440 /etc/sudoers.d/cookie-finder-poweroff; \
+	sudo visudo -cf /etc/sudoers.d/cookie-finder-poweroff
 	@echo "Installing NetworkManager captive-DNS drop-in (AP SoftAP only)..."
 	@sudo mkdir -p /etc/NetworkManager/dnsmasq-shared.d
 	@printf '%s\n' \
@@ -123,7 +128,8 @@ _init-wifi:
 	fi
 	@echo "WiFi AP setup complete. SSID will be cookie-finder (open network, no password)."
 	@echo "Captive portal: guests are redirected to http://192.168.12.1/ (web app)."
-	@echo "Toggle AP/client via Settings panel, or the GPIO button (LED on pin 7)."
+	@echo "Toggle AP/client via Settings or a single GPIO button press (LED on pin 29)."
+	@echo "Triple-click the button, or Settings → Shut down, to power off."
 	@echo "Button service: sudo systemctl status cookie-finder-wifi"
 
 _run-standalone:

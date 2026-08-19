@@ -43,7 +43,7 @@ make on-the-pi-web-daemon
 
 ## WiFi Access Point
 
-When home WiFi is unavailable, the Pi can host its own hotspot (GPIO button or Settings → WiFi Mode):
+When home WiFi is unavailable, the Pi can host its own hotspot (single GPIO button press or Settings → WiFi Mode). Triple-click the button, or Settings → **Shut down**, to power off the board.
 
 | | |
 |--|--|

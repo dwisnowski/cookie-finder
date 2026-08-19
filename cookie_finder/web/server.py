@@ -29,6 +29,7 @@ from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
 from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
+from cookie_finder.poweroff import request_poweroff
 
 
 def _env_flag(name: str) -> bool:
@@ -686,6 +687,16 @@ def create_app(camera_id=None):
         so the browser can show instructions before the link drops.
         """
         return set_wifi_mode(mode)
+
+    @app.post("/system/poweroff")
+    def system_poweroff():
+        """
+        Graceful power-off: LED chirp, then halt.
+
+        Returns immediately so the browser can show a shutting-down message
+        before the board goes down.
+        """
+        return request_poweroff()
     
     @app.post("/bluetooth/scan")
     async def bluetooth_scan():
