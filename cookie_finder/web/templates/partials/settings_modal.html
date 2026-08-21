@@ -58,6 +58,9 @@
                     <button class="btn" id="btn_reconnect_settings" style="font-size: 11px; background: linear-gradient(135deg, rgba(170, 102, 0, 0.8) 0%, rgba(200, 120, 0, 0.6) 100%);">Reconnect</button>
                     <button class="btn" id="btn_cycle_gamepad_settings" style="font-size: 11px;">🎮 Cycle Device</button>
                 </div>
+                <button class="btn btn-poweroff" id="btn_poweroff_settings" type="button">
+                    <i class="bi bi-power"></i> Shut down
+                </button>
             </div>
         </div>
     </div>
@@ -73,6 +76,22 @@
             <div class="wifi-confirm-actions">
                 <button class="btn" id="btn_wifi_cancel" type="button">Cancel</button>
                 <button class="btn btn-wifi-confirm" id="btn_wifi_confirm" type="button">Switch Mode</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Power-off confirm modal -->
+    <div id="poweroffConfirmOverlay" class="modal-overlay wifi-confirm-overlay">
+        <div class="modal-content wifi-confirm-content">
+            <button class="modal-close" id="closePoweroffConfirmBtn">&times;</button>
+            <div class="modal-header" id="poweroffConfirmTitle">Shut down?</div>
+            <p id="poweroffConfirmSummary" class="wifi-confirm-summary">
+                The WiFi LED will pulse slow → fast → slow, then the Orange Pi will power off.
+                To turn it back on, unplug and replug power.
+            </p>
+            <div class="wifi-confirm-actions">
+                <button class="btn" id="btn_poweroff_cancel" type="button">Cancel</button>
+                <button class="btn btn-poweroff-confirm" id="btn_poweroff_confirm" type="button">Shut down</button>
             </div>
         </div>
     </div>

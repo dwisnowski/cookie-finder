@@ -112,9 +112,9 @@ After cloning the repo and running `make install`:
 make init-wifi
 ```
 
-This installs `hostapd` / `dnsmasq` / `create_ap` (when missing), grants passwordless sudo for `scripts/wifi-mode.sh`, and enables the **`cookie-finder-wifi`** systemd service (GPIO button + LED on boot). After a full reboot that service restores **client** WiFi; AP mode is runtime-only and does not persist across power cycle.
+This installs `hostapd` / `dnsmasq` / `create_ap` (when missing), grants passwordless sudo for `scripts/wifi-mode.sh` and `scripts/system-power.sh`, and enables the **`cookie-finder-wifi`** systemd service (GPIO button + LED on boot). After a full reboot that service restores **client** WiFi; AP mode is runtime-only and does not persist across power cycle.
 
-**Physical button:** press to toggle client ↔ AP (works without the web app). See [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led).
+**Physical button:** press once to toggle client ↔ AP (works without the web app). Triple-click in quick succession to shut down. See [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led).
 
 **Web UI:**
 
@@ -123,6 +123,8 @@ This installs `hostapd` / `dnsmasq` / `create_ap` (when missing), grants passwor
 3. Confirm the popup instructions
 4. Join WiFi **`cookie-finder`** (open network — no password)
 5. Your phone should open the captive portal to `http://192.168.12.1/` (web app home). If not, open that URL manually.
+
+**Shut down:** Settings (gear) → Device Controls → **Shut down**, or triple-click the WiFi button. The LED chirps slow → fast → slow, then the board powers off.
 
 The home-screen badge shows **Client · …** or **AP · cookie-finder**.
 

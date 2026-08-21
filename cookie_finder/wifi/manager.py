@@ -17,6 +17,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from cookie_finder.poweroff import is_powering_off
+
 AP_SSID = "cookie-finder"
 # Open SoftAP by default — WPA SoftAP on Zero 2W (UWE5622) often fails phone joins.
 AP_PASSPHRASE = ""
@@ -279,6 +281,7 @@ def get_wifi_status() -> dict[str, Any]:
         "ap_gateway": AP_GATEWAY,
         "ap_url": AP_URL,
         "switching": switching,
+        "powering_off": is_powering_off(),
     }
 
 

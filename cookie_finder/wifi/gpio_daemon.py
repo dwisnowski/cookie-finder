@@ -6,6 +6,8 @@ Run:
 
 Installed as systemd unit cookie-finder-wifi.service (make init-wifi).
 Independent of the Cookie Finder web app.
+
+Button: 1–2 clicks toggle WiFi; 3+ clicks in quick succession power off.
 """
 
 from __future__ import annotations
@@ -43,7 +45,7 @@ def main() -> int:
         daemon=True,
     ).start()
 
-    print("[wifi-gpio-daemon] starting (button toggles WiFi AP/client)")
+    print("[wifi-gpio-daemon] starting (1–2 clicks toggle WiFi; 3+ clicks power off)")
     try:
         controller.run_forever()
     except RuntimeError as e:

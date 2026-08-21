@@ -675,6 +675,19 @@ input[type="range"]:focus {
     background: linear-gradient(135deg, rgba(170, 102, 0, 0.9) 0%, rgba(200, 120, 0, 0.7) 100%) !important;
 }
 
+.btn-poweroff,
+.btn-poweroff-confirm {
+    background: linear-gradient(135deg, #eab308 0%, #d97706 100%) !important;
+    color: #1a202c !important;
+    font-weight: 700;
+}
+
+.btn-poweroff {
+    width: 100%;
+    margin-top: 8px;
+    font-size: 11px;
+}
+
 @keyframes fadeIn {
     from {
         opacity: 0;

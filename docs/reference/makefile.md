@@ -20,7 +20,7 @@ make on-the-pi-help    # full Pi target list
 | `make on-the-mac-install-ffmpeg` / `make install-ffmpeg` | Mac | `brew install ffmpeg` |
 | `make on-the-mac-install-libusb` / `make install-libusb` | Mac | `brew install libusb` |
 | `make on-the-pi-init` / `make init` | Pi | Add user to Bluetooth group |
-| `make on-the-pi-init-wifi` / `make init-wifi` | Pi | AP deps, captive DNS, sudoers, WiFi GPIO service |
+| `make on-the-pi-init-wifi` / `make init-wifi` | Pi | AP deps, captive DNS, sudoers (WiFi + poweroff), WiFi GPIO service |
 | `make on-the-pi-mdns` / `make mdns` | Pi | Hostname + Avahi for `http://cookie-finder.local/` |
 | `make on-the-mac-tool-setup` | Mac | Rustup + cross + Docker check |
 | `make on-the-pi-tool-setup` | Pi | apt build deps + Rustup |
