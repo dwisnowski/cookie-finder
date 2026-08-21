@@ -53,6 +53,13 @@ acquire_mode_lock() {
   if ! flock -n 9; then
     die "another wifi-mode switch is in progress"
   fi
+  # hostapd -B / dnsmasq / create_ap inherit open fds. Without CLOEXEC they keep
+  # the flock after this script exits and block every later ap|client|fix.
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import fcntl; fcntl.fcntl(9, fcntl.F_SETFD, fcntl.FD_CLOEXEC)' 2>/dev/null || true
+  elif command -v python >/dev/null 2>&1; then
+    python -c 'import fcntl; fcntl.fcntl(9, fcntl.F_SETFD, fcntl.FD_CLOEXEC)' 2>/dev/null || true
+  fi
   # Marker so the GPIO LED daemon (separate process) can show fast-blink.
   echo "$$" > "${RUNTIME_DIR}/switching"
   trap 'rm -f "${RUNTIME_DIR}/switching"' EXIT
@@ -350,7 +357,8 @@ start_ap_create_ap() {
   if [[ -n "${PASSPHRASE}" ]]; then
     create_args+=("${PASSPHRASE}")
   fi
-  if create_ap "${create_args[@]}" >"${logf}" 2>&1; then
+  # 9<&- : do not pass the mode-switch flock to the daemonized create_ap tree.
+  if create_ap "${create_args[@]}" >"${logf}" 2>&1 9<&-; then
     pgrep -n -f "create_ap .*${iface}" > "${PID_FILE}" 2>/dev/null || true
     sleep 3
     if ! ap_backend_running "${iface}" && ! iface_has_gateway "${iface}"; then
@@ -473,8 +481,9 @@ ignore_broadcast_ssid=0
 EOF
   fi
 
+  # 9<&- : hostapd -B must not inherit the mode-switch flock (see acquire_mode_lock).
   if ! hostapd -B -P "${RUNTIME_DIR}/hostapd.pid" \
-      -f "${RUNTIME_DIR}/hostapd.log" "${HOSTAPD_CONF}"; then
+      -f "${RUNTIME_DIR}/hostapd.log" "${HOSTAPD_CONF}" 9<&-; then
     log "hostapd failed to start (channel=${channel}; see ${RUNTIME_DIR}/hostapd.log)"
     if [[ -f "${RUNTIME_DIR}/hostapd.log" ]]; then
       tail -n 40 "${RUNTIME_DIR}/hostapd.log" 2>/dev/null || true
@@ -497,7 +506,7 @@ EOF
       systemctl stop dnsmasq.service >/dev/null 2>&1 || true
     fi
     pkill -x dnsmasq >/dev/null 2>&1 || true
-    if ! dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid"; then
+    if ! dnsmasq --conf-file="${DNSMASQ_CONF}" --pid-file="${RUNTIME_DIR}/dnsmasq.pid" 9<&-; then
       log "WARNING: dnsmasq failed — AP is up but DHCP/captive DNS may not work"
     fi
   else
@@ -637,7 +646,7 @@ connect_via_wpa_supplicant() {
     fi
     log "wpa_supplicant trying SSID=${ssid} (profile ${conn})"
     wpa_passphrase "${ssid}" "${psk}" > "${conf}"
-    if ! wpa_supplicant -B -i "${iface}" -c "${conf}" >/dev/null 2>&1; then
+    if ! wpa_supplicant -B -i "${iface}" -c "${conf}" >/dev/null 2>&1 9<&-; then
       log "wpa_supplicant failed to start for ${ssid}"
       continue
     fi
