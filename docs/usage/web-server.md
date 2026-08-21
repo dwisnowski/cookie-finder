@@ -112,6 +112,17 @@ Discrete button start/stop (also used by on-screen arrows and keyboard):
 
 `command` is one of `motor_up`, `motor_down`, `motor_left`, `motor_right`, or `motor_home` (home ignores `state`). Use `"state": "stop"` to end continuous stepping.
 
+Soft home to a saved UI zero (absolute pan/tilt). Omitting `pan`/`tilt` runs limit-switch hardware home:
+
+```json
+{
+  "action": "motor_command",
+  "command": "motor_home",
+  "pan": 75.0,
+  "tilt": 30.0
+}
+```
+
 Browser / host gamepad analog angles:
 
 ```json

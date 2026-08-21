@@ -1008,6 +1008,25 @@ def create_app(camera_id=None):
                             pos_data = gimbal_position.copy()
 
                         await broadcast_gimbal_position(pos_data)
+                    elif motor_cmd == "motor_home":
+                        # Soft home to UI zero (pan/tilt). Falls back to limit-switch home.
+                        # Ignores start/stop state (one-shot).
+                        pan = command.get("pan")
+                        tilt = command.get("tilt")
+                        if pan is not None and tilt is not None:
+                            pan = float(pan)
+                            tilt = float(tilt)
+                            print(f"🎮 Motor: SOFT HOME → Pan={pan:.1f}°, Tilt={tilt:.1f}°")
+                            gimbal.move_to_angles(pan, tilt)
+                            with gimbal_lock:
+                                gimbal_position["pan"] = pan
+                                gimbal_position["tilt"] = tilt
+                                pos_data = gimbal_position.copy()
+                            await broadcast_gimbal_position(pos_data)
+                        else:
+                            print(f"🎮 Motor: HOMING (limit switches)")
+                            gimbal.home()
+                            await broadcast_gimbal_position(sync_gimbal_position())
                     else:
                         # Button-based motor commands (discrete start/stop)
                         if motor_state == "start":
@@ -1033,11 +1052,6 @@ def create_app(camera_id=None):
                         elif motor_state == "stop":
                             motor_moving[motor_cmd] = False
                             print(f"🎮 Motor: {motor_cmd} STOP")
-                        elif motor_cmd == "motor_home":
-                            print(f"🎮 Motor: HOMING")
-                            gimbal.home()
-
-                            await broadcast_gimbal_position(sync_gimbal_position())
                 
                 elif action == "bluetooth_start_scan":
                     if bluetooth_controller is None:
