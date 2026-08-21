@@ -66,7 +66,7 @@ help:
         _test-pan-step _test-all-gpio _keyboard-gimbal \
         _find-camera _list-devices _list-controls _get-control _set-control \
         _install-ffmpeg _install-libusb _list-cameras _list-camera-formats \
-        _probe-install _probe-usb _probe-cdc _probe-serial _probe-resolution _probe-xu _probe \
+        _probe-install _probe-usb _probe-cdc _probe-serial _probe-commands _probe-resolution _probe-xu _probe \
         _serial-help _serial-list _serial-connect _serial-run _serial-deploy _serial-deploy-rust \
         _rust-install-rustup _rust-install-cross-toolchain _rust-check
 
@@ -269,13 +269,16 @@ _probe-cdc:
 _probe-serial:
 	uv run tools/probing_thermal_camera/probe_serial.py
 
+_probe-commands:
+	uv run tools/probing_thermal_camera/probe_commands.py
+
 _probe-resolution:
 	uv run tools/probing_thermal_camera/probe_resolution.py
 
 _probe-xu:
 	uv run tools/probing_thermal_camera/probe_uvc_xu.py
 
-_probe: _probe-usb _probe-cdc _probe-serial _probe-resolution _probe-xu
+_probe: _probe-usb _probe-cdc _probe-serial _probe-commands _probe-resolution _probe-xu
 
 _serial-help:
 	@echo "Serial targets (USB-TTL UART when WiFi is down):"
@@ -338,7 +341,7 @@ _rust-install-cross-toolchain:
         on-the-mac-install-ffmpeg on-the-mac-install-libusb on-the-mac-clean \
         on-the-mac-list-cameras on-the-mac-list-camera-formats \
         on-the-mac-probe on-the-mac-probe-install on-the-mac-probe-usb on-the-mac-probe-cdc \
-        on-the-mac-probe-serial on-the-mac-probe-resolution on-the-mac-probe-xu \
+        on-the-mac-probe-serial on-the-mac-probe-commands on-the-mac-probe-resolution on-the-mac-probe-xu \
         on-the-mac-serial-help on-the-mac-serial-list on-the-mac-serial-connect \
         on-the-mac-serial-run on-the-mac-serial-deploy on-the-mac-serial-deploy-rust \
         on-the-mac-tool-setup on-the-mac-tool-setup-rust \
@@ -370,6 +373,7 @@ on-the-mac-help:
 	@echo "  make on-the-mac-probe-usb          Probe USB descriptors"
 	@echo "  make on-the-mac-probe-cdc          Probe CDC interface"
 	@echo "  make on-the-mac-probe-serial       Probe serial interface"
+	@echo "  make on-the-mac-probe-commands     Probe text-style serial commands (NUC/palette)"
 	@echo "  make on-the-mac-probe-resolution   Probe supported resolutions"
 	@echo "  make on-the-mac-probe-xu           Probe UVC extension units"
 	@echo ""
@@ -414,6 +418,7 @@ on-the-mac-probe-install: _probe-install
 on-the-mac-probe-usb: _probe-usb
 on-the-mac-probe-cdc: _probe-cdc
 on-the-mac-probe-serial: _probe-serial
+on-the-mac-probe-commands: _probe-commands
 on-the-mac-probe-resolution: _probe-resolution
 on-the-mac-probe-xu: _probe-xu
 on-the-mac-serial-help: _serial-help
@@ -899,7 +904,7 @@ on-the-pi-wifi-gpio-daemon-status:
         test-pan-step test-all-gpio \
         find-camera list-devices list-controls get-control set-control \
         install-ffmpeg install-libusb list-cameras list-camera-formats \
-        probe probe-install probe-usb probe-cdc probe-serial probe-resolution probe-xu \
+        probe probe-install probe-usb probe-cdc probe-serial probe-commands probe-resolution probe-xu \
         serial-help serial-list serial-connect serial-run serial-deploy serial-deploy-rust \
         rust-help rust-check rust-build-mac rust-build-pi rust-build-pi-remote \
         rust-deploy rust-deploy-cookie rust-deploy-remote rust-deploy-cookie-remote \
@@ -955,6 +960,7 @@ probe-install: on-the-mac-probe-install
 probe-usb: on-the-mac-probe-usb
 probe-cdc: on-the-mac-probe-cdc
 probe-serial: on-the-mac-probe-serial
+probe-commands: on-the-mac-probe-commands
 probe-resolution: on-the-mac-probe-resolution
 probe-xu: on-the-mac-probe-xu
 
