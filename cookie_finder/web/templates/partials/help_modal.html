@@ -41,10 +41,11 @@
                     ("↓", "Tilt Down (max -60°)"),
                     ("←", "Pan Left (max -150°)"),
                     ("→", "Pan Right (max +150°)"),
-                    ("HOME", "Return to Center Position"),
+                    ("ZERO", "Set current position as 0°, 0° (graph center)"),
+                    ("HOME", "Return to the zeroed home position"),
                 ]) }}
                 <div style="margin-top: 10px; padding: 10px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-md); font-size: 11px; color: var(--text-tertiary); border: 1px solid var(--border-color);">
-                    Visual crosshair indicator shows current pan/tilt position. Camera resets to center when powered on.
+                    Visual crosshair shows pan/tilt relative to the ZERO origin (centered on the graph). ZERO saves that origin; HOME moves back to it.
                 </div>
             </div>
 

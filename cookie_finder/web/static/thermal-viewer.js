@@ -48,11 +48,15 @@ const MOTOR_SPEED_MIN_HZ = 10;
 const MOTOR_SPEED_MAX_HZ = 250;
 const MOTOR_SPEED_DEFAULT_HZ = 100;
 const VIDEO_ROTATION_STORAGE_KEY = 'cookieFinder.videoRotationDeg';
+const PANTILT_ZERO_STORAGE_KEY = 'cookieFinder.panTiltZero';
 const GAMEPAD_DEADZONE = 0.15;
 const GAMEPAD_SENSITIVITY = 100;
 
 let currentPan = 0;
 let currentTilt = 0;
+/** Absolute angles treated as relative 0,0 (graph center / HOME target). */
+let homePan = 0;
+let homeTilt = 0;
 let motorActive = {};
 let activeGamepadIndex = -1;
 let connectedGamepads = [];
@@ -240,13 +244,43 @@ function updateCameraSelector(data) {
     }
 }
 
+function loadPanTiltZero() {
+    try {
+        const raw = localStorage.getItem(PANTILT_ZERO_STORAGE_KEY);
+        if (!raw) return { pan: 0, tilt: 0 };
+        const parsed = JSON.parse(raw);
+        return {
+            pan: clamp(Number(parsed.pan) || 0, 0, PAN_MAX),
+            tilt: clamp(Number(parsed.tilt) || 0, 0, TILT_MAX),
+        };
+    } catch (_) {
+        return { pan: 0, tilt: 0 };
+    }
+}
+
+function savePanTiltZero(pan, tilt) {
+    try {
+        localStorage.setItem(PANTILT_ZERO_STORAGE_KEY, JSON.stringify({ pan, tilt }));
+    } catch (_) {
+        /* ignore quota / private mode */
+    }
+}
+
+function getRelativePanTilt() {
+    return {
+        pan: currentPan - homePan,
+        tilt: currentTilt - homeTilt,
+    };
+}
+
 function updatePanTiltIndicator() {
     const svgRadius = 75;
-    const panPercent = PAN_MAX === 0 ? 0 : clamp(currentPan / PAN_MAX, 0, 1);
-    const tiltPercent = TILT_MAX === 0 ? 0 : clamp(currentTilt / TILT_MAX, 0, 1);
-
-    const x = 100 + ((panPercent * 2) - 1) * svgRadius;
-    const y = 100 - ((tiltPercent * 2) - 1) * svgRadius;
+    const { pan: relPan, tilt: relTilt } = getRelativePanTilt();
+    // Relative 0,0 is graph center; ±(MAX/2) fills the circle radius.
+    const panScale = PAN_MAX / 2 || 1;
+    const tiltScale = TILT_MAX / 2 || 1;
+    const x = 100 + clamp(relPan / panScale, -1, 1) * svgRadius;
+    const y = 100 - clamp(relTilt / tiltScale, -1, 1) * svgRadius;
 
     const marker = document.getElementById('positionMarker');
     marker.setAttribute('cx', x);
@@ -259,8 +293,30 @@ function updatePanTiltIndicator() {
 
     const panAngleEl = document.getElementById('panAngle');
     const tiltAngleEl = document.getElementById('tiltAngle');
-    if (panAngleEl) panAngleEl.textContent = currentPan.toFixed(2) + '°';
-    if (tiltAngleEl) tiltAngleEl.textContent = currentTilt.toFixed(2) + '°';
+    if (panAngleEl) panAngleEl.textContent = relPan.toFixed(2) + '°';
+    if (tiltAngleEl) tiltAngleEl.textContent = relTilt.toFixed(2) + '°';
+}
+
+function zeroPanTiltOrigin() {
+    homePan = clamp(currentPan, 0, PAN_MAX);
+    homeTilt = clamp(currentTilt, 0, TILT_MAX);
+    savePanTiltZero(homePan, homeTilt);
+    updatePanTiltIndicator();
+}
+
+function goPanTiltHome() {
+    currentPan = homePan;
+    currentTilt = homeTilt;
+    updatePanTiltIndicator();
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'motor_command',
+            command: 'motor_home',
+            pan: homePan,
+            tilt: homeTilt,
+        }));
+    }
 }
 
 function updateGamepadStatus() {
@@ -442,8 +498,8 @@ function updateMotorAngle(command) {
             currentTilt = clamp(currentTilt - increment, 0, TILT_MAX);
             break;
         case 'motor_home':
-            currentPan = 0;
-            currentTilt = 0;
+            currentPan = homePan;
+            currentTilt = homeTilt;
             break;
     }
 
@@ -829,7 +885,6 @@ const motorCommands = {
     'btn_motor_down': 'motor_down',
     'btn_motor_left': 'motor_left',
     'btn_motor_right': 'motor_right',
-    'btn_motor_home': 'motor_home'
 };
 
 for (const [btnId, command] of Object.entries(motorCommands)) {
@@ -873,6 +928,22 @@ for (const [btnId, command] of Object.entries(motorCommands)) {
             stopMotor();
         });
     }
+}
+
+const btnMotorZero = document.getElementById('btn_motor_zero');
+if (btnMotorZero) {
+    btnMotorZero.addEventListener('click', (e) => {
+        e.preventDefault();
+        zeroPanTiltOrigin();
+    });
+}
+
+const btnMotorHome = document.getElementById('btn_motor_home');
+if (btnMotorHome) {
+    btnMotorHome.addEventListener('click', (e) => {
+        e.preventDefault();
+        goPanTiltHome();
+    });
 }
 
 // Keyboard shortcuts
@@ -1270,6 +1341,7 @@ helpOverlay.addEventListener('click', (e) => {
     }
 });
 
+({ pan: homePan, tilt: homeTilt } = loadPanTiltZero());
 updatePanTiltIndicator();
 
 // Cycle gamepad button in settings modal
