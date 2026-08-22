@@ -34,6 +34,19 @@
                 <input type="range" min="0" max="100" value="38" id="slider_tilt_speed_modal">
             </div>
 
+            <div class="motor-invert-row">
+                <label class="motor-invert-toggle" for="toggle_invert_pan_modal">
+                    <span class="motor-invert-label">Invert Pan</span>
+                    <input type="checkbox" id="toggle_invert_pan_modal" class="motor-invert-input" aria-label="Invert pan controls">
+                    <span class="motor-invert-switch" aria-hidden="true"></span>
+                </label>
+                <label class="motor-invert-toggle" for="toggle_invert_tilt_modal">
+                    <span class="motor-invert-label">Invert Tilt</span>
+                    <input type="checkbox" id="toggle_invert_tilt_modal" class="motor-invert-input" aria-label="Invert tilt controls">
+                    <span class="motor-invert-switch" aria-hidden="true"></span>
+                </label>
+            </div>
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: var(--spacing-md);">
                 <button class="btn-motor" id="btn_motor_zero_modal" title="Set current position as 0°, 0° (new home)" style="padding: 10px 16px; font-size: 11px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">ZERO</button>
                 <button class="btn-motor" id="btn_motor_home_modal" style="padding: 10px 16px; font-size: 11px; background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);">HOME</button>

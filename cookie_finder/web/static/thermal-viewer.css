@@ -80,10 +80,16 @@ body {
     background-clip: text;
 }
 
-.header-help {
+.header-actions {
     position: absolute;
     top: var(--spacing-lg);
     right: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.header-help {
     background: none;
     border: none;
     cursor: pointer;
@@ -512,6 +518,81 @@ h1 {
     color: #000;
     font-weight: 700;
     box-shadow: 0 0 12px var(--accent-shadow);
+}
+
+/* Motor UI invert toggles (separate from gamepad invert) */
+.motor-invert-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-sm);
+    margin-bottom: var(--spacing-md);
+}
+
+.motor-invert-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    background: rgba(45, 55, 72, 0.5);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    user-select: none;
+}
+
+.motor-invert-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.motor-invert-input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+.motor-invert-switch {
+    position: relative;
+    flex-shrink: 0;
+    width: 36px;
+    height: 20px;
+    background: rgba(45, 55, 72, 0.9);
+    border: 1px solid rgba(0, 255, 136, 0.25);
+    border-radius: var(--radius-full);
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.motor-invert-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    background: var(--text-tertiary);
+    border-radius: 50%;
+    transition: transform var(--transition-fast), background var(--transition-fast);
+}
+
+.motor-invert-input:checked + .motor-invert-switch {
+    background: rgba(0, 255, 136, 0.2);
+    border-color: var(--accent);
+}
+
+.motor-invert-input:checked + .motor-invert-switch::after {
+    transform: translateX(16px);
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent-shadow);
+}
+
+.motor-invert-input:focus-visible + .motor-invert-switch {
+    box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.35);
 }
 
 /* ===== SLIDERS ===== */
@@ -1180,17 +1261,6 @@ input[type="range"]:focus {
         transform: translate(-50%, -50%);
     }
 
-    #btn_settings {
-        right: 50px !important;
-    }
-
-    #btn_connect {
-        right: 100px !important;
-    }
-
-    #btn_motor {
-        right: 150px !important;
-    }
 }
 
 /* ===== RESPONSIVE DESIGN ===== */
@@ -1218,21 +1288,60 @@ input[type="range"]:focus {
     }
     
     .main-content {
-        padding: var(--spacing-md);
+        padding: var(--spacing-sm);
     }
     
     .header {
-        padding: var(--spacing-md);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        padding: 4px 8px;
+        min-height: 40px;
+        text-align: left;
     }
     
     .header h1 {
-        font-size: 22px;
+        display: none;
+    }
+
+    .header-badges {
+        position: static;
+        flex: 1;
+        min-width: 0;
+        max-width: none;
+        gap: 4px;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .header-badges::-webkit-scrollbar {
+        display: none;
+    }
+
+    .header .badge {
+        flex-shrink: 0;
+        padding: 2px 7px;
+        font-size: 9px;
+        gap: 4px;
+    }
+
+    .header .badge-dot {
+        width: 6px;
+        height: 6px;
+    }
+
+    .header-actions {
+        position: static;
+        flex-shrink: 0;
+        gap: 0;
     }
     
     .header-help {
-        top: var(--spacing-md);
-        right: var(--spacing-md);
-        font-size: 20px;
+        font-size: 18px;
+        padding: 6px;
     }
     
     body {

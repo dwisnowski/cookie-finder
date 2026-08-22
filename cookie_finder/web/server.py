@@ -699,7 +699,7 @@ def create_app(camera_id=None):
             bluetooth_controller.stop_scan()
         print("Web server shutting down")
     
-    app = FastAPI(title="Thermal Camera Viewer", lifespan=lifespan)
+    app = FastAPI(title="Cookie Finder", lifespan=lifespan)
     
     # Setup templates and static files
     web_dir = Path(__file__).parent

@@ -47,6 +47,19 @@
                     <div class="slider-label">Tilt speed: <span class="val-tilt-speed-label" id="val_tilt_speed">100 Hz</span></div>
                     <input type="range" min="0" max="100" value="38" id="slider_tilt_speed">
                 </div>
+
+                <div class="motor-invert-row">
+                    <label class="motor-invert-toggle" for="toggle_invert_pan">
+                        <span class="motor-invert-label">Invert Pan</span>
+                        <input type="checkbox" id="toggle_invert_pan" class="motor-invert-input" aria-label="Invert pan controls">
+                        <span class="motor-invert-switch" aria-hidden="true"></span>
+                    </label>
+                    <label class="motor-invert-toggle" for="toggle_invert_tilt">
+                        <span class="motor-invert-label">Invert Tilt</span>
+                        <input type="checkbox" id="toggle_invert_tilt" class="motor-invert-input" aria-label="Invert tilt controls">
+                        <span class="motor-invert-switch" aria-hidden="true"></span>
+                    </label>
+                </div>
                 
                 <!-- D-Pad -->
                 <div style="text-align: center; width: 100%;">

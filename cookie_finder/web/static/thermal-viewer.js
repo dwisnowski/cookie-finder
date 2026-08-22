@@ -68,7 +68,11 @@ let gamepadPanAxis = 0;
 let gamepadTiltAxis = 1;
 let gamepadInvertPan = false;
 let gamepadInvertTilt = false;
+/** Invert for on-screen / keyboard motor controls only (not gamepad). */
+let uiInvertPan = false;
+let uiInvertTilt = false;
 const AXIS_NAMES = ['Left X', 'Left Y', 'Right X', 'Right Y'];
+const UI_INVERT_STORAGE_KEY = 'cookieFinder.uiMotorInvert';
 
 let currentPreset = 'normal';
 const gamepadPresets = {
@@ -934,28 +938,101 @@ if (videoStreamEl) {
 }
 
 // Motor control
+/** Maps logical UI command → resolved command currently running (handles invert mid-press). */
+const uiMotorActiveResolved = {};
+
+function resolveUiMotorCommand(command) {
+    if ((command === 'motor_left' || command === 'motor_right') && uiInvertPan) {
+        return command === 'motor_left' ? 'motor_right' : 'motor_left';
+    }
+    if ((command === 'motor_up' || command === 'motor_down') && uiInvertTilt) {
+        return command === 'motor_up' ? 'motor_down' : 'motor_up';
+    }
+    return command;
+}
+
 function startMotorCommand(command) {
-    motorActive[command] = true;
+    const resolved = resolveUiMotorCommand(command);
+    uiMotorActiveResolved[command] = resolved;
+    motorActive[resolved] = true;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             action: 'motor_command',
-            command: command,
+            command: resolved,
             state: 'start'
         }));
     }
 }
 
 function stopMotorCommand(command) {
-    motorActive[command] = false;
+    const resolved = uiMotorActiveResolved[command] || resolveUiMotorCommand(command);
+    delete uiMotorActiveResolved[command];
+    motorActive[resolved] = false;
 
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             action: 'motor_command',
-            command: command,
+            command: resolved,
             state: 'stop'
         }));
     }
+}
+
+function loadUiMotorInvert() {
+    try {
+        const raw = localStorage.getItem(UI_INVERT_STORAGE_KEY);
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        uiInvertPan = !!saved.pan;
+        uiInvertTilt = !!saved.tilt;
+    } catch (_) {
+        /* ignore corrupt storage */
+    }
+}
+
+function saveUiMotorInvert() {
+    try {
+        localStorage.setItem(UI_INVERT_STORAGE_KEY, JSON.stringify({
+            pan: uiInvertPan,
+            tilt: uiInvertTilt
+        }));
+    } catch (_) {
+        /* ignore quota / private mode */
+    }
+}
+
+function syncUiMotorInvertToggles() {
+    const panIds = ['toggle_invert_pan', 'toggle_invert_pan_modal'];
+    const tiltIds = ['toggle_invert_tilt', 'toggle_invert_tilt_modal'];
+    panIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = uiInvertPan;
+    });
+    tiltIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = uiInvertTilt;
+    });
+}
+
+function bindUiMotorInvertToggles() {
+    loadUiMotorInvert();
+    syncUiMotorInvertToggles();
+
+    const bindPair = (primaryId, modalId, setter) => {
+        const primary = document.getElementById(primaryId);
+        const modal = document.getElementById(modalId);
+        const onChange = (source) => {
+            setter(!!source.checked);
+            syncUiMotorInvertToggles();
+            saveUiMotorInvert();
+        };
+        if (primary) primary.addEventListener('change', () => onChange(primary));
+        if (modal) modal.addEventListener('change', () => onChange(modal));
+    };
+
+    bindPair('toggle_invert_pan', 'toggle_invert_pan_modal', (v) => { uiInvertPan = v; });
+    bindPair('toggle_invert_tilt', 'toggle_invert_tilt_modal', (v) => { uiInvertTilt = v; });
 }
 
 function bindMotorControl(el, command) {
@@ -1023,6 +1100,7 @@ function bindZeroHomeButtons(zeroId, homeId) {
 
 bindZeroHomeButtons('btn_motor_zero', 'btn_motor_home');
 bindZeroHomeButtons('btn_motor_zero_modal', 'btn_motor_home_modal');
+bindUiMotorInvertToggles();
 
 // Keyboard shortcuts
 const keyPressState = {};
@@ -1066,14 +1144,7 @@ document.addEventListener('keydown', (e) => {
 
         if (!keyPressState[key]) {
             keyPressState[key] = true;
-            const command = motorMap[key];
-            motorActive[command] = true;
-
-            ws.send(JSON.stringify({
-                action: 'motor_command',
-                command: command,
-                state: 'start'
-            }));
+            startMotorCommand(motorMap[key]);
         }
         e.preventDefault();
     }
@@ -1090,15 +1161,8 @@ document.addEventListener('keyup', (e) => {
             'arrowright': 'motor_right'
         };
 
-        const command = motorMap[key];
-        motorActive[command] = false;
         keyPressState[key] = false;
-
-        ws.send(JSON.stringify({
-            action: 'motor_command',
-            command: command,
-            state: 'stop'
-        }));
+        stopMotorCommand(motorMap[key]);
         e.preventDefault();
     }
 
