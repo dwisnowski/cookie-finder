@@ -1,0 +1,20 @@
+    <!-- Connect / QR Modal -->
+    <div id="connectOverlay" class="modal-overlay">
+        <div class="modal-content connect-modal-content">
+            <button class="modal-close" id="closeConnectBtn">&times;</button>
+            <div class="modal-header">Connect</div>
+            <p class="connect-summary">Scan this QR code or open one of the addresses below on another device on the same network.</p>
+            <div id="connectQr" class="connect-qr" aria-hidden="true"></div>
+            <div id="connectAddresses" class="connect-addresses">
+                <div>
+                    <span>IP address</span>
+                    <a id="connectIp" class="connect-link" href="#">—</a>
+                </div>
+                <div>
+                    <span>mDNS</span>
+                    <a id="connectMdns" class="connect-link" href="http://cookie-finder.local/">http://cookie-finder.local/</a>
+                </div>
+            </div>
+            <div id="connectHint" class="connect-hint"></div>
+        </div>
+    </div>

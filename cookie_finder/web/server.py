@@ -31,6 +31,90 @@ from cookie_finder.bluetooth.controller import BluetoothController
 from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
 from cookie_finder.poweroff import request_poweroff
 
+MDNS_HOST = "cookie-finder.local"
+
+
+def _ipv4_addresses() -> list[dict[str, str]]:
+    """Return non-loopback IPv4 addresses as {interface, ip} dicts."""
+    import re
+    import socket
+    import subprocess
+
+    addresses: list[dict[str, str]] = []
+    try:
+        result = subprocess.run(
+            ["ip", "-4", "-o", "addr", "show"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        for line in (result.stdout or "").splitlines():
+            # "2: wlan0    inet 192.168.1.5/24 brd ..."
+            match = re.match(
+                r"^\d+:\s+(\S+)\s+inet\s+(\d+\.\d+\.\d+\.\d+)",
+                line,
+            )
+            if not match:
+                continue
+            iface, ip = match.group(1), match.group(2)
+            if iface == "lo" or ip.startswith("127.") or ip.startswith("169.254."):
+                continue
+            addresses.append({"interface": iface.split("@", 1)[0], "ip": ip})
+        if addresses:
+            return addresses
+    except (FileNotFoundError, OSError, subprocess.TimeoutExpired):
+        pass
+
+    # Fallback for macOS / environments without `ip`
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+            if ip and not ip.startswith("127."):
+                addresses.append({"interface": "primary", "ip": ip})
+    except OSError:
+        pass
+    return addresses
+
+
+def get_network_info() -> dict:
+    """LAN IP addresses, mDNS name, and preferred URL for QR / connect UI."""
+    wifi = get_wifi_status()
+    addresses = _ipv4_addresses()
+    mdns_url = f"http://{MDNS_HOST}/"
+
+    preferred_ip = None
+    if wifi.get("mode") == "ap":
+        preferred_ip = wifi.get("ap_gateway") or AP_GATEWAY
+    else:
+        # Prefer WiFi, then Ethernet, then first listed address.
+        for prefer in ("wlan", "eth", "en"):
+            for entry in addresses:
+                if entry["interface"].startswith(prefer):
+                    preferred_ip = entry["ip"]
+                    break
+            if preferred_ip:
+                break
+        if not preferred_ip and addresses:
+            preferred_ip = addresses[0]["ip"]
+
+    if wifi.get("mode") == "ap":
+        url = wifi.get("ap_url") or f"http://{AP_GATEWAY}/"
+    elif preferred_ip:
+        url = f"http://{preferred_ip}/"
+    else:
+        url = mdns_url
+
+    return {
+        "ip": preferred_ip,
+        "addresses": addresses,
+        "mdns": MDNS_HOST,
+        "mdns_url": mdns_url,
+        "url": url,
+        "wifi_mode": wifi.get("mode"),
+    }
+
 
 def _env_flag(name: str) -> bool:
     return os.environ.get(name, "").lower() in ("1", "true", "yes")
@@ -696,6 +780,11 @@ def create_app(camera_id=None):
     def wifi_status():
         """Return current WiFi client/AP mode details."""
         return get_wifi_status()
+
+    @app.get("/network/info")
+    def network_info():
+        """Return LAN IP, mDNS hostname, and preferred connect URL."""
+        return get_network_info()
 
     @app.get("/wifi/instructions/{mode}")
     def wifi_instructions(mode: str):

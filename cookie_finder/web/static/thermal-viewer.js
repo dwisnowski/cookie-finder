@@ -1376,6 +1376,99 @@ settingsOverlay.addEventListener('click', (e) => {
     }
 });
 
+// Connect / QR modal
+const connectOverlay = document.getElementById('connectOverlay');
+const connectBtn = document.getElementById('btn_connect');
+const closeConnectBtn = document.getElementById('closeConnectBtn');
+
+function renderConnectQr(url) {
+    const holder = document.getElementById('connectQr');
+    if (!holder) return;
+    holder.innerHTML = '';
+    if (!url || typeof qrcode !== 'function') {
+        holder.textContent = 'QR unavailable';
+        return;
+    }
+    try {
+        const qr = qrcode(0, 'M');
+        qr.addData(url);
+        qr.make();
+        holder.innerHTML = qr.createSvgTag(4, 0);
+        holder.setAttribute('title', url);
+    } catch (err) {
+        console.error('QR render error:', err);
+        holder.textContent = 'QR unavailable';
+    }
+}
+
+function applyConnectInfo(data) {
+    const ipEl = document.getElementById('connectIp');
+    const mdnsEl = document.getElementById('connectMdns');
+    const hintEl = document.getElementById('connectHint');
+    const url = (data && data.url) || window.location.origin + '/';
+    const ip = data && data.ip;
+    const mdnsUrl = (data && data.mdns_url) || 'http://cookie-finder.local/';
+
+    if (ipEl) {
+        if (ip) {
+            const ipUrl = `http://${ip}/`;
+            ipEl.textContent = ipUrl;
+            if (ipEl.tagName === 'A') ipEl.href = ipUrl;
+        } else {
+            ipEl.textContent = 'Not available';
+            if (ipEl.tagName === 'A') ipEl.removeAttribute('href');
+        }
+    }
+    if (mdnsEl) {
+        mdnsEl.textContent = mdnsUrl;
+        if (mdnsEl.tagName === 'A') mdnsEl.href = mdnsUrl;
+    }
+    if (hintEl) {
+        if (data && data.wifi_mode === 'ap') {
+            hintEl.textContent = 'Access-point mode — connect to the cookie-finder WiFi, then scan.';
+        } else if (data && data.addresses && data.addresses.length > 1) {
+            const extras = data.addresses
+                .filter((a) => a.ip !== ip)
+                .map((a) => `${a.interface}: ${a.ip}`)
+                .join(' · ');
+            hintEl.textContent = extras ? `Also: ${extras}` : '';
+        } else {
+            hintEl.textContent = '';
+        }
+    }
+    renderConnectQr(url);
+}
+
+function openConnect() {
+    if (!connectOverlay) return;
+    connectOverlay.classList.add('active');
+    const ipEl = document.getElementById('connectIp');
+    if (ipEl) ipEl.textContent = 'Loading…';
+    fetch('/network/info')
+        .then((r) => r.json())
+        .then((data) => applyConnectInfo(data))
+        .catch((e) => {
+            console.error('Network info error:', e);
+            applyConnectInfo({
+                url: window.location.origin + '/',
+                ip: null,
+                mdns_url: 'http://cookie-finder.local/',
+            });
+        });
+}
+
+function closeConnect() {
+    if (connectOverlay) connectOverlay.classList.remove('active');
+}
+
+if (connectBtn) connectBtn.addEventListener('click', openConnect);
+if (closeConnectBtn) closeConnectBtn.addEventListener('click', closeConnect);
+if (connectOverlay) {
+    connectOverlay.addEventListener('click', (e) => {
+        if (e.target === connectOverlay) closeConnect();
+    });
+}
+
 // Motor control modal
 const motorOverlay = document.getElementById('motorOverlay');
 const motorBtn = document.getElementById('btn_motor');
