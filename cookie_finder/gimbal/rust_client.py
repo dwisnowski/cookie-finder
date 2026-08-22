@@ -25,16 +25,19 @@ class RustGimbalClient:
         max_pan: float = 150.0,
         max_tilt: float = 60.0,
         timeout: float = 1.0,
+        quiet: bool = False,
     ) -> Optional["RustGimbalClient"]:
         path = socket_path or os.environ.get("COOKIE_FINDER_SOCKET", DEFAULT_SOCKET)
         client = cls(path, max_pan, max_tilt)
         try:
             resp = client._request({"cmd": "ping"}, timeout=timeout)
             if resp.get("ok"):
-                print(f"✓ Connected to Rust gimbal daemon ({path})")
+                if not quiet:
+                    print(f"✓ Connected to Rust gimbal daemon ({path})")
                 return client
         except (OSError, json.JSONDecodeError, KeyError) as e:
-            print(f"⚠ Rust gimbal daemon not available ({path}): {e}")
+            if not quiet:
+                print(f"⚠ Rust gimbal daemon not available ({path}): {e}")
         return None
 
     def _request(self, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any]:
@@ -50,6 +53,13 @@ class RustGimbalClient:
                 data += chunk
         line = data.split(b"\n", 1)[0]
         return json.loads(line.decode())
+
+    def ping(self, timeout: float = 0.5) -> bool:
+        """Return True if the daemon responds to ping."""
+        try:
+            return bool(self._request({"cmd": "ping"}, timeout=timeout).get("ok"))
+        except (OSError, json.JSONDecodeError, KeyError, TimeoutError):
+            return False
 
     def set_speed(self, pan_hz: float = 500, tilt_hz: float = 500) -> None:
         self._request({"cmd": "set_speed", "pan_hz": pan_hz, "tilt_hz": tilt_hz})

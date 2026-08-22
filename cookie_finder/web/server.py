@@ -160,6 +160,7 @@ available_cameras = []  # List of working camera devices
 camera_switch_event = threading.Event()  # Signal to switch cameras
 camera_switch_id = 0  # Target camera ID to switch to
 gimbal = None  # RustGimbalClient (requires cookie-finder-ctl daemon)
+gimbal_poller_started = False
 motor_moving = {}  # Track which motors are moving: {command: True/False}
 bluetooth_controller = None  # BluetoothController instance
 gimbal_position = {"pan": 0.0, "tilt": 0.0}  # Current gimbal angles
@@ -169,6 +170,65 @@ control_loop = None  # Event loop used for cross-thread WebSocket broadcasts
 _last_camera_broadcast = {"connected": None, "camera_id": None}
 _last_cameras_broadcast = None  # (tuple(available), current_id)
 _last_bt_connected_broadcast = None  # hashable snapshot for dedupe
+
+
+def _systemd_unit_active(unit: str) -> bool | None:
+    """Return True/False if systemctl reports the unit; None if unavailable."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["systemctl", "is-active", "--quiet", unit],
+            capture_output=True,
+            timeout=1.5,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def ensure_gimbal_connected() -> bool:
+    """Ping existing client or reconnect to the Rust daemon. Returns True if usable."""
+    global gimbal, gimbal_poller_started
+
+    if gimbal is not None:
+        if gimbal.ping():
+            return True
+        print("⚠ Rust gimbal daemon lost — clearing client")
+        gimbal = None
+
+    client = RustGimbalClient.connect(
+        max_pan=150.0, max_tilt=60.0, timeout=0.5, quiet=True
+    )
+    if client is None:
+        return False
+
+    try:
+        client.set_speed(pan_hz=500, tilt_hz=500)
+    except Exception as e:
+        print(f"⚠ Rust gimbal connected but set_speed failed: {e}")
+        return False
+
+    gimbal = client
+    print("✓ Gimbal reconnected via Rust daemon")
+    if not gimbal_poller_started:
+        threading.Thread(target=poll_gimbal_position, daemon=True).start()
+        gimbal_poller_started = True
+    return True
+
+
+def get_gimbal_status_payload() -> dict:
+    running = ensure_gimbal_connected()
+    socket_path = os.environ.get(
+        "COOKIE_FINDER_SOCKET",
+        getattr(gimbal, "_socket_path", None) or "/tmp/cookie-finder.sock",
+    )
+    return {
+        "running": running,
+        "socket": socket_path,
+        "service_active": _systemd_unit_active("cookie-finder.service"),
+    }
 
 
 def get_camera_status_payload() -> dict:
@@ -577,6 +637,7 @@ def create_app(camera_id=None):
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         global camera_thread, processor, gimbal, bluetooth_controller, control_loop
+        global gimbal_poller_started
         
         # Startup
         print(f"Initializing processor...")
@@ -638,6 +699,7 @@ def create_app(camera_id=None):
 
         if gimbal is not None:
             threading.Thread(target=poll_gimbal_position, daemon=True).start()
+            gimbal_poller_started = True
         
         print("✓ Web server started")
         
@@ -687,6 +749,11 @@ def create_app(camera_id=None):
             "camera_id": camera_id_current,
             "message": "Camera connected" if camera_connected else "Camera disconnected"
         }
+
+    @app.get("/gimbal/status")
+    def gimbal_status():
+        """Rust cookie-finder-ctl daemon reachability (socket ping + optional systemd)."""
+        return get_gimbal_status_payload()
     
     @app.post("/reconnect")
     def reconnect():

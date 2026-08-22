@@ -1,20 +1,25 @@
     <div class="header">
         <div class="header-badges">
-            <div class="badge" id="badge_gamepad">
+            <button type="button" class="badge badge-clickable" id="badge_rust" data-badge-tip="rust" title="Rust gimbal daemon — click for tips" aria-label="Rust daemon status">
+                <span class="badge-dot" id="badge_rust_dot"></span>
+                <span id="badge_rust_text">Rust —</span>
+            </button>
+            <button type="button" class="badge badge-clickable" id="badge_gamepad" data-badge-tip="gamepad" title="Gamepad — click for tips" aria-label="Gamepad status">
                 <span class="badge-dot" id="badge_gamepad_dot"></span>
                 <span id="badge_gamepad_text">—</span>
-            </div>
-            <div class="badge" id="badge_camera">
+            </button>
+            <button type="button" class="badge badge-clickable" id="badge_camera" data-badge-tip="camera" title="Camera — click for tips" aria-label="Camera status">
                 <span class="badge-dot" id="badge_camera_dot"></span>
                 <span id="badge_camera_text">—</span>
-            </div>
-            <div class="badge" id="badge_wifi" title="WiFi mode">
+            </button>
+            <button type="button" class="badge badge-clickable" id="badge_wifi" data-badge-tip="wifi" title="WiFi mode — click for tips" aria-label="WiFi status">
                 <span class="badge-dot" id="badge_wifi_dot"></span>
                 <span id="badge_wifi_text">WiFi —</span>
-            </div>
-            <div class="badge" id="badge_fps">
-                <span>50 Hz</span>
-            </div>
+            </button>
+            <button type="button" class="badge badge-clickable" id="badge_fps" data-badge-tip="fps" title="Stream rate — click for tips" aria-label="Stream rate">
+                <span class="badge-dot badge-dot.active" id="badge_fps_dot"></span>
+                <span id="badge_fps_text">50 Hz</span>
+            </button>
         </div>
         <h1>Cookie Finder</h1>
         <div class="header-actions">

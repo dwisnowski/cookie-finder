@@ -49,6 +49,61 @@
                 </div>
             </div>
 
+            <div class="modal-section">
+                <div class="modal-section-title">Pi Make Commands <span class="help-cmd-tag">make on-the-pi-help</span></div>
+                <p class="help-cmd-intro">Run these on the Orange Pi from the repo root. Full list: <code>make on-the-pi-help</code>.</p>
+
+                <div class="help-cmd-group-title">Installation</div>
+                <div class="help-cmd-list">
+                    <div class="help-cmd-row"><code>make on-the-pi-install</code><span>uv sync — core dependencies</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-install-yolo</code><span>uv sync with YOLO/PyTorch extras</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-init</code><span>Bluetooth group permissions</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-tool-setup</code><span>apt build deps + Rust/cargo</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-init-wifi</code><span>WiFi AP deps + captive DNS + button/LED</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-mdns</code><span>Hostname + Avahi for cookie-finder.local</span></div>
+                </div>
+
+                <div class="help-cmd-group-title">Running</div>
+                <div class="help-cmd-list">
+                    <div class="help-cmd-row"><code>make on-the-pi-run</code><span>Web server (foreground)</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-run-web</code><span>Web server on :80 / :443</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-web-daemon</code><span>Install/start web systemd service</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-web-daemon-status</code><span>Web service status</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-web-url</code><span>Print device IP(s) + URL</span></div>
+                </div>
+
+                <div class="help-cmd-group-title">WiFi</div>
+                <div class="help-cmd-list">
+                    <div class="help-cmd-row"><code>make on-the-pi-wifi-status</code><span>Mode + IP addresses</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-wifi-configure-clients</code><span>Save NM profiles from .wifi.env</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-wifi-fix</code><span>Recover wedged client WiFi</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-wifi-gpio-daemon</code><span>WiFi button + LED service</span></div>
+                </div>
+
+                <div class="help-cmd-group-title">Camera</div>
+                <div class="help-cmd-list">
+                    <div class="help-cmd-row"><code>make on-the-pi-find-camera</code><span>Detect /dev/video* devices</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-list-devices</code><span>List UVC device controls</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-list-controls</code><span>List camera control names</span></div>
+                </div>
+
+                <div class="help-cmd-group-title">Rust gimbal daemon</div>
+                <div class="help-cmd-list">
+                    <div class="help-cmd-row"><code>make on-the-pi-rust-build</code><span>Native release build</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-rust-daemon</code><span>Install/start cookie-finder.service</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-rust-daemon-status</code><span>Show systemd status</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-rust-daemon-stop</code><span>Stop systemd service</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-rust-keyboard</code><span>Keyboard pan/tilt + wiring tools</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-test-motors</code><span>Motor smoke test via daemon IPC</span></div>
+                </div>
+
+                <div class="help-cmd-group-title">Maintenance</div>
+                <div class="help-cmd-list">
+                    <div class="help-cmd-row"><code>make on-the-pi-armbian-home-screen</code><span>Print Armbian MOTD</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-clean</code><span>Remove Python cache files</span></div>
+                </div>
+            </div>
+
             <div style="text-align: center; margin-top: 20px; font-size: 12px; color: var(--text-tertiary);">
                 <p>Press <strong>?</strong> or click "Help" to close this overlay</p>
             </div>

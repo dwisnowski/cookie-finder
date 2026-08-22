@@ -106,6 +106,13 @@ let wifiStatus = {
 let wifiTargetMode = null;
 let paletteAutoEnabled = false;
 
+let rustStatus = {
+    running: false,
+    socket: '/tmp/cookie-finder.sock',
+    service_active: null,
+};
+let bluetoothConnectedDevices = [];
+
 function isMobilePortrait() {
     return window.matchMedia('(max-width: 768px) and (orientation: portrait)').matches;
 }
@@ -402,6 +409,8 @@ function updateGamepadStatus() {
         if (statusText) statusText.textContent = '✗ Disconnected';
         if (nameDisplay) nameDisplay.textContent = '—';
     }
+
+    updateStatusBadges();
 }
 
 function cycleGamepad() {
@@ -761,13 +770,22 @@ function updateParametersPanelVisibility() {
 }
 
 function updateStatusBadges() {
-    // Update gamepad badge
+    // Rust gimbal daemon badge
+    updateRustBadge();
+
+    // Update gamepad badge (browser Gamepad API and/or Pi BlueZ pad)
     const gamepadDot = document.getElementById('badge_gamepad_dot');
     const gamepadText = document.getElementById('badge_gamepad_text');
+    const piPad = bluetoothConnectedDevices && bluetoothConnectedDevices.length > 0
+        ? (bluetoothConnectedDevices.find(d => d.is_active) || bluetoothConnectedDevices[0])
+        : null;
     if (connectedGamepads && connectedGamepads.length > 0) {
         gamepadDot.classList.add('active');
         const name = connectedGamepads[activeGamepadIndex]?.id || 'Connected';
-        gamepadText.textContent = name.substring(0, 20); // Truncate long names
+        gamepadText.textContent = name.substring(0, 20);
+    } else if (piPad) {
+        gamepadDot.classList.add('active');
+        gamepadText.textContent = (piPad.name || 'bluetooth').substring(0, 20);
     } else {
         gamepadDot.classList.remove('active');
         gamepadText.textContent = 'bluetooth';
@@ -786,13 +804,41 @@ function updateStatusBadges() {
 
     updateWifiBadge();
 
-    // FPS badge is updated by polling, so we'll just ensure the element exists
     const fpsDot = document.getElementById('badge_fps_dot');
     const fpsText = document.getElementById('badge_fps_text');
     if (fpsDot && fpsText) {
         fpsDot.classList.add('active');
         fpsText.textContent = '50 Hz';
     }
+}
+
+function updateRustBadge() {
+    const badge = document.getElementById('badge_rust');
+    const dot = document.getElementById('badge_rust_dot');
+    const text = document.getElementById('badge_rust_text');
+    if (!badge || !dot || !text) return;
+
+    badge.classList.remove('badge-rust-down');
+    if (rustStatus.running) {
+        dot.classList.add('active');
+        text.textContent = 'Rust';
+    } else {
+        badge.classList.add('badge-rust-down');
+        dot.classList.remove('active');
+        text.textContent = 'Rust down';
+    }
+}
+
+function applyRustStatus(data) {
+    rustStatus = Object.assign({}, rustStatus, data || {});
+    updateRustBadge();
+}
+
+function refreshRustStatus() {
+    fetch('/gimbal/status')
+        .then(r => r.json())
+        .then(applyRustStatus)
+        .catch(() => applyRustStatus({ running: false, service_active: null }));
 }
 
 
@@ -1577,6 +1623,9 @@ if (wifiConfirmOverlay) {
 refreshWifiStatus();
 setInterval(refreshWifiStatus, 5000);
 
+refreshRustStatus();
+setInterval(refreshRustStatus, 5000);
+
 // Help modal
 const helpOverlay = document.getElementById('helpOverlay');
 const helpBtn = document.getElementById('btn_help');
@@ -1596,6 +1645,180 @@ closeHelpBtn.addEventListener('click', closeHelp);
 helpOverlay.addEventListener('click', (e) => {
     if (e.target === helpOverlay) {
         closeHelp();
+    }
+});
+
+// Badge troubleshooting tips
+const badgeTipsOverlay = document.getElementById('badgeTipsOverlay');
+const closeBadgeTipsBtn = document.getElementById('closeBadgeTipsBtn');
+const badgeTipsTitle = document.getElementById('badgeTipsTitle');
+const badgeTipsSummary = document.getElementById('badgeTipsSummary');
+const badgeTipsBody = document.getElementById('badgeTipsBody');
+
+function tipList(items) {
+    return `<ul class="badge-tips-list">${items.map(item => `<li>${item}</li>`).join('')}</ul>`;
+}
+
+function buildBadgeTipContent(kind) {
+    if (kind === 'rust') {
+        if (rustStatus.running) {
+            const svc = rustStatus.service_active === true
+                ? 'systemd unit <code>cookie-finder.service</code> is active.'
+                : rustStatus.service_active === false
+                    ? 'Socket is up, but systemd reports <code>cookie-finder.service</code> inactive (may be a foreground daemon).'
+                    : 'Socket is reachable.';
+            return {
+                title: 'Rust gimbal daemon',
+                summary: `Daemon is reachable on <code>${rustStatus.socket || '/tmp/cookie-finder.sock'}</code>. ${svc}`,
+                body: tipList([
+                    'Motors and Pi Bluetooth gamepad input are handled by this daemon.',
+                    'Check status: <code>make on-the-pi-rust-daemon-status</code>',
+                    'Stop: <code>make on-the-pi-rust-daemon-stop</code>',
+                    'Keyboard wiring / drive mode: <code>make on-the-pi-rust-keyboard</code>',
+                ]),
+            };
+        }
+        return {
+            title: 'Rust gimbal daemon',
+            summary: 'The Rust service is not reachable. Pan/tilt motors and Pi gamepad input will not work until it is running.',
+            body: tipList([
+                'On the Pi, start it with: <code>make on-the-pi-rust-daemon</code>',
+                'Confirm: <code>make on-the-pi-rust-daemon-status</code>',
+                'If the binary is missing, build first: <code>make on-the-pi-rust-build</code>',
+                'Socket path defaults to <code>/tmp/cookie-finder.sock</code> (override with <code>COOKIE_FINDER_SOCKET</code>).',
+                'From a Mac you can deploy + start over SSH: <code>make on-the-mac-rust-daemon</code>',
+            ]),
+        };
+    }
+
+    if (kind === 'camera') {
+        const connected = currentCamera !== null && currentCamera !== undefined;
+        return {
+            title: 'Thermal camera',
+            summary: connected
+                ? `Streaming from <code>/dev/video${currentCamera}</code>.`
+                : 'No camera device is currently connected.',
+            body: tipList([
+                connected
+                    ? 'If the image freezes, unplug/replug USB or use Reconnect in the UI.'
+                    : 'Plug in the UVC thermal camera, then wait a few seconds for auto-detect.',
+                'List devices on the Pi: <code>make on-the-pi-find-camera</code>',
+                'UVC controls: <code>make on-the-pi-list-devices</code>',
+                'Switch cameras from the sidebar selector when multiple <code>/dev/video*</code> nodes work.',
+            ]),
+        };
+    }
+
+    if (kind === 'wifi') {
+        if (wifiStatus.mode === 'ap') {
+            return {
+                title: 'WiFi — Access Point',
+                summary: `Hosting open network <strong>${wifiStatus.ap_ssid || 'cookie-finder'}</strong>. Open <code>${wifiStatus.ap_url || 'http://192.168.12.1/'}</code>.`,
+                body: tipList([
+                    'Join the AP from your phone/laptop, then use the captive portal URL.',
+                    'Toggle back to client mode in Settings (or the GPIO WiFi button).',
+                    'Status: <code>make on-the-pi-wifi-status</code>',
+                    'If WiFi wedges after AP mode: <code>make on-the-pi-wifi-fix</code>',
+                ]),
+            };
+        }
+        if (wifiStatus.mode === 'client') {
+            return {
+                title: 'WiFi — Client',
+                summary: wifiStatus.ssid
+                    ? `Joined network <strong>${wifiStatus.ssid}</strong>.`
+                    : 'In client mode (SSID unknown).',
+                body: tipList([
+                    'Use Settings to switch into AP mode for setup without a home network.',
+                    'Save preferred SSIDs: <code>make on-the-pi-wifi-configure-clients</code> (needs <code>.wifi.env</code>).',
+                    'Status: <code>make on-the-pi-wifi-status</code>',
+                    'If <code>wlan0</code> is unavailable: <code>make on-the-pi-wifi-fix</code>',
+                    'mDNS name: <code>make on-the-pi-mdns</code> → <code>http://cookie-finder.local/</code>',
+                ]),
+            };
+        }
+        return {
+            title: 'WiFi',
+            summary: wifiStatus.supported === false
+                ? (wifiStatus.reason || 'WiFi AP mode is not available on this host.')
+                : 'WiFi mode is unknown or still initializing.',
+            body: tipList([
+                'On the Pi: <code>make on-the-pi-wifi-status</code>',
+                'One-time AP setup: <code>make on-the-pi-init-wifi</code>',
+                'Recover wedged client WiFi: <code>make on-the-pi-wifi-fix</code>',
+            ]),
+        };
+    }
+
+    if (kind === 'gamepad') {
+        const browserPad = connectedGamepads && connectedGamepads.length > 0;
+        const piPads = bluetoothConnectedDevices && bluetoothConnectedDevices.length > 0;
+        return {
+            title: 'Gamepad',
+            summary: browserPad
+                ? 'A browser Gamepad API controller is connected to this device.'
+                : piPads
+                    ? 'A BlueZ gamepad is paired/connected on the Pi.'
+                    : 'No gamepad is active yet.',
+            body: tipList([
+                '<strong>Pi Bluetooth pad:</strong> use the Controls panel → Scan → Pair → Connect / Set Active. Input is read by the Rust daemon.',
+                'Rust daemon must be running for Pi pad → motors: <code>make on-the-pi-rust-daemon</code>',
+                '<strong>Browser pad:</strong> pair/plug into the laptop/phone viewing this page; axes map in Settings.',
+                'These two paths are independent — a pad on your laptop will not appear in the Pi Bluetooth list.',
+            ]),
+        };
+    }
+
+    if (kind === 'fps') {
+        return {
+            title: 'Stream rate',
+            summary: 'The MJPEG stream targets ~50 Hz for responsive thermal video over WiFi.',
+            body: tipList([
+                'Actual FPS depends on camera, WiFi link quality, and browser load.',
+                'If video stutters, move closer to the AP / use Ethernet, or reduce concurrent clients.',
+                'Open network AP URL on the Pi hotspot: <code>http://192.168.12.1/</code>',
+            ]),
+        };
+    }
+
+    return {
+        title: 'Status',
+        summary: 'No tips available for this badge.',
+        body: '',
+    };
+}
+
+function openBadgeTips(kind) {
+    if (!badgeTipsOverlay) return;
+    const tip = buildBadgeTipContent(kind);
+    if (badgeTipsTitle) badgeTipsTitle.textContent = tip.title;
+    if (badgeTipsSummary) badgeTipsSummary.innerHTML = tip.summary;
+    if (badgeTipsBody) badgeTipsBody.innerHTML = tip.body;
+    badgeTipsOverlay.classList.add('active');
+}
+
+function closeBadgeTips() {
+    if (badgeTipsOverlay) badgeTipsOverlay.classList.remove('active');
+}
+
+if (closeBadgeTipsBtn) closeBadgeTipsBtn.addEventListener('click', closeBadgeTips);
+if (badgeTipsOverlay) {
+    badgeTipsOverlay.addEventListener('click', (e) => {
+        if (e.target === badgeTipsOverlay) closeBadgeTips();
+    });
+}
+
+document.querySelectorAll('[data-badge-tip]').forEach((badge) => {
+    badge.addEventListener('click', () => {
+        openBadgeTips(badge.getAttribute('data-badge-tip'));
+    });
+});
+
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (badgeTipsOverlay && badgeTipsOverlay.classList.contains('active')) {
+        closeBadgeTips();
+        e.preventDefault();
     }
 });
 
@@ -1782,7 +2005,6 @@ if (verticalPresetBtn) {
 let bluetoothDevices = [];
 let bluetoothScanning = false;
 let hideUnknownDevices = true; // Default: hide Unknown Device
-let bluetoothConnectedDevices = [];
 let bluetoothConnectingDevices = new Set(); // Track devices being connected
 let bluetoothPairingDevices = new Set();
 
@@ -1925,6 +2147,7 @@ function applyBluetoothConnected(data) {
     if (!data) return;
     bluetoothConnectedDevices = data.connected_devices || [];
     updateConnectedBluetoothUI();
+    updateStatusBadges();
 }
 
 function bluetoothPair(address) {

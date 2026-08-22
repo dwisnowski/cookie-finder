@@ -14,6 +14,7 @@ Started with `make run` (or `uv run main.py --web`). Serves on **HTTP :80** and 
 | `GET` | `/state` | Full processor state as JSON |
 | `GET` | `/camera-status` | `{connected, camera_id, message}` |
 | `GET` | `/available-cameras` | List of working camera device IDs + current |
+| `GET` | `/gimbal/status` | Rust daemon `{running, socket, service_active}` |
 | `POST` | `/reconnect` | Trigger camera reconnect |
 | `POST` | `/switch-camera/{id}` | Switch to a different camera device by index |
 | `GET` | `/wifi/status` | Current WiFi mode (`client` / `ap`) + SSID details |
@@ -64,7 +65,7 @@ A persistent WebSocket for real-time bidirectional control. The server pushes st
 
 Client → server Bluetooth actions: `bluetooth_start_scan`, `bluetooth_stop_scan`, `bluetooth_pair`, `bluetooth_connect`, `bluetooth_disconnect`, `bluetooth_remove` (each with `address` where applicable).
 
-HTTP `GET /camera-status`, `/available-cameras`, `/bluetooth/connected`, and `/wifi/status` remain available for debugging. The UI also polls `/wifi/status` every few seconds.
+HTTP `GET /camera-status`, `/available-cameras`, `/bluetooth/connected`, `/gimbal/status`, and `/wifi/status` remain available for debugging. The UI polls `/wifi/status` and `/gimbal/status` every few seconds.
 
 ### Toggle a mode
 
