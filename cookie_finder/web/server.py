@@ -25,7 +25,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, FileSystemLoader
 
 from cookie_finder.camera.processor import ThermalProcessor
-from cookie_finder.gimbal.pan_tilt import PanTiltGimbal
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
 from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
@@ -160,8 +159,7 @@ reconnect_lock = threading.Lock()
 available_cameras = []  # List of working camera devices
 camera_switch_event = threading.Event()  # Signal to switch cameras
 camera_switch_id = 0  # Target camera ID to switch to
-gimbal = None  # PanTiltGimbal or RustGimbalClient
-gimbal_uses_rust = False
+gimbal = None  # RustGimbalClient (requires cookie-finder-ctl daemon)
 motor_moving = {}  # Track which motors are moving: {command: True/False}
 bluetooth_controller = None  # BluetoothController instance
 gimbal_position = {"pan": 0.0, "tilt": 0.0}  # Current gimbal angles
@@ -501,11 +499,11 @@ def mjpeg_generator(jpeg_quality=65):
 
 
 def poll_gimbal_position():
-    """Poll hardware position and broadcast (used when Rust daemon drives motors)."""
+    """Poll hardware position from the Rust daemon and broadcast to clients."""
     global gimbal, gimbal_position, gimbal_lock
     while True:
         try:
-            if gimbal is not None and gimbal_uses_rust:
+            if gimbal is not None:
                 pan, tilt = gimbal.get_position()
                 with gimbal_lock:
                     gimbal_position["pan"] = pan
@@ -519,20 +517,15 @@ def poll_gimbal_position():
 
 def poll_bluetooth_controller():
     """
-    Background thread: Poll connected Bluetooth device for input and control gimbal.
-    When Rust daemon is active, pushes the UI's active pad via set_active_input
-    (hot-swappable; no daemon restart).
+    Background thread: push the UI's active BlueZ pad to the Rust daemon via
+    set_active_input (hot-swappable; no daemon restart). The daemon owns
+    /dev/input/event* and drives the motors.
     """
-    global gimbal, gimbal_uses_rust, bluetooth_controller, gimbal_position, gimbal_lock
+    global gimbal, bluetooth_controller
     global bt_device_connected
 
     print("[BT] Input polling thread started")
-    last_pan = 0.0
-    last_tilt = 0.0
-    last_update_time = time.time()
     last_rust_input_key = None
-    deadzone = 0.15
-    sensitivity = 100.0
 
     while True:
         try:
@@ -544,75 +537,33 @@ def poll_bluetooth_controller():
             connected = bool(active_addr)
             bt_device_connected = connected
 
-            if gimbal_uses_rust and gimbal is not None:
-                active_name = None
-                if connected and bluetooth_controller is not None:
-                    # Use in-memory cache — do not call bluetoothctl every tick.
-                    cached = bluetooth_controller.devices.get(active_addr) or (
-                        bluetooth_controller.devices.get(active_addr.upper())
-                        if active_addr
-                        else None
-                    )
-                    if cached:
-                        active_name = cached.name
-                rust_key = (active_addr, active_name) if connected else (None, None)
-                if rust_key != last_rust_input_key:
-                    if connected:
-                        print(
-                            f"[BT] Rust active input → {active_name or 'pad'} ({active_addr})"
-                        )
-                        gimbal.set_active_input(
-                            True, address=active_addr, name=active_name
-                        )
-                    else:
-                        print("[BT] Rust active input cleared")
-                        gimbal.set_active_input(False)
-                    last_rust_input_key = rust_key
-                time.sleep(0.05)
-                continue
-
-            if not connected:
+            if gimbal is None:
                 time.sleep(0.5)
                 continue
 
-            input_data = bluetooth_controller.read_controller_input()
-            pan_axis = input_data.get("pan_axis", 0.0)
-            tilt_axis = input_data.get("tilt_axis", 0.0)
-            now = time.time()
-            time_delta = max(0.01, now - last_update_time)
-            last_update_time = now
-
-            pan_axis = pan_axis if abs(pan_axis) > deadzone else 0.0
-            tilt_axis = tilt_axis if abs(tilt_axis) > deadzone else 0.0
-
-            if abs(pan_axis - last_pan) < 0.05 and abs(tilt_axis - last_tilt) < 0.05:
-                time.sleep(0.05)
-                continue
-
-            last_pan = pan_axis
-            last_tilt = tilt_axis
-
-            if gimbal is None:
-                time.sleep(0.05)
-                continue
-
-            current_pan, current_tilt = gimbal.get_position()
-            new_pan = max(0.0, min(gimbal.max_pan, current_pan + (pan_axis * sensitivity * time_delta)))
-            new_tilt = max(0.0, min(gimbal.max_tilt, current_tilt + (-tilt_axis * sensitivity * time_delta)))
-
-            if abs(new_pan - current_pan) < 0.01 and abs(new_tilt - current_tilt) < 0.01:
-                time.sleep(0.05)
-                continue
-
-            gimbal.move_to_angles(new_pan, new_tilt)
-
-            with gimbal_lock:
-                gimbal_position["pan"] = new_pan
-                gimbal_position["tilt"] = new_tilt
-                current_position = gimbal_position.copy()
-
-            broadcast_gimbal_position_threadsafe(current_position)
-            print(f"[BT] Gimbal moved via BT device: pan={new_pan:.1f}°, tilt={new_tilt:.1f}°")
+            active_name = None
+            if connected and bluetooth_controller is not None:
+                # Use in-memory cache — do not call bluetoothctl every tick.
+                cached = bluetooth_controller.devices.get(active_addr) or (
+                    bluetooth_controller.devices.get(active_addr.upper())
+                    if active_addr
+                    else None
+                )
+                if cached:
+                    active_name = cached.name
+            rust_key = (active_addr, active_name) if connected else (None, None)
+            if rust_key != last_rust_input_key:
+                if connected:
+                    print(
+                        f"[BT] Rust active input → {active_name or 'pad'} ({active_addr})"
+                    )
+                    gimbal.set_active_input(
+                        True, address=active_addr, name=active_name
+                    )
+                else:
+                    print("[BT] Rust active input cleared")
+                    gimbal.set_active_input(False)
+                last_rust_input_key = rust_key
             time.sleep(0.05)
 
         except Exception as e:
@@ -625,32 +576,32 @@ def create_app(camera_id=None):
     
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        global camera_thread, processor, gimbal, gimbal_uses_rust, bluetooth_controller, control_loop
+        global camera_thread, processor, gimbal, bluetooth_controller, control_loop
         
         # Startup
         print(f"Initializing processor...")
         control_loop = asyncio.get_running_loop()
         processor = ThermalProcessor()
         
-        # Initialize gimbal: prefer Rust daemon, fall back to Python GPIO
-        gimbal_uses_rust = False
+        # Gimbal requires the Rust cookie-finder-ctl daemon (Unix socket IPC).
         try:
             print(f"Initializing gimbal...")
             rust_gimbal = RustGimbalClient.connect(max_pan=150.0, max_tilt=60.0)
             if rust_gimbal is not None:
                 rust_gimbal.set_speed(pan_hz=500, tilt_hz=500)
                 gimbal = rust_gimbal
-                gimbal_uses_rust = True
                 print(f"✓ Gimbal via Rust daemon")
             else:
-                gimbal = PanTiltGimbal(max_pan=150.0, max_tilt=60.0)
-                gimbal.set_speed(pan_hz=500, tilt_hz=500)
-                print(f"✓ Gimbal via Python GPIO")
+                print(
+                    "⚠ Gimbal unavailable — start the Rust daemon "
+                    "(make on-the-pi-rust-daemon)"
+                )
+                gimbal = None
         except Exception as e:
-            print(f"⚠ Gimbal initialization failed (GPIO may require root): {e}")
+            print(f"⚠ Gimbal initialization failed: {e}")
             gimbal = None
         
-        # Initialize Bluetooth controller
+        # Initialize Bluetooth controller (BlueZ pair/connect; input is Rust)
         try:
             print(f"Initializing Bluetooth controller...")
             bluetooth_controller = BluetoothController()
@@ -685,7 +636,7 @@ def create_app(camera_id=None):
         bt_polling_thread = threading.Thread(target=poll_bluetooth_controller, daemon=True)
         bt_polling_thread.start()
 
-        if gimbal_uses_rust:
+        if gimbal is not None:
             threading.Thread(target=poll_gimbal_position, daemon=True).start()
         
         print("✓ Web server started")

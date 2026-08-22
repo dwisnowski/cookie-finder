@@ -1,8 +1,9 @@
 """
 BlueZ Classic HID Bluetooth device manager for gamepads on Linux (Orange Pi).
 
-Uses bluetoothctl for scan/pair/trust/connect/disconnect/remove. Input is read
-from the Linux joystick stack via pygame after the OS exposes /dev/input/*.
+Uses bluetoothctl for scan/pair/trust/connect/disconnect/remove. Gamepad axis
+input is owned by the Rust cookie-finder-ctl daemon (evdev); this module only
+tracks which BlueZ device is the active input source for the web UI.
 """
 
 from __future__ import annotations
@@ -12,11 +13,6 @@ import threading
 import time
 import traceback
 from typing import Callable, Dict, List, Optional, Set, Tuple
-
-try:
-    import pygame
-except ImportError:
-    pygame = None
 
 
 def normalize_address(address: str) -> str:
@@ -80,14 +76,6 @@ class BluetoothController:
         self.scan_thread: Optional[threading.Thread] = None
         self.status_callback: Optional[Callable] = None
         self.last_error: Optional[str] = None
-        self.last_input_data: Dict = {"pan_axis": 0.0, "tilt_axis": 0.0}
-        self.joystick_thread: Optional[threading.Thread] = None
-        self.joystick_running = False
-        self.last_joystick_input: Dict = {
-            "pan_axis": 0.0,
-            "tilt_axis": 0.0,
-            "buttons": {},
-        }
         self._btctl_lock = threading.Lock()
         self._refresh_known_devices()
 
@@ -414,8 +402,6 @@ class BluetoothController:
                 print(f"[BT] Already connected at BlueZ level: {address}")
                 device = self._upsert_device_from_info(address)
                 self.connected_device_address = address
-                # Joystick reading starts lazily in read_controller_input().
-                # When the Rust daemon owns evdev, avoid opening pygame here.
                 self._emit_status(
                     "device_connected", {"address": address, "name": device.name}
                 )
@@ -460,8 +446,8 @@ class BluetoothController:
                 device.connected = True
 
             self.connected_device_address = address
-            # Defer pygame open to read_controller_input() so the Rust
-            # daemon can own /dev/input/event* without contention.
+            # Rust cookie-finder-ctl owns /dev/input/event*; web server pushes
+            # the active pad via set_active_input.
             print(f"[BT] Connected and active: {address} ({device.name})")
             self._emit_status(
                 "device_connected", {"address": address, "name": device.name}
@@ -491,7 +477,6 @@ class BluetoothController:
         print(f"[BT] Disconnecting {address}...")
 
         if self.connected_device_address == address:
-            self.joystick_running = False
             self.connected_device_address = None
 
         ok, stdout, stderr = self._run_bt("disconnect", address, timeout=15)
@@ -531,7 +516,6 @@ class BluetoothController:
         self.devices.pop(address, None)
         if self.connected_device_address == address:
             self.connected_device_address = None
-            self.joystick_running = False
 
         print(f"[BT] Removed {address}")
         self._emit_status("device_removed", {"address": address})
@@ -540,159 +524,5 @@ class BluetoothController:
     def cleanup(self):
         if self.scanning:
             self.stop_scan()
-        self.joystick_running = False
         # Do not forcibly disconnect BlueZ devices on app shutdown —
         # leave OS pairing/connection intact.
-
-    # --- Joystick input (pygame / Linux HID) -------------------------------
-
-    def read_controller_input(self) -> Dict:
-        """Read axes/buttons from the active gamepad via pygame."""
-        try:
-            if not self.connected_device_address:
-                return {"pan_axis": 0.0, "tilt_axis": 0.0, "buttons": {}}
-
-            if not self.joystick_running:
-                self._start_joystick_reading_thread()
-
-            result = self.last_joystick_input.copy()
-            if (
-                abs(result.get("pan_axis", 0) - self.last_input_data.get("pan_axis", 0))
-                > 0.05
-                or abs(
-                    result.get("tilt_axis", 0)
-                    - self.last_input_data.get("tilt_axis", 0)
-                )
-                > 0.05
-            ):
-                print(
-                    f"[INPUT] pan={result.get('pan_axis'):.2f}, "
-                    f"tilt={result.get('tilt_axis'):.2f}"
-                )
-            self.last_input_data = result
-            return result
-        except Exception as e:
-            print(f"[BT] Error reading input: {type(e).__name__}: {e}")
-            return self.last_input_data
-
-    def _start_joystick_reading_thread(self):
-        if not pygame:
-            print("[INPUT] pygame not available, cannot read joystick")
-            return
-        if self.joystick_running:
-            return
-        print("[INPUT] Starting joystick reading thread...")
-        self.joystick_running = True
-        self.joystick_thread = threading.Thread(
-            target=self._joystick_read_loop, daemon=True
-        )
-        self.joystick_thread.start()
-
-    def _find_gamepad_device(self, retry_attempts=5, retry_delay=1.0):
-        if not pygame:
-            return None
-
-        for attempt in range(1, retry_attempts + 1):
-            try:
-                pygame.init()
-                pygame.joystick.init()
-                count = pygame.joystick.get_count()
-                print(
-                    f"[INPUT] Attempt {attempt}/{retry_attempts}: "
-                    f"Found {count} joystick(s)"
-                )
-                if count == 0:
-                    if attempt < retry_attempts:
-                        time.sleep(retry_delay)
-                        continue
-                    return None
-                joystick = pygame.joystick.Joystick(0)
-                joystick.init()
-                print(f"[INPUT] Using joystick: {joystick.get_name()}")
-                return joystick
-            except Exception as e:
-                print(
-                    f"[INPUT] pygame init error "
-                    f"(attempt {attempt}/{retry_attempts}): {type(e).__name__}: {e}"
-                )
-                if attempt < retry_attempts:
-                    time.sleep(retry_delay)
-        return None
-
-    def _joystick_read_loop(self):
-        try:
-            if not pygame:
-                self.joystick_running = False
-                return
-
-            joystick = self._find_gamepad_device()
-            if not joystick:
-                print("[INPUT] No gamepad device found under pygame")
-                print(
-                    "[INPUT] Check: bluetoothctl devices Connected; "
-                    "ls /dev/input/js*; jstest /dev/input/js0"
-                )
-                self.joystick_running = False
-                return
-
-            print(
-                f"[INPUT] Opened {joystick.get_name()} "
-                f"(axes={joystick.get_numaxes()}, "
-                f"buttons={joystick.get_numbuttons()})"
-            )
-            state = {
-                "pan_axis": 0.0,
-                "tilt_axis": 0.0,
-                "right_x": 0.0,
-                "right_y": 0.0,
-                "buttons": {},
-            }
-            clock = pygame.time.Clock()
-            button_map = {
-                0: "a",
-                1: "b",
-                2: "x",
-                3: "y",
-                4: "lb",
-                5: "rb",
-                6: "select",
-                7: "start",
-                8: "l_stick",
-                9: "r_stick",
-            }
-            axis_map = {
-                0: "pan_axis",
-                1: "tilt_axis",
-                2: "right_x",
-                3: "right_y",
-            }
-
-            while self.joystick_running:
-                for event in pygame.event.get():
-                    if event.type == pygame.JOYAXISMOTION and event.axis in axis_map:
-                        value = event.value
-                        if abs(value) < 0.05:
-                            value = 0.0
-                        state[axis_map[event.axis]] = value
-                    elif event.type == pygame.JOYBUTTONDOWN and event.button in button_map:
-                        state["buttons"][button_map[event.button]] = True
-                    elif event.type == pygame.JOYBUTTONUP and event.button in button_map:
-                        state["buttons"][button_map[event.button]] = False
-                    elif event.type == pygame.JOYHATMOTION:
-                        x, y = event.value
-                        state["buttons"]["d_up"] = y > 0
-                        state["buttons"]["d_down"] = y < 0
-                        state["buttons"]["d_left"] = x < 0
-                        state["buttons"]["d_right"] = x > 0
-                self.last_joystick_input = state.copy()
-                clock.tick(60)
-        except Exception as e:
-            print(f"[INPUT] Joystick thread error: {type(e).__name__}: {e}")
-        finally:
-            print("[INPUT] Joystick reading thread stopped")
-            try:
-                if pygame:
-                    pygame.quit()
-            except Exception:
-                pass
-            self.joystick_running = False

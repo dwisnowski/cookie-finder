@@ -11,7 +11,7 @@ DEFAULT_SOCKET = "/tmp/cookie-finder.sock"
 
 
 class RustGimbalClient:
-    """Drop-in replacement for PanTiltGimbal over IPC."""
+    """IPC client for the Rust cookie-finder-ctl gimbal daemon."""
 
     def __init__(self, socket_path: str, max_pan: float, max_tilt: float):
         self._socket_path = socket_path

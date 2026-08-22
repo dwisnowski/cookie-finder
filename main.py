@@ -18,7 +18,6 @@ os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
 
 # Suppress ALSA library warnings (no audio card on headless systems)
 os.environ['ALSA_CARD'] = 'default'  # Use dummy card
-os.environ['SDL_AUDIODRIVER'] = 'dummy'  # Use dummy audio driver for pygame
 
 # If running headless (no X11 DISPLAY), force Qt to use offscreen rendering.
 if "DISPLAY" not in os.environ:

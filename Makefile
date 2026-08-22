@@ -62,7 +62,7 @@ help:
 .PHONY: _install _install-yolo _install-docs _docs _clean _init _init-wifi \
         _run-standalone _run-web _run-web-custom \
         _test-motors _test-motors-pan-cw _test-motors-pan-ccw _test-motors-tilt-cw \
-        _test-motors-tilt-ccw _test-motors-home _test-bluetooth-input _test-gimbal-gamepad \
+        _test-motors-tilt-ccw _test-motors-home \
         _test-pan-step _test-all-gpio _keyboard-gimbal \
         _find-camera _list-devices _list-controls _get-control _set-control \
         _install-ffmpeg _install-libusb _list-cameras _list-camera-formats \
@@ -151,37 +151,29 @@ _run-web-custom:
 	uv run main.py --web --port $$port --https-port $$https_port --host $$host
 
 _test-motors:
-	@echo "Motor control test script:"
-	@echo "  sudo make on-the-pi-test-motors auto           # Automated test sequence"
-	@echo "  sudo make on-the-pi-test-motors-pan-cw         # Pan clockwise 50 steps"
-	@echo "  sudo make on-the-pi-test-motors-pan-ccw        # Pan counter-clockwise 50 steps"
-	@echo "  sudo make on-the-pi-test-motors-tilt-cw        # Tilt clockwise 50 steps"
-	@echo "  sudo make on-the-pi-test-motors-tilt-ccw       # Tilt counter-clockwise 50 steps"
-	@echo "  sudo make on-the-pi-test-motors-home           # Home both motors"
-	@sudo uv run tools/test_motors.py auto
+	@echo "Motor control test via Rust daemon (start with: make on-the-pi-rust-daemon):"
+	@echo "  make on-the-pi-test-motors auto           # Automated test sequence"
+	@echo "  make on-the-pi-test-motors-pan-cw         # Pan clockwise 50 steps"
+	@echo "  make on-the-pi-test-motors-pan-ccw        # Pan counter-clockwise 50 steps"
+	@echo "  make on-the-pi-test-motors-tilt-cw        # Tilt clockwise 50 steps"
+	@echo "  make on-the-pi-test-motors-tilt-ccw       # Tilt counter-clockwise 50 steps"
+	@echo "  make on-the-pi-test-motors-home           # Home both motors"
+	@uv run tools/test_motors.py auto
 
 _test-motors-pan-cw:
-	@sudo uv run tools/test_motors.py pan-cw
+	@uv run tools/test_motors.py pan-cw
 
 _test-motors-pan-ccw:
-	@sudo uv run tools/test_motors.py pan-ccw
+	@uv run tools/test_motors.py pan-ccw
 
 _test-motors-tilt-cw:
-	@sudo uv run tools/test_motors.py tilt-cw
+	@uv run tools/test_motors.py tilt-cw
 
 _test-motors-tilt-ccw:
-	@sudo uv run tools/test_motors.py tilt-ccw
+	@uv run tools/test_motors.py tilt-ccw
 
 _test-motors-home:
-	@sudo uv run tools/test_motors.py home
-
-_test-bluetooth-input:
-	@echo "Bluetooth input test: reads and logs all gamepad input (60 seconds)..."
-	@uv run tools/test_bluetooth_input.py
-
-_test-gimbal-gamepad:
-	@echo "Gimbal + Gamepad test: control gimbal with joystick input..."
-	@uv run tools/test_gimbal_gamepad.py
+	@uv run tools/test_motors.py home
 
 _keyboard-gimbal:
 	@echo "Keyboard gimbal: arrows pan/tilt, 1-9 speed, M drive mode, P/T [ ] wiring, W save, q quit..."
@@ -484,7 +476,6 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-run on-the-pi-run-standalone on-the-pi-run-web on-the-pi-run-web-custom \
         on-the-pi-test-motors on-the-pi-test-motors-pan-cw on-the-pi-test-motors-pan-ccw \
         on-the-pi-test-motors-tilt-cw on-the-pi-test-motors-tilt-ccw on-the-pi-test-motors-home \
-        on-the-pi-test-bluetooth-input on-the-pi-test-gimbal-gamepad \
         on-the-pi-test-pan-step on-the-pi-test-all-gpio \
         on-the-pi-find-camera on-the-pi-list-devices on-the-pi-list-controls \
         on-the-pi-get-control on-the-pi-set-control \
@@ -537,14 +528,12 @@ on-the-pi-help:
 	@echo "  make on-the-pi-set-control           Set camera control value (interactive)"
 	@echo ""
 	@echo "Hardware tests:"
-	@echo "  make on-the-pi-test-motors           Motor control test (auto sequence)"
+	@echo "  make on-the-pi-test-motors           Motor control test via Rust daemon"
 	@echo "  make on-the-pi-test-motors-pan-cw    Pan clockwise 50 steps"
 	@echo "  make on-the-pi-test-motors-pan-ccw   Pan counter-clockwise 50 steps"
 	@echo "  make on-the-pi-test-motors-tilt-cw   Tilt clockwise 50 steps"
 	@echo "  make on-the-pi-test-motors-tilt-ccw  Tilt counter-clockwise 50 steps"
 	@echo "  make on-the-pi-test-motors-home      Home both motors"
-	@echo "  make on-the-pi-test-bluetooth-input  Test Bluetooth gamepad input"
-	@echo "  make on-the-pi-test-gimbal-gamepad   Control gimbal with joystick"
 	@echo "  make on-the-pi-test-pan-step         Manual pan motor stepping"
 	@echo "  make on-the-pi-test-all-gpio         Scan and test all GPIO pins"
 	@echo ""
@@ -622,8 +611,6 @@ on-the-pi-test-motors-pan-ccw: _test-motors-pan-ccw
 on-the-pi-test-motors-tilt-cw: _test-motors-tilt-cw
 on-the-pi-test-motors-tilt-ccw: _test-motors-tilt-ccw
 on-the-pi-test-motors-home: _test-motors-home
-on-the-pi-test-bluetooth-input: _test-bluetooth-input
-on-the-pi-test-gimbal-gamepad: _test-gimbal-gamepad
 on-the-pi-test-pan-step: _test-pan-step
 on-the-pi-test-all-gpio: _test-all-gpio
 on-the-pi-find-camera: _find-camera
@@ -900,7 +887,7 @@ on-the-pi-wifi-gpio-daemon-status:
 .PHONY: install install-yolo install-docs docs clean init init-wifi \
         run run-standalone run-web run-web-custom \
         test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw \
-        test-motors-tilt-ccw test-motors-home test-bluetooth-input test-gimbal-gamepad \
+        test-motors-tilt-ccw test-motors-home \
         test-pan-step test-all-gpio \
         find-camera list-devices list-controls get-control set-control \
         install-ffmpeg install-libusb list-cameras list-camera-formats \
@@ -938,8 +925,6 @@ test-motors-pan-ccw: on-the-pi-test-motors-pan-ccw
 test-motors-tilt-cw: on-the-pi-test-motors-tilt-cw
 test-motors-tilt-ccw: on-the-pi-test-motors-tilt-ccw
 test-motors-home: on-the-pi-test-motors-home
-test-bluetooth-input: on-the-pi-test-bluetooth-input
-test-gimbal-gamepad: on-the-pi-test-gimbal-gamepad
 test-pan-step: on-the-pi-test-pan-step
 test-all-gpio: on-the-pi-test-all-gpio
 

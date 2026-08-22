@@ -247,6 +247,6 @@ If WiFi is disconnected (client mode but no SSID), the button repairs home WiFi 
 ## Notes
 
 - All GPIO access requires `sudo` or appropriate group permissions on Armbian.
-- GPIO offsets are defined in `cookie_finder_rust/cookie-finder-ctl/src/config.rs` and `cookie_finder/gimbal/pan_tilt.py`. Phase order is in `config/gimbal.toml`.
-- Limit switch pins are defined in `cookie_finder_rust/cookie-finder-ctl/src/config.rs` and `cookie_finder/gimbal/pan_tilt.py`.
+- GPIO offsets are defined in `cookie_finder_rust/cookie-finder-ctl/src/config.rs`. Phase order is in `config/gimbal.toml`.
+- Limit switch pins are defined in `cookie_finder_rust/cookie-finder-ctl/src/config.rs`.
 - Physical pins **8** (TXD.0) and **10** (RXD.0) are reserved for UART0 serial debugging — do not use for GPIO.

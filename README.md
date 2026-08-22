@@ -53,9 +53,9 @@ When home WiFi is unavailable, the Pi can host its own hotspot (single GPIO butt
 
 One-time setup on the Pi: `make on-the-pi-init-wifi` (or `make init-wifi`). Details: [WiFi AP mode](docs/usage/running.md#wifi-access-point-mode), [Orange Pi setup](docs/setup/orange-pi.md#5-enable-wifi-access-point-mode-optional).
 
-## Rust Gimbal Daemon (Optional, Recommended on Pi)
+## Rust Gimbal Daemon (Required on Pi for motors / gamepad)
 
-The gimbal and gamepad control loop can run in a Rust daemon for lower latency. The Python web server connects to it over a Unix socket and falls back to Python GPIO if the daemon is not running.
+The gimbal and Pi gamepad control loop run in a Rust daemon. The Python web server connects to it over a Unix socket; without the daemon, motors and pad input are unavailable.
 
 ### Mac: cross-compile and deploy
 

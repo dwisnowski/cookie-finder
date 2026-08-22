@@ -61,13 +61,11 @@ Copy `.wifi.env.example` → `.wifi.env` and set `WIFI_HOME_PSK` / `WIFI_HOTSPOT
 
 | Target | Description |
 |--------|-------------|
-| `make on-the-pi-test-motors` / `make test-motors` | Help + auto sequence (`sudo`) |
-| `make on-the-pi-test-motors-pan-cw` … `-tilt-ccw` | Step one axis 50 steps (`sudo`) |
-| `make on-the-pi-test-motors-home` / `make test-motors-home` | Home both motors |
+| `make on-the-pi-test-motors` / `make test-motors` | Help + auto sequence via Rust daemon IPC |
+| `make on-the-pi-test-motors-pan-cw` … `-tilt-ccw` | Step one axis 50 steps via daemon |
+| `make on-the-pi-test-motors-home` / `make test-motors-home` | Home both motors via daemon |
 | `make on-the-pi-test-pan-step` / `make test-pan-step` | Direct `gpioset` wave-drive loop |
 | `make on-the-pi-test-all-gpio` / `make test-all-gpio` | Blink every GPIO line |
-| `make on-the-pi-test-bluetooth-input` | Log gamepad input (~60s) |
-| `make on-the-pi-test-gimbal-gamepad` | Gimbal + gamepad smoke test |
 | `make on-the-pi-rust-keyboard` / `make rust-keyboard` | Keyboard pan/tilt + drive mode / wiring |
 
 ---

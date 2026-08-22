@@ -34,7 +34,7 @@ Started with `make run` (or `uv run main.py --web`). Serves on **HTTP :80** and 
 
 There are two independent gamepad paths:
 
-1. **Pi Bluetooth Gamepad** (controls panel) — Classic Bluetooth HID via BlueZ on the robot. Scan / Pair / Connect / Remove use `bluetoothctl`. After Connect or Set Active, the Rust daemon reads `/dev/input/event*` (or Python falls back to pygame). This is the path for a pad paired to the Orange Pi.
+1. **Pi Bluetooth Gamepad** (controls panel) — Classic Bluetooth HID via BlueZ on the robot. Scan / Pair / Connect / Remove use `bluetoothctl`. After Connect or Set Active, the Rust daemon reads `/dev/input/event*` and drives the motors. This is the path for a pad paired to the Orange Pi.
 2. **Browser Gamepad API** (header badge / settings axis presets) — a controller plugged into or paired with the machine running the browser. Axes are sent over WebSocket as `motor_command` / `gamepad_input`. Unrelated to the Pi Bluetooth panel.
 
 Do not expect the Pi Bluetooth panel to manage a pad that is only connected to your laptop.
@@ -145,7 +145,7 @@ Motor step rate (Hz):
 }
 ```
 
-The server prefers the Rust gimbal daemon (`RustGimbalClient`); if the Unix socket is unavailable it falls back to the Python GPIO `PanTiltGimbal`.
+Gimbal control requires the Rust `cookie-finder-ctl` daemon (`RustGimbalClient` over a Unix socket). Start it with `make on-the-pi-rust-daemon`.
 
 ---
 

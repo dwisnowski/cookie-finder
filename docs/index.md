@@ -9,7 +9,7 @@ Real-time USB thermal camera system for detecting and locating warm objects (coo
 - Captures thermal video via a UVC USB thermal camera
 - Processes frames to detect heat signatures in real time
 - Exposes a live MJPEG stream + WebSocket control panel via a web server
-- Optionally controls a pan/tilt gimbal (Rust daemon preferred; Python GPIO fallback)
+- Optionally controls a pan/tilt gimbal via the Rust `cookie-finder-ctl` daemon
 
 ## Modes at a glance
 
