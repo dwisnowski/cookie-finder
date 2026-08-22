@@ -8,10 +8,11 @@ use clap::{Parser, Subcommand};
 use config::{load_gimbal_config, DEFAULT_SOCKET};
 use control_loop::{run_control_loop, ControlState};
 use gimbal::PanTiltGimbal;
+use input::GamepadSelector;
 use ipc::run_ipc_server;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64};
+use std::sync::{Arc, Mutex};
 
 #[derive(Parser)]
 #[command(name = "cookie-finder-ctl", version, about = "Cookie Finder gimbal + gamepad daemon")]
@@ -65,6 +66,8 @@ async fn main() -> anyhow::Result<()> {
             let state = Arc::new(ControlState {
                 gimbal: Arc::clone(&gimbal),
                 input_enabled: Arc::new(AtomicBool::new(true)),
+                active_input: Arc::new(Mutex::new(GamepadSelector::any())),
+                input_generation: Arc::new(AtomicU64::new(0)),
             });
             tokio::select! {
                 _ = run_control_loop(state) => {}
@@ -84,6 +87,8 @@ async fn main() -> anyhow::Result<()> {
             let state = Arc::new(ControlState {
                 gimbal: Arc::clone(&gimbal),
                 input_enabled: Arc::new(AtomicBool::new(false)),
+                active_input: Arc::new(Mutex::new(GamepadSelector::any())),
+                input_generation: Arc::new(AtomicU64::new(0)),
             });
             let loop_state = Arc::clone(&state);
             let socket_path = socket.clone();

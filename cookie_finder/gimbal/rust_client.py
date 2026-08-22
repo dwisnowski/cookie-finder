@@ -93,7 +93,22 @@ class RustGimbalClient:
         self._request({"cmd": "disable_motors"})
 
     def set_input_enabled(self, enabled: bool) -> None:
+        """Enable/disable gamepad→gimbal without changing the active device."""
         self._request({"cmd": "set_input_enabled", "enabled": enabled})
+
+    def set_active_input(
+        self,
+        enabled: bool,
+        address: str | None = None,
+        name: str | None = None,
+    ) -> None:
+        """Select which BlueZ HID pad the daemon should read (hot-swappable)."""
+        payload: dict[str, Any] = {"cmd": "set_active_input", "enabled": enabled}
+        if address:
+            payload["address"] = address
+        if name:
+            payload["name"] = name
+        self._request(payload)
 
     def get_phase_order(self) -> dict:
         return self._request({"cmd": "get_phase_order"})

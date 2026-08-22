@@ -2,9 +2,9 @@ use crate::config::{
     BT_CHANGE_THRESHOLD, BT_MOTION_MIN_ANGLE, BT_SENSITIVITY, LOOP_INTERVAL_MS,
 };
 use crate::gimbal::PanTiltGimbal;
-use crate::input::GamepadInput;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use crate::input::{GamepadInput, GamepadSelector};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const GAMEPAD_RETRY_INTERVAL: Duration = Duration::from_secs(2);
@@ -12,17 +12,39 @@ const GAMEPAD_RETRY_INTERVAL: Duration = Duration::from_secs(2);
 pub struct ControlState {
     pub gimbal: Arc<PanTiltGimbal>,
     pub input_enabled: Arc<AtomicBool>,
+    /// Desired gamepad (Bluetooth MAC / name). Changed from IPC without restart.
+    pub active_input: Arc<Mutex<GamepadSelector>>,
+    /// Bumped whenever enabled flag or active_input changes so the loop reopens.
+    pub input_generation: Arc<AtomicU64>,
+}
+
+impl ControlState {
+    pub fn bump_input_generation(&self) {
+        self.input_generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub fn set_active_input(
+        &self,
+        enabled: bool,
+        address: Option<&str>,
+        name: Option<&str>,
+    ) {
+        let selector = if enabled {
+            GamepadSelector::from_address_name(address, name)
+        } else {
+            GamepadSelector::any()
+        };
+        if let Ok(mut guard) = self.active_input.lock() {
+            *guard = selector;
+        }
+        self.input_enabled.store(enabled, Ordering::Relaxed);
+        self.bump_input_generation();
+    }
 }
 
 pub async fn run_control_loop(state: Arc<ControlState>) {
-    let mut gamepad = match GamepadInput::open() {
-        Ok(g) => Some(g),
-        Err(e) => {
-            tracing::warn!("gamepad unavailable at start: {e}");
-            None
-        }
-    };
-
+    let mut applied_generation = u64::MAX;
+    let mut gamepad: Option<GamepadInput> = None;
     let mut last_pan = 0.0f64;
     let mut last_tilt = 0.0f64;
     let mut last_tick = Instant::now();
@@ -39,17 +61,42 @@ pub async fn run_control_loop(state: Arc<ControlState>) {
 
         state.gimbal.tick();
 
+        let generation = state.input_generation.load(Ordering::Relaxed);
+        if generation != applied_generation {
+            applied_generation = generation;
+            if gamepad.is_some() {
+                tracing::info!("active gamepad selection changed — releasing previous device");
+            }
+            gamepad = None;
+            last_pan = 0.0;
+            last_tilt = 0.0;
+            // Allow immediate reopen attempt after a UI switch.
+            last_gamepad_retry = Instant::now()
+                .checked_sub(GAMEPAD_RETRY_INTERVAL)
+                .unwrap_or_else(Instant::now);
+        }
+
         if !state.input_enabled.load(Ordering::Relaxed) {
             continue;
         }
 
-        // Hotplug: open (or reopen) the gamepad when input is enabled but no
-        // device is available yet, or after the previous device vanished.
+        let selector = state
+            .active_input
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| GamepadSelector::any());
+
+        // Hotplug / switch: open (or reopen) when enabled but no device yet.
         if gamepad.is_none() && now.duration_since(last_gamepad_retry) >= GAMEPAD_RETRY_INTERVAL {
             last_gamepad_retry = now;
-            match GamepadInput::open() {
+            match GamepadInput::open(&selector) {
                 Ok(g) => {
-                    tracing::info!("gamepad connected");
+                    tracing::info!(
+                        "gamepad connected: {} (address={:?} name={:?})",
+                        g.path().display(),
+                        selector.address,
+                        selector.name
+                    );
                     gamepad = Some(g);
                     last_pan = 0.0;
                     last_tilt = 0.0;

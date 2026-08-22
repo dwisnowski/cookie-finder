@@ -27,6 +27,10 @@ struct Request {
     #[serde(default)]
     enabled: Option<bool>,
     #[serde(default)]
+    address: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
     motor: Option<String>,
     #[serde(default)]
     order: Option<Vec<usize>>,
@@ -48,11 +52,19 @@ fn handle_request(req: &Request, state: &ControlState) -> Value {
         "get_status" => {
             let (pan, tilt) = g.get_position();
             let drive = g.get_drive_mode();
+            let active = state
+                .active_input
+                .lock()
+                .ok()
+                .map(|s| s.clone())
+                .unwrap_or_default();
             json!({
                 "ok": true,
                 "pan": pan,
                 "tilt": tilt,
                 "input_enabled": state.input_enabled.load(Ordering::Relaxed),
+                "active_address": active.address,
+                "active_name": active.name,
                 "is_moving": g.is_moving(),
                 "max_pan": g.max_pan,
                 "max_tilt": g.max_tilt,
@@ -99,9 +111,31 @@ fn handle_request(req: &Request, state: &ControlState) -> Value {
             json!({"ok": true})
         }
         "set_input_enabled" => {
+            // Backward-compatible: toggle enable, keep current selector (or any).
             let enabled = req.enabled.unwrap_or(false);
             state.input_enabled.store(enabled, Ordering::Relaxed);
+            state.bump_input_generation();
             json!({"ok": true, "input_enabled": enabled})
+        }
+        "set_active_input" => {
+            let enabled = req.enabled.unwrap_or(false);
+            state.set_active_input(
+                enabled,
+                req.address.as_deref(),
+                req.name.as_deref(),
+            );
+            let active = state
+                .active_input
+                .lock()
+                .ok()
+                .map(|s| s.clone())
+                .unwrap_or_default();
+            json!({
+                "ok": true,
+                "input_enabled": enabled,
+                "active_address": active.address,
+                "active_name": active.name,
+            })
         }
         "get_phase_order" => {
             let (pan, tilt) = g.get_phase_orders();

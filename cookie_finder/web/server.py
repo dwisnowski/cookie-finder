@@ -436,7 +436,8 @@ def poll_gimbal_position():
 def poll_bluetooth_controller():
     """
     Background thread: Poll connected Bluetooth device for input and control gimbal.
-    When Rust daemon is active, only gates evdev input via set_input_enabled.
+    When Rust daemon is active, pushes the UI's active pad via set_active_input
+    (hot-swappable; no daemon restart).
     """
     global gimbal, gimbal_uses_rust, bluetooth_controller, gimbal_position, gimbal_lock
     global bt_device_connected
@@ -445,21 +446,44 @@ def poll_bluetooth_controller():
     last_pan = 0.0
     last_tilt = 0.0
     last_update_time = time.time()
-    last_input_enabled = None
+    last_rust_input_key = None
     deadzone = 0.15
     sensitivity = 100.0
 
     while True:
         try:
-            connected = bool(
-                bluetooth_controller and bluetooth_controller.get_connected_device()
+            active_addr = (
+                bluetooth_controller.get_connected_device()
+                if bluetooth_controller
+                else None
             )
+            connected = bool(active_addr)
             bt_device_connected = connected
 
             if gimbal_uses_rust and gimbal is not None:
-                if connected != last_input_enabled:
-                    gimbal.set_input_enabled(connected)
-                    last_input_enabled = connected
+                active_name = None
+                if connected and bluetooth_controller is not None:
+                    # Use in-memory cache — do not call bluetoothctl every tick.
+                    cached = bluetooth_controller.devices.get(active_addr) or (
+                        bluetooth_controller.devices.get(active_addr.upper())
+                        if active_addr
+                        else None
+                    )
+                    if cached:
+                        active_name = cached.name
+                rust_key = (active_addr, active_name) if connected else (None, None)
+                if rust_key != last_rust_input_key:
+                    if connected:
+                        print(
+                            f"[BT] Rust active input → {active_name or 'pad'} ({active_addr})"
+                        )
+                        gimbal.set_active_input(
+                            True, address=active_addr, name=active_name
+                        )
+                    else:
+                        print("[BT] Rust active input cleared")
+                        gimbal.set_active_input(False)
+                    last_rust_input_key = rust_key
                 time.sleep(0.05)
                 continue
 

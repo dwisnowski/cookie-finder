@@ -7,10 +7,10 @@
                 <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); text-align: center; border: 1px solid var(--border-color);">
                     <div style="color: var(--text-tertiary); margin-bottom: 8px; font-size: 11px; font-weight: bold;">Button Press Display</div>
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 6px;">
-                        <div class="gamepad-button" id="gamepadButton0" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">A</div>
-                        <div class="gamepad-button" id="gamepadButton1" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">B</div>
-                        <div class="gamepad-button" id="gamepadButton2" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">X</div>
-                        <div class="gamepad-button" id="gamepadButton3" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">Y</div>
+                        <div class="gamepad-button gamepad-button-display" id="gamepadButton0" data-gamepad-index="0" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">A</div>
+                        <div class="gamepad-button gamepad-button-display" id="gamepadButton1" data-gamepad-index="1" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">B</div>
+                        <div class="gamepad-button gamepad-button-display" id="gamepadButton2" data-gamepad-index="2" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">X</div>
+                        <div class="gamepad-button gamepad-button-display" id="gamepadButton3" data-gamepad-index="3" style="padding: 12px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-sm); font-weight: bold; font-size: 12px; cursor: default; border: 1px solid var(--border-color);">Y</div>
                     </div>
                 </div>
                 <div style="text-align: center; margin-bottom: 15px;">
@@ -31,20 +31,20 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; text-align: center;">
                     <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
                         <div style="color: var(--text-tertiary);">Pan</div>
-                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="panAngle">0°</div>
+                        <div class="pan-angle-value" style="font-size: 16px; color: var(--accent); font-weight: bold;" id="panAngle">0°</div>
                     </div>
                     <div style="background: rgba(45, 55, 72, 0.5); padding: 8px; border-radius: var(--radius-md); font-size: 11px; border: 1px solid var(--border-color);">
                         <div style="color: var(--text-tertiary);">Tilt</div>
-                        <div style="font-size: 16px; color: var(--accent); font-weight: bold;" id="tiltAngle">0°</div>
+                        <div class="tilt-angle-value" style="font-size: 16px; color: var(--accent); font-weight: bold;" id="tiltAngle">0°</div>
                     </div>
                 </div>
 
                 <div class="slider-group">
-                    <div class="slider-label">Pan speed: <span id="val_pan_speed">100 Hz</span></div>
+                    <div class="slider-label">Pan speed: <span class="val-pan-speed-label" id="val_pan_speed">100 Hz</span></div>
                     <input type="range" min="0" max="100" value="38" id="slider_pan_speed">
                 </div>
                 <div class="slider-group">
-                    <div class="slider-label">Tilt speed: <span id="val_tilt_speed">100 Hz</span></div>
+                    <div class="slider-label">Tilt speed: <span class="val-tilt-speed-label" id="val_tilt_speed">100 Hz</span></div>
                     <input type="range" min="0" max="100" value="38" id="slider_tilt_speed">
                 </div>
                 

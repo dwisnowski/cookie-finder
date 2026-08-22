@@ -42,6 +42,8 @@ let currentPaletteIdx = 0;
 // Pan/Tilt tracking
 const PAN_MAX = 150;
 const TILT_MAX = 60;
+const PAN_DISPLAY_MAX = 50;
+const TILT_DISPLAY_MAX = 50;
 const PAN_STEP = 5;
 const TILT_STEP = 5;
 const MOTOR_SPEED_MIN_HZ = 10;
@@ -98,6 +100,22 @@ let wifiStatus = {
     powering_off: false,
 };
 let wifiTargetMode = null;
+let paletteAutoEnabled = false;
+
+function isMobilePortrait() {
+    return window.matchMedia('(max-width: 768px) and (orientation: portrait)').matches;
+}
+
+function maybeAutoEnablePalette() {
+    if (paletteAutoEnabled || !isMobilePortrait()) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    if (state.palette_mode) {
+        paletteAutoEnabled = true;
+        return;
+    }
+    ws.send(JSON.stringify({ action: 'toggle_mode', mode: 'palette_mode' }));
+    paletteAutoEnabled = true;
+}
 
 function clamp(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -114,8 +132,10 @@ function hzToSlider(hz) {
 }
 
 function getMotorSpeeds() {
-    const panSlider = document.getElementById('slider_pan_speed');
-    const tiltSlider = document.getElementById('slider_tilt_speed');
+    const panSlider = document.getElementById('slider_pan_speed')
+        || document.getElementById('slider_pan_speed_modal');
+    const tiltSlider = document.getElementById('slider_tilt_speed')
+        || document.getElementById('slider_tilt_speed_modal');
     return {
         pan_hz: sliderToHz(panSlider ? panSlider.value : hzToSlider(MOTOR_SPEED_DEFAULT_HZ)),
         tilt_hz: sliderToHz(tiltSlider ? tiltSlider.value : hzToSlider(MOTOR_SPEED_DEFAULT_HZ)),
@@ -124,10 +144,19 @@ function getMotorSpeeds() {
 
 function updateMotorSpeedLabels() {
     const speeds = getMotorSpeeds();
-    const panLabel = document.getElementById('val_pan_speed');
-    const tiltLabel = document.getElementById('val_tilt_speed');
-    if (panLabel) panLabel.textContent = speeds.pan_hz + ' Hz';
-    if (tiltLabel) tiltLabel.textContent = speeds.tilt_hz + ' Hz';
+    document.querySelectorAll('.val-pan-speed-label').forEach(el => {
+        el.textContent = speeds.pan_hz + ' Hz';
+    });
+    document.querySelectorAll('.val-tilt-speed-label').forEach(el => {
+        el.textContent = speeds.tilt_hz + ' Hz';
+    });
+}
+
+function syncMotorSpeedSliders(changedSlider, pairedId) {
+    const paired = document.getElementById(pairedId);
+    if (paired && paired.value !== changedSlider.value) {
+        paired.value = changedSlider.value;
+    }
 }
 
 function normalizeRotationDeg(deg) {
@@ -276,25 +305,45 @@ function getRelativePanTilt() {
 function updatePanTiltIndicator() {
     const svgRadius = 75;
     const { pan: relPan, tilt: relTilt } = getRelativePanTilt();
-    // Relative 0,0 is graph center; ±(MAX/2) fills the circle radius.
-    const panScale = PAN_MAX / 2 || 1;
-    const tiltScale = TILT_MAX / 2 || 1;
+    const panScale = PAN_DISPLAY_MAX || 1;
+    const tiltScale = TILT_DISPLAY_MAX || 1;
     const x = 100 + clamp(relPan / panScale, -1, 1) * svgRadius;
     const y = 100 - clamp(relTilt / tiltScale, -1, 1) * svgRadius;
 
     const marker = document.getElementById('positionMarker');
-    marker.setAttribute('cx', x);
-    marker.setAttribute('cy', y);
+    if (marker) {
+        marker.setAttribute('cx', x);
+        marker.setAttribute('cy', y);
+        const lineH = document.getElementById('markerLineH');
+        const lineV = document.getElementById('markerLineV');
+        if (lineH) {
+            lineH.setAttribute('x2', x);
+            lineH.setAttribute('y2', y);
+        }
+        if (lineV) {
+            lineV.setAttribute('x2', x);
+            lineV.setAttribute('y2', y);
+        }
+    }
 
-    document.getElementById('markerLineH').setAttribute('x2', x);
-    document.getElementById('markerLineH').setAttribute('y2', y);
-    document.getElementById('markerLineV').setAttribute('x2', x);
-    document.getElementById('markerLineV').setAttribute('y2', y);
+    document.querySelectorAll('.pan-angle-value').forEach(el => {
+        el.textContent = relPan.toFixed(2) + '°';
+    });
+    document.querySelectorAll('.tilt-angle-value').forEach(el => {
+        el.textContent = relTilt.toFixed(2) + '°';
+    });
 
-    const panAngleEl = document.getElementById('panAngle');
-    const tiltAngleEl = document.getElementById('tiltAngle');
-    if (panAngleEl) panAngleEl.textContent = relPan.toFixed(2) + '°';
-    if (tiltAngleEl) tiltAngleEl.textContent = relTilt.toFixed(2) + '°';
+    const panPct = clamp((relPan + PAN_DISPLAY_MAX) / (2 * PAN_DISPLAY_MAX), 0, 1);
+    const tiltPct = clamp((relTilt + TILT_DISPLAY_MAX) / (2 * TILT_DISPLAY_MAX), 0, 1);
+
+    const panThumb = document.getElementById('panSliderThumb');
+    if (panThumb) {
+        panThumb.style.left = (panPct * 100) + '%';
+    }
+    const tiltThumb = document.getElementById('tiltSliderThumb');
+    if (tiltThumb) {
+        tiltThumb.style.bottom = (tiltPct * 100) + '%';
+    }
 }
 
 function zeroPanTiltOrigin() {
@@ -401,13 +450,13 @@ function pollGamepadInput() {
 function updateGamepadButtonDisplay(gamepad) {
     for (let i = 0; i < 4; i++) {
         const button = gamepad.buttons[i];
-        const buttonElement = document.getElementById('gamepadButton' + i);
-
-        if (button && button.pressed) {
-            buttonElement.classList.add('pressed');
-        } else {
-            buttonElement.classList.remove('pressed');
-        }
+        document.querySelectorAll(`.gamepad-button-display[data-gamepad-index="${i}"]`).forEach(buttonElement => {
+            if (button && button.pressed) {
+                buttonElement.classList.add('pressed');
+            } else {
+                buttonElement.classList.remove('pressed');
+            }
+        });
     }
 }
 
@@ -686,6 +735,7 @@ function updateUI() {
     updateParametersPanelVisibility();
     // Update status badges
     updateStatusBadges();
+    maybeAutoEnablePalette();
 }
 
 function updatePalettePanelVisibility() {
@@ -834,18 +884,22 @@ document.getElementById('btn_palette_next').addEventListener('click', () => {
 
 const sliderPanSpeed = document.getElementById('slider_pan_speed');
 const sliderTiltSpeed = document.getElementById('slider_tilt_speed');
-if (sliderPanSpeed) {
-    sliderPanSpeed.addEventListener('input', () => {
+const sliderPanSpeedModal = document.getElementById('slider_pan_speed_modal');
+const sliderTiltSpeedModal = document.getElementById('slider_tilt_speed_modal');
+
+function bindMotorSpeedSlider(slider, pairedId) {
+    if (!slider) return;
+    slider.addEventListener('input', () => {
+        syncMotorSpeedSliders(slider, pairedId);
         updateMotorSpeedLabels();
         sendMotorSpeed();
     });
 }
-if (sliderTiltSpeed) {
-    sliderTiltSpeed.addEventListener('input', () => {
-        updateMotorSpeedLabels();
-        sendMotorSpeed();
-    });
-}
+
+bindMotorSpeedSlider(sliderPanSpeed, 'slider_pan_speed_modal');
+bindMotorSpeedSlider(sliderPanSpeedModal, 'slider_pan_speed');
+bindMotorSpeedSlider(sliderTiltSpeed, 'slider_tilt_speed_modal');
+bindMotorSpeedSlider(sliderTiltSpeedModal, 'slider_tilt_speed');
 updateMotorSpeedLabels();
 
 const sliderVideoRotation = document.getElementById('slider_video_rotation');
@@ -880,6 +934,53 @@ if (videoStreamEl) {
 }
 
 // Motor control
+function startMotorCommand(command) {
+    motorActive[command] = true;
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'motor_command',
+            command: command,
+            state: 'start'
+        }));
+    }
+}
+
+function stopMotorCommand(command) {
+    motorActive[command] = false;
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            action: 'motor_command',
+            command: command,
+            state: 'stop'
+        }));
+    }
+}
+
+function bindMotorControl(el, command) {
+    if (!el) return;
+
+    const start = () => startMotorCommand(command);
+    const stop = () => stopMotorCommand(command);
+
+    el.addEventListener('mousedown', start);
+    el.addEventListener('mouseup', stop);
+    el.addEventListener('mouseleave', stop);
+    el.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        start();
+    });
+    el.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        stop();
+    });
+    el.addEventListener('touchcancel', (e) => {
+        e.preventDefault();
+        stop();
+    });
+}
+
 const motorCommands = {
     'btn_motor_up': 'motor_up',
     'btn_motor_down': 'motor_down',
@@ -888,63 +989,40 @@ const motorCommands = {
 };
 
 for (const [btnId, command] of Object.entries(motorCommands)) {
-    const btn = document.getElementById(btnId);
-    if (btn) {
-        const startMotor = () => {
-            motorActive[command] = true;
+    bindMotorControl(document.getElementById(btnId), command);
+}
 
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    action: 'motor_command',
-                    command: command,
-                    state: 'start'
-                }));
-            }
-        };
+document.querySelectorAll('.touch-zone[data-motor]').forEach(el => {
+    bindMotorControl(el, el.dataset.motor);
+});
 
-        const stopMotor = () => {
-            motorActive[command] = false;
+document.querySelectorAll('.touch-zone-home[data-action="motor_home"]').forEach(el => {
+    const goHome = (e) => {
+        e.preventDefault();
+        goPanTiltHome();
+    };
+    el.addEventListener('click', goHome);
+});
 
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({
-                    action: 'motor_command',
-                    command: command,
-                    state: 'stop'
-                }));
-            }
-        };
-
-        btn.addEventListener('mousedown', startMotor);
-        btn.addEventListener('mouseup', stopMotor);
-        btn.addEventListener('mouseleave', stopMotor);
-
-        btn.addEventListener('touchstart', (e) => {
+function bindZeroHomeButtons(zeroId, homeId) {
+    const zeroBtn = document.getElementById(zeroId);
+    if (zeroBtn) {
+        zeroBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            startMotor();
+            zeroPanTiltOrigin();
         });
-
-        btn.addEventListener('touchend', (e) => {
+    }
+    const homeBtn = document.getElementById(homeId);
+    if (homeBtn) {
+        homeBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            stopMotor();
+            goPanTiltHome();
         });
     }
 }
 
-const btnMotorZero = document.getElementById('btn_motor_zero');
-if (btnMotorZero) {
-    btnMotorZero.addEventListener('click', (e) => {
-        e.preventDefault();
-        zeroPanTiltOrigin();
-    });
-}
-
-const btnMotorHome = document.getElementById('btn_motor_home');
-if (btnMotorHome) {
-    btnMotorHome.addEventListener('click', (e) => {
-        e.preventDefault();
-        goPanTiltHome();
-    });
-}
+bindZeroHomeButtons('btn_motor_zero', 'btn_motor_home');
+bindZeroHomeButtons('btn_motor_zero_modal', 'btn_motor_home_modal');
 
 // Keyboard shortcuts
 const keyPressState = {};
@@ -1297,6 +1375,29 @@ settingsOverlay.addEventListener('click', (e) => {
         closeSettings();
     }
 });
+
+// Motor control modal
+const motorOverlay = document.getElementById('motorOverlay');
+const motorBtn = document.getElementById('btn_motor');
+const closeMotorBtn = document.getElementById('closeMotorBtn');
+
+function openMotor() {
+    if (motorOverlay) motorOverlay.classList.add('active');
+}
+
+function closeMotor() {
+    if (motorOverlay) motorOverlay.classList.remove('active');
+}
+
+if (motorBtn) motorBtn.addEventListener('click', openMotor);
+if (closeMotorBtn) closeMotorBtn.addEventListener('click', closeMotor);
+if (motorOverlay) {
+    motorOverlay.addEventListener('click', (e) => {
+        if (e.target === motorOverlay) {
+            closeMotor();
+        }
+    });
+}
 
 const wifiToggleBtn = document.getElementById('btn_wifi_toggle');
 if (wifiToggleBtn) {

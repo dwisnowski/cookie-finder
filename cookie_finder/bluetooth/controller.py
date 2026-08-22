@@ -414,7 +414,8 @@ class BluetoothController:
                 print(f"[BT] Already connected at BlueZ level: {address}")
                 device = self._upsert_device_from_info(address)
                 self.connected_device_address = address
-                self._start_joystick_reading_thread()
+                # Joystick reading starts lazily in read_controller_input().
+                # When the Rust daemon owns evdev, avoid opening pygame here.
                 self._emit_status(
                     "device_connected", {"address": address, "name": device.name}
                 )
@@ -459,7 +460,8 @@ class BluetoothController:
                 device.connected = True
 
             self.connected_device_address = address
-            self._start_joystick_reading_thread()
+            # Defer pygame open to read_controller_input() so the Rust
+            # daemon can own /dev/input/event* without contention.
             print(f"[BT] Connected and active: {address} ({device.name})")
             self._emit_status(
                 "device_connected", {"address": address, "name": device.name}
@@ -478,7 +480,6 @@ class BluetoothController:
         if not device.connected:
             return self.connect_device(address)
         self.connected_device_address = address
-        self._start_joystick_reading_thread()
         self._emit_status(
             "device_connected", {"address": address, "name": device.name}
         )

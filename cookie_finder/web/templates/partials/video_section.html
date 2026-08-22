@@ -1,6 +1,31 @@
         <div class="video-section">
-            <div class="video-stream-frame" id="videoStreamFrame">
-                <img id="videoStream" src="/video" alt="Thermal camera feed" class="video-stream">
+            <div class="video-gimbal-row">
+                <div class="video-stream-frame" id="videoStreamFrame">
+                    <img id="videoStream" src="/video" alt="Thermal camera feed" class="video-stream">
+                    <div class="video-touch-pad mobile-only" aria-hidden="true">
+                        <button type="button" class="touch-zone" data-motor="motor_up" aria-label="Tilt up"></button>
+                        <span class="touch-zone-spacer"></span>
+                        <span class="touch-zone-spacer"></span>
+                        <button type="button" class="touch-zone" data-motor="motor_left" aria-label="Pan left"></button>
+                        <button type="button" class="touch-zone touch-zone-home" data-action="motor_home" aria-label="Go home"></button>
+                        <button type="button" class="touch-zone" data-motor="motor_right" aria-label="Pan right"></button>
+                        <span class="touch-zone-spacer"></span>
+                        <button type="button" class="touch-zone" data-motor="motor_down" aria-label="Tilt down"></button>
+                        <span class="touch-zone-spacer"></span>
+                    </div>
+                </div>
+                <div class="gimbal-slider-vertical mobile-only">
+                    <div class="gimbal-track gimbal-track-tilt">
+                        <div class="gimbal-track-center"></div>
+                        <div class="gimbal-thumb" id="tiltSliderThumb"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="gimbal-slider-horizontal mobile-only">
+                <div class="gimbal-track gimbal-track-pan">
+                    <div class="gimbal-track-center"></div>
+                    <div class="gimbal-thumb" id="panSliderThumb"></div>
+                </div>
             </div>
             <div class="status">
                 <div id="statusText">Connecting...</div>
