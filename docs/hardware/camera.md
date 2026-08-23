@@ -29,7 +29,7 @@ Configuration 1
     └── Endpoint 0x85: IN (Bulk), Max Packet 512
 ```
 
-> No vendor-specific interfaces exposed — the camera outputs standard 8-bit UVC video only. Raw 16-bit temperature data is not accessible.
+> No vendor-specific USB class-255 interfaces — video is standard UVC. CDC (interfaces 2–3) carries Mileseey/PixFra control frames (FFC, image mode, brightness). See [Mileseey T-Recon CDC Protocol](../reference/mileseey-trecon-protocol.md). Raw 16-bit radiometry is not exposed over UVC.
 
 ## Supported Pixel Formats
 
