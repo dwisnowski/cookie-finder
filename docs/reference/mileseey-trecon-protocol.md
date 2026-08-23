@@ -80,6 +80,18 @@ contrast 50              6e00002d00023b6e00321611
 Regenerate / send:
 
 ```bash
+# Print example frames
+make on-the-pi-mileseey-examples
+
+# Send to camera CDC port (default MILESEEY_PORT=/dev/ttyACM0)
+make on-the-pi-mileseey-ffc
+make on-the-pi-mileseey-palette MILESEEY_VALUE=iron_red
+make on-the-pi-mileseey-ffc-mode MILESEEY_VALUE=manual
+make on-the-pi-mileseey-image-mode MILESEEY_VALUE=jungle
+make on-the-pi-mileseey-brightness MILESEEY_VALUE=50
+make on-the-pi-mileseey-contrast MILESEEY_VALUE=50
+
+# Or call the helper directly
 uv run tools/probing_thermal_camera/mileseey_protocol.py --examples
 uv run tools/probing_thermal_camera/mileseey_protocol.py --port /dev/ttyACM0 --cmd ffc
 uv run tools/probing_thermal_camera/mileseey_protocol.py --port /dev/ttyACM0 --cmd palette --value iron_red

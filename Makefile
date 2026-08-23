@@ -38,6 +38,11 @@ WIFI_PYTHON     ?= $(CURDIR)/.venv/bin/python
 WEB_SYSTEMD_UNIT_IN := systemd/cookie-finder-web.service.in
 WEB_SYSTEMD_UNIT    := /etc/systemd/system/cookie-finder-web.service
 WEB_PYTHON      ?= $(CURDIR)/.venv/bin/python
+
+# Mileseey / PixFra TNV30i CDC control (see docs/reference/mileseey-trecon-protocol.md)
+MILESEEY_PORT  ?= /dev/ttyACM0
+MILESEEY_VALUE ?=
+MILESEEY_PY    := tools/probing_thermal_camera/mileseey_protocol.py
 WEB_HOST        ?= 0.0.0.0
 WEB_PORT        ?= 80
 WEB_HTTPS_PORT  ?= 443
@@ -67,6 +72,8 @@ help:
         _find-camera _list-devices _list-controls _get-control _set-control \
         _install-ffmpeg _install-libusb _list-cameras _list-camera-formats \
         _probe-install _probe-usb _probe-cdc _probe-serial _probe-commands _probe-resolution _probe-xu _probe \
+        _mileseey-examples _mileseey-ffc _mileseey-palette _mileseey-ffc-mode \
+        _mileseey-image-mode _mileseey-brightness _mileseey-contrast \
         _serial-help _serial-list _serial-connect _serial-run _serial-deploy _serial-deploy-rust \
         _rust-install-rustup _rust-install-cross-toolchain _rust-check
 
@@ -271,6 +278,41 @@ _probe-xu:
 	uv run tools/probing_thermal_camera/probe_uvc_xu.py
 
 _probe: _probe-usb _probe-cdc _probe-serial _probe-commands _probe-resolution _probe-xu
+
+_mileseey-examples:
+	uv run $(MILESEEY_PY) --examples
+
+_mileseey-ffc:
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd ffc
+
+_mileseey-palette:
+	@test -n "$(MILESEEY_VALUE)" || { \
+		echo "usage: make on-the-pi-mileseey-palette MILESEEY_VALUE=<name|id>"; \
+		echo "  names: white_hot black_hot iron_red sepia green_hot alarm"; \
+		exit 1; \
+	}
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd palette --value "$(MILESEEY_VALUE)"
+
+_mileseey-ffc-mode:
+	@test -n "$(MILESEEY_VALUE)" || { \
+		echo "usage: make on-the-pi-mileseey-ffc-mode MILESEEY_VALUE=auto|manual"; \
+		exit 1; \
+	}
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd ffc_mode --value "$(MILESEEY_VALUE)"
+
+_mileseey-image-mode:
+	@test -n "$(MILESEEY_VALUE)" || { \
+		echo "usage: make on-the-pi-mileseey-image-mode MILESEEY_VALUE=<name|id>"; \
+		echo "  names: plain jungle rain_fog sketch"; \
+		exit 1; \
+	}
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd image_mode --value "$(MILESEEY_VALUE)"
+
+_mileseey-brightness:
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd brightness --value "$(or $(MILESEEY_VALUE),50)"
+
+_mileseey-contrast:
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd contrast --value "$(or $(MILESEEY_VALUE),50)"
 
 _serial-help:
 	@echo "Serial targets (USB-TTL UART when WiFi is down):"
@@ -479,6 +521,9 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-test-pan-step on-the-pi-test-all-gpio \
         on-the-pi-find-camera on-the-pi-list-devices on-the-pi-list-controls \
         on-the-pi-get-control on-the-pi-set-control \
+        on-the-pi-mileseey-examples on-the-pi-mileseey-ffc on-the-pi-mileseey-palette \
+        on-the-pi-mileseey-ffc-mode on-the-pi-mileseey-image-mode \
+        on-the-pi-mileseey-brightness on-the-pi-mileseey-contrast \
         on-the-pi-tool-setup on-the-pi-tool-setup-rust \
         on-the-pi-rust-check on-the-pi-rust-build \
         on-the-pi-rust-daemon-install on-the-pi-rust-daemon \
@@ -526,6 +571,15 @@ on-the-pi-help:
 	@echo "  make on-the-pi-list-controls         List camera control names"
 	@echo "  make on-the-pi-get-control           Get camera control value (interactive)"
 	@echo "  make on-the-pi-set-control           Set camera control value (interactive)"
+	@echo ""
+	@echo "Mileseey / PixFra CDC controls (port MILESEEY_PORT=$(MILESEEY_PORT)):"
+	@echo "  make on-the-pi-mileseey-examples     Print example CDC frames"
+	@echo "  make on-the-pi-mileseey-ffc          Trigger FFC / shutter"
+	@echo "  make on-the-pi-mileseey-palette MILESEEY_VALUE=iron_red"
+	@echo "  make on-the-pi-mileseey-ffc-mode MILESEEY_VALUE=auto|manual"
+	@echo "  make on-the-pi-mileseey-image-mode MILESEEY_VALUE=jungle"
+	@echo "  make on-the-pi-mileseey-brightness MILESEEY_VALUE=50"
+	@echo "  make on-the-pi-mileseey-contrast MILESEEY_VALUE=50"
 	@echo ""
 	@echo "Hardware tests:"
 	@echo "  make on-the-pi-test-motors           Motor control test via Rust daemon"
@@ -618,6 +672,13 @@ on-the-pi-list-devices: _list-devices
 on-the-pi-list-controls: _list-controls
 on-the-pi-get-control: _get-control
 on-the-pi-set-control: _set-control
+on-the-pi-mileseey-examples: _mileseey-examples
+on-the-pi-mileseey-ffc: _mileseey-ffc
+on-the-pi-mileseey-palette: _mileseey-palette
+on-the-pi-mileseey-ffc-mode: _mileseey-ffc-mode
+on-the-pi-mileseey-image-mode: _mileseey-image-mode
+on-the-pi-mileseey-brightness: _mileseey-brightness
+on-the-pi-mileseey-contrast: _mileseey-contrast
 
 on-the-pi-tool-setup: on-the-pi-tool-setup-rust
 	@echo "Installing native build dependencies (build-essential, curl, pkg-config)..."
@@ -934,6 +995,13 @@ list-devices: on-the-pi-list-devices
 list-controls: on-the-pi-list-controls
 get-control: on-the-pi-get-control
 set-control: on-the-pi-set-control
+mileseey-examples: on-the-pi-mileseey-examples
+mileseey-ffc: on-the-pi-mileseey-ffc
+mileseey-palette: on-the-pi-mileseey-palette
+mileseey-ffc-mode: on-the-pi-mileseey-ffc-mode
+mileseey-image-mode: on-the-pi-mileseey-image-mode
+mileseey-brightness: on-the-pi-mileseey-brightness
+mileseey-contrast: on-the-pi-mileseey-contrast
 
 # Camera (Mac)
 list-cameras: on-the-mac-list-cameras

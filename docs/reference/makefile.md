@@ -82,6 +82,20 @@ Copy `.wifi.env.example` → `.wifi.env` and set `WIFI_HOME_PSK` / `WIFI_HOTSPOT
 | `make on-the-mac-list-cameras` / `make list-cameras` | Mac | `ffmpeg` avfoundation list |
 | `make on-the-mac-list-camera-formats` | Mac | Capture one TIFF frame |
 
+### Mileseey / PixFra CDC (Pi)
+
+Send control frames over the camera CDC port (`MILESEEY_PORT`, default `/dev/ttyACM0`). See [Mileseey T-Recon protocol](mileseey-trecon-protocol.md).
+
+| Target | Description |
+|--------|-------------|
+| `make on-the-pi-mileseey-examples` / `make mileseey-examples` | Print example frames |
+| `make on-the-pi-mileseey-ffc` / `make mileseey-ffc` | Trigger FFC / shutter |
+| `make on-the-pi-mileseey-palette MILESEEY_VALUE=iron_red` | Set palette (`white_hot`, `black_hot`, `iron_red`, `sepia`, `green_hot`, `alarm`) |
+| `make on-the-pi-mileseey-ffc-mode MILESEEY_VALUE=auto` | FFC mode `auto` or `manual` |
+| `make on-the-pi-mileseey-image-mode MILESEEY_VALUE=jungle` | Image mode (`plain`, `jungle`, `rain_fog`, `sketch`) |
+| `make on-the-pi-mileseey-brightness MILESEEY_VALUE=50` | Brightness (default 50) |
+| `make on-the-pi-mileseey-contrast MILESEEY_VALUE=50` | Contrast (default 50) |
+
 ---
 
 ## Probing (Mac)
