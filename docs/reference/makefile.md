@@ -95,6 +95,10 @@ Send control frames over the camera CDC port (`MILESEEY_PORT`, default `/dev/tty
 | `make on-the-pi-mileseey-image-mode MILESEEY_VALUE=jungle` | Image mode (`plain`, `jungle`, `rain_fog`, `sketch`) |
 | `make on-the-pi-mileseey-brightness MILESEEY_VALUE=50` | Brightness (default 50) |
 | `make on-the-pi-mileseey-contrast MILESEEY_VALUE=50` | Contrast (default 50) |
+| `make on-the-pi-mileseey-gain-auto MILESEEY_VALUE=0` | Set AGC / auto-gain (0–255); closest to a lock |
+| `make on-the-pi-mileseey-get-gain-auto` | Query auto-gain |
+| `make on-the-pi-mileseey-temp MILESEEY_VALUE=thermo_temp` | Radiometry/calibration query (`thermo_temp`, `base_gray`, `radiometry_options`, …) |
+| `make on-the-pi-mileseey-temp-gain-mode` | Query temp gain mode (`0x0A`) |
 
 ---
 

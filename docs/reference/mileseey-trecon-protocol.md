@@ -41,9 +41,28 @@ Builder: `tools/probing_thermal_camera/mileseey_protocol.py`.
 | `0x10` | Color / palette | BE u16 palette id | **Protocol yes; UI no** — UI uses `CameraNative.setColor` (host recolor) |
 | `0x55` | Brightness / light | BE u16 (`progress * 5` in UI) | **Yes** |
 | `0x2D` | Contrast | BE u16 | protocol / native helpers |
+| `0x3E` | Gain auto (AGC) | BE u16 0–255; empty payload = get | protocol helpers only (not preview UI) |
+| `0x50` | Temperature / radiometry | `[subcmd, size_hint]` — see below | protocol helpers only |
+| `0x0A` | Temp gain mode | empty (get) | protocol helpers only |
 | `0x88` | Image mode | BE u16 mode id | **Yes** (plain/jungle/rain/sketch) |
 | `0x01` | Save config | empty | protocol |
 | `0x02` | Restart | empty | protocol |
+
+### Temperature / radiometry subcommands (`0x50`)
+
+Payload is two bytes: `[subcmd, size_hint]` as built by the APK `GetTemp*OutPacket` classes. These look like calibration / radiometry **parameter** queries, not a continuous Y16 frame stream. T-Recon 1.1.6 defines them but does not call them from the preview UI.
+
+| Subcmd | size_hint | Name (`MILESEEY_VALUE`) |
+|--------|-----------|-------------------------|
+| `0x25` | 4 | `thermo_temp` |
+| `0x8D` | 4 | `base_gray` |
+| `0x87` | 4 | `radiometry_options` |
+| `0x02` | 3 | `radiometry_set_msg` |
+| `0x85` | 3 | `gray_diff_table` |
+| `0x01` | 3 | `compensation_data` |
+| `0x08` | 3 | `tec_high` |
+| `0x0F` | 3 | `current_tec_coef` |
+| `0x89` | 4 | `distance_b` |
 
 ### Palette IDs (`WeicaiData`)
 
@@ -90,11 +109,16 @@ make on-the-pi-mileseey-ffc-mode MILESEEY_VALUE=manual
 make on-the-pi-mileseey-image-mode MILESEEY_VALUE=jungle
 make on-the-pi-mileseey-brightness MILESEEY_VALUE=50
 make on-the-pi-mileseey-contrast MILESEEY_VALUE=50
+make on-the-pi-mileseey-gain-auto MILESEEY_VALUE=0
+make on-the-pi-mileseey-get-gain-auto
+make on-the-pi-mileseey-temp MILESEEY_VALUE=thermo_temp
+make on-the-pi-mileseey-temp-gain-mode
 
 # Or call the helper directly
 uv run tools/probing_thermal_camera/mileseey_protocol.py --examples
 uv run tools/probing_thermal_camera/mileseey_protocol.py --port /dev/ttyACM0 --cmd ffc
 uv run tools/probing_thermal_camera/mileseey_protocol.py --port /dev/ttyACM0 --cmd palette --value iron_red
+uv run tools/probing_thermal_camera/mileseey_protocol.py --port /dev/ttyACM0 --cmd temp --value thermo_temp
 ```
 
 ## Implications for Cookie Finder
@@ -102,4 +126,6 @@ uv run tools/probing_thermal_camera/mileseey_protocol.py --port /dev/ttyACM0 --c
 1. **FFC** is the clearest device control to implement first over CDC.
 2. **Palette changes in the phone app** mostly recolor locally; UVC to the Pi may stay on the camera’s current LUT unless cmd `0x10` is also accepted by firmware (worth probing).
 3. **Image mode / brightness** are real device commands and may change the UVC picture Cookie Finder sees.
-4. This is **not** the InfiRay Tiny1-C / `0BDA` vendor-control protocol from ThermalApp.
+4. **Gain-auto (`0x3E`)** is the closest protocol control to locking brightness/contrast (AGC); worth probing with `0` / `1`.
+5. **Radiometry queries (`0x50`)** may return calibration or spot-temp related blobs — capture the CDC reply hex on the Pi to decode further. No Y16 streaming path was found in this app build.
+6. This is **not** the InfiRay Tiny1-C / `0BDA` vendor-control protocol from ThermalApp.

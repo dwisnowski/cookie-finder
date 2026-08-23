@@ -74,6 +74,8 @@ help:
         _probe-install _probe-usb _probe-cdc _probe-serial _probe-commands _probe-resolution _probe-xu _probe \
         _mileseey-examples _mileseey-ffc _mileseey-palette _mileseey-ffc-mode \
         _mileseey-image-mode _mileseey-brightness _mileseey-contrast \
+        _mileseey-gain-auto _mileseey-get-gain-auto _mileseey-temp \
+        _mileseey-temp-gain-mode \
         _serial-help _serial-list _serial-connect _serial-run _serial-deploy _serial-deploy-rust \
         _rust-install-rustup _rust-install-cross-toolchain _rust-check
 
@@ -314,6 +316,29 @@ _mileseey-brightness:
 _mileseey-contrast:
 	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd contrast --value "$(or $(MILESEEY_VALUE),50)"
 
+_mileseey-gain-auto:
+	@test -n "$(MILESEEY_VALUE)" || { \
+		echo "usage: make on-the-pi-mileseey-gain-auto MILESEEY_VALUE=<0-255>"; \
+		echo "  closest to AGC lock; try 0 and 1 first"; \
+		exit 1; \
+	}
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd gain_auto --value "$(MILESEEY_VALUE)"
+
+_mileseey-get-gain-auto:
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd get_gain_auto
+
+_mileseey-temp:
+	@test -n "$(MILESEEY_VALUE)" || { \
+		echo "usage: make on-the-pi-mileseey-temp MILESEEY_VALUE=<query>"; \
+		echo "  queries: thermo_temp base_gray radiometry_options radiometry_set_msg"; \
+		echo "           gray_diff_table compensation_data tec_high current_tec_coef distance_b"; \
+		exit 1; \
+	}
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd temp --value "$(MILESEEY_VALUE)"
+
+_mileseey-temp-gain-mode:
+	uv run $(MILESEEY_PY) --port $(MILESEEY_PORT) --cmd temp_gain_mode
+
 _serial-help:
 	@echo "Serial targets (USB-TTL UART when WiFi is down):"
 	@echo "  make on-the-mac-serial-list                         list /dev/tty.usbserial* devices"
@@ -524,6 +549,8 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-mileseey-examples on-the-pi-mileseey-ffc on-the-pi-mileseey-palette \
         on-the-pi-mileseey-ffc-mode on-the-pi-mileseey-image-mode \
         on-the-pi-mileseey-brightness on-the-pi-mileseey-contrast \
+        on-the-pi-mileseey-gain-auto on-the-pi-mileseey-get-gain-auto \
+        on-the-pi-mileseey-temp on-the-pi-mileseey-temp-gain-mode \
         on-the-pi-tool-setup on-the-pi-tool-setup-rust \
         on-the-pi-rust-check on-the-pi-rust-build \
         on-the-pi-rust-daemon-install on-the-pi-rust-daemon \
@@ -580,6 +607,10 @@ on-the-pi-help:
 	@echo "  make on-the-pi-mileseey-image-mode MILESEEY_VALUE=jungle"
 	@echo "  make on-the-pi-mileseey-brightness MILESEEY_VALUE=50"
 	@echo "  make on-the-pi-mileseey-contrast MILESEEY_VALUE=50"
+	@echo "  make on-the-pi-mileseey-gain-auto MILESEEY_VALUE=0   # AGC-ish; try 0/1"
+	@echo "  make on-the-pi-mileseey-get-gain-auto"
+	@echo "  make on-the-pi-mileseey-temp MILESEEY_VALUE=thermo_temp"
+	@echo "  make on-the-pi-mileseey-temp-gain-mode"
 	@echo ""
 	@echo "Hardware tests:"
 	@echo "  make on-the-pi-test-motors           Motor control test via Rust daemon"
@@ -679,6 +710,10 @@ on-the-pi-mileseey-ffc-mode: _mileseey-ffc-mode
 on-the-pi-mileseey-image-mode: _mileseey-image-mode
 on-the-pi-mileseey-brightness: _mileseey-brightness
 on-the-pi-mileseey-contrast: _mileseey-contrast
+on-the-pi-mileseey-gain-auto: _mileseey-gain-auto
+on-the-pi-mileseey-get-gain-auto: _mileseey-get-gain-auto
+on-the-pi-mileseey-temp: _mileseey-temp
+on-the-pi-mileseey-temp-gain-mode: _mileseey-temp-gain-mode
 
 on-the-pi-tool-setup: on-the-pi-tool-setup-rust
 	@echo "Installing native build dependencies (build-essential, curl, pkg-config)..."
@@ -1002,6 +1037,10 @@ mileseey-ffc-mode: on-the-pi-mileseey-ffc-mode
 mileseey-image-mode: on-the-pi-mileseey-image-mode
 mileseey-brightness: on-the-pi-mileseey-brightness
 mileseey-contrast: on-the-pi-mileseey-contrast
+mileseey-gain-auto: on-the-pi-mileseey-gain-auto
+mileseey-get-gain-auto: on-the-pi-mileseey-get-gain-auto
+mileseey-temp: on-the-pi-mileseey-temp
+mileseey-temp-gain-mode: on-the-pi-mileseey-temp-gain-mode
 
 # Camera (Mac)
 list-cameras: on-the-mac-list-cameras

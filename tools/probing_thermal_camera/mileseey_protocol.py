@@ -24,6 +24,10 @@ Note: In T-Recon UI, palette taps call CameraNative.setColor() (host-side
 recolor of the UVC stream). Device palette via cmd 0x10 exists in the
 protocol but is not wired from that UI path. FFC / image-mode / brightness
 are sent on CDC.
+
+Gain-auto (0x3E) and temperature/radiometry queries (0x50 + subcommand) exist
+in the APK packet layer but are not used by the T-Recon preview UI in 1.1.6 —
+included here for live probing on the Pi.
 """
 
 from __future__ import annotations
@@ -54,6 +58,7 @@ CMD_RESTART = 0x02
 CMD_NOISE_2D = 0x03
 CMD_NOISE_3D = 0x04
 CMD_VERSION = 0x05
+CMD_TEMP_GAIN_MODE = 0x0A  # top-level get (not under 0x50)
 CMD_FFC_MODE = 0x0B
 CMD_FFC = 0x0C
 CMD_FFC_TIME = 0x0D
@@ -65,25 +70,40 @@ CMD_CONTRAST = 0x2D
 CMD_UPDATE = 0x22
 CMD_UPDATE_PROCESS = 0x2B
 CMD_GAIN_AUTO = 0x3E
+CMD_TEMPERATURE = 0x50
 CMD_LIGHT = 0x55  # also CODE_COMMON
 CMD_IMAGE_MODE = 0x88  # -120
 CMD_INDICATOR = 0x89  # -119
 CMD_INIT = 0xFA  # -6
 CMD_CAPS = 0x63
 CMD_MOVEMENT_MODEL = 0x66
-CMD_TEMPERATURE = 0x50
+
+# Temperature / radiometry subcommands under CMD_TEMPERATURE (0x50).
+# Payload is [subcmd, size_hint] as built by GetTemp*OutPacket in the APK.
+TEMP_QUERY: dict[str, tuple[int, int]] = {
+    # name: (subcmd, size_hint)
+    "base_gray": (0x8D, 4),  # TEMP_BaseGray = -115
+    "compensation_data": (0x01, 3),
+    "current_tec_coef": (0x0F, 3),
+    "distance_b": (0x89, 4),  # TEMP_DistanceB = -119
+    "gray_diff_table": (0x85, 3),  # TEMP_GrayDiffTable = -123
+    "radiometry_options": (0x87, 4),  # TEMP_RadioMetryOptions = -121
+    "radiometry_set_msg": (0x02, 3),
+    "tec_high": (0x08, 3),
+    "thermo_temp": (0x25, 4),  # TEMP_ThermoTemp = 37
+}
 
 # WeicaiData.kt palette IDs used with CMD_COLOR
 PALETTE = {
-    "white_hot": 0,  # BAI_RE
-    "black_hot": 1,  # HEI_RE
-    "iron_red": 6,  # TIE_HONG
-    "sepia": 7,  # HU_PO
-    "green_hot": 13,  # FEI_CUI
-    "alarm": 18,  # BAO_JING
+    "white_hot": 0,
+    "black_hot": 1,
+    "iron_red": 6,
+    "sepia": 7,
+    "green_hot": 13,
+    "alarm": 18,
 }
 
-# USBImageModeEnum.kt → setImgMode payload mapping (a.d())
+# USBImageModeEnum.kt → setImgMode payload mapping
 IMAGE_MODE = {
     "plain": 0,
     "jungle": 1,  # forest; Bird also maps to 1 in app
@@ -153,11 +173,6 @@ def set_ffc_interval_sec(seconds: int) -> bytes:
 
 def set_image_mode(name_or_id: Union[str, int]) -> bytes:
     mid = IMAGE_MODE[name_or_id] if isinstance(name_or_id, str) else int(name_or_id)
-    # Native setImgMode packs [0x88 LE as u16?][mode]; Java getSendData uses cmd=0x88.
-    # App path: SendDataPacket.setImgMode(int) → native with cmd embedded.
-    # Prefer Java-style cmd=0x88 + BE mode byte padded as used by setImgMode native:
-    # native stores halfword 0x0088 + mode byte (3-byte payload) with outer cmd=0.
-    # Empirically prefer make_cmd(CMD_IMAGE_MODE, be16(mid)) first when probing.
     return make_cmd(CMD_IMAGE_MODE, be16(mid))
 
 
@@ -168,6 +183,31 @@ def set_brightness(value: int) -> bytes:
 
 def set_contrast(value: int) -> bytes:
     return make_cmd(CMD_CONTRAST, be16(int(value)))
+
+
+def set_gain_auto(value: int) -> bytes:
+    """AGC / auto-gain (0–255). Closest thing to a brightness/contrast 'lock'."""
+    return make_cmd(CMD_GAIN_AUTO, be16(max(0, min(255, int(value)))))
+
+
+def get_gain_auto() -> bytes:
+    """Query auto-gain (empty payload)."""
+    return make_cmd(CMD_GAIN_AUTO)
+
+
+def get_temp_gain_mode() -> bytes:
+    """Query temp gain mode (top-level cmd 0x0A, empty payload)."""
+    return make_cmd(CMD_TEMP_GAIN_MODE)
+
+
+def get_temp_query(name: str) -> bytes:
+    """Build a CMD_TEMPERATURE (0x50) radiometry/calibration query."""
+    if name not in TEMP_QUERY:
+        raise KeyError(
+            f"unknown temp query {name!r}; choose from: {', '.join(sorted(TEMP_QUERY))}"
+        )
+    subcmd, size_hint = TEMP_QUERY[name]
+    return make_cmd(CMD_TEMPERATURE, bytes([subcmd & 0xFF, size_hint & 0xFF]))
 
 
 def _print_examples() -> None:
@@ -184,9 +224,22 @@ def _print_examples() -> None:
         ("image_mode jungle", set_image_mode("jungle")),
         ("brightness 50", set_brightness(50)),
         ("contrast 50", set_contrast(50)),
+        ("gain_auto 0", set_gain_auto(0)),
+        ("gain_auto 1", set_gain_auto(1)),
+        ("get_gain_auto", get_gain_auto()),
+        ("temp thermo_temp", get_temp_query("thermo_temp")),
+        ("temp base_gray", get_temp_query("base_gray")),
+        ("temp radiometry_options", get_temp_query("radiometry_options")),
+        ("temp radiometry_set_msg", get_temp_query("radiometry_set_msg")),
+        ("temp gray_diff_table", get_temp_query("gray_diff_table")),
+        ("temp compensation_data", get_temp_query("compensation_data")),
+        ("temp tec_high", get_temp_query("tec_high")),
+        ("temp current_tec_coef", get_temp_query("current_tec_coef")),
+        ("temp distance_b", get_temp_query("distance_b")),
+        ("temp_gain_mode", get_temp_gain_mode()),
     ]
     for name, pkt in examples:
-        print(f"{name:24s} {pkt.hex()}")
+        print(f"{name:32s} {pkt.hex()}")
 
 
 def _send(port: str, payload: bytes, baud: int = 115200) -> None:
@@ -215,10 +268,18 @@ def main(argv: list[str] | None = None) -> int:
             "image_mode",
             "brightness",
             "contrast",
+            "gain_auto",
+            "get_gain_auto",
+            "temp",
+            "temp_gain_mode",
             "raw",
         ],
     )
-    p.add_argument("--value", help="palette name/id, mode name, or integer")
+    p.add_argument(
+        "--value",
+        help="palette/mode name, gain 0-255, or temp query name "
+        f"({', '.join(sorted(TEMP_QUERY))})",
+    )
     p.add_argument("--hex", dest="hex_payload", help="raw hex for --cmd raw")
     args = p.parse_args(argv)
 
@@ -242,6 +303,24 @@ def main(argv: list[str] | None = None) -> int:
         pkt = set_brightness(int(args.value or "50"))
     elif args.cmd == "contrast":
         pkt = set_contrast(int(args.value or "50"))
+    elif args.cmd == "gain_auto":
+        if args.value is None:
+            p.error("--value required for gain_auto (0-255)")
+        pkt = set_gain_auto(int(args.value))
+    elif args.cmd == "get_gain_auto":
+        pkt = get_gain_auto()
+    elif args.cmd == "temp":
+        if args.value is None:
+            p.error(
+                "--value required for temp; "
+                f"one of: {', '.join(sorted(TEMP_QUERY))}"
+            )
+        try:
+            pkt = get_temp_query(args.value)
+        except KeyError as exc:
+            p.error(str(exc))
+    elif args.cmd == "temp_gain_mode":
+        pkt = get_temp_gain_mode()
     elif args.cmd == "raw":
         if not args.hex_payload:
             p.error("--hex required for raw")
