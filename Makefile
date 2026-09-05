@@ -46,6 +46,15 @@ MDNS_HOSTNAME   ?= cookie-finder
 AVAHI_SERVICE_IN := systemd/cookie-finder.avahi.service
 AVAHI_SERVICE    := /etc/avahi/services/cookie-finder.service
 
+SOFTWARE_UPDATE_SUDOERS := /etc/sudoers.d/cookie-finder-software-update
+SOFTWARE_UPDATE_SCRIPT_SRC := $(CURDIR)/scripts/cookie-finder-software-update.sh
+SOFTWARE_UPDATE_SCRIPT := /usr/local/lib/cookie-finder/cookie-finder-software-update.sh
+SOFTWARE_UPDATE_UNIT_IN := $(CURDIR)/systemd/cookie-finder-software-update.service.in
+SOFTWARE_UPDATE_UNIT := /etc/systemd/system/cookie-finder-software-update.service
+SOFTWARE_UPDATE_OWNER := $(USER)
+SOFTWARE_UPDATE_GROUP := $(shell id -gn)
+SOFTWARE_UPDATE_HOME := $(HOME)
+
 help:
 	@echo "Cookie Finder – Makefile Targets"
 	@echo ""
@@ -59,7 +68,7 @@ help:
 # Internal recipes (do not call directly — use on-the-mac-* or on-the-pi-*)
 # =============================================================================
 
-.PHONY: _install _install-yolo _install-docs _docs _clean _init _init-wifi \
+.PHONY: _install _install-yolo _install-docs _docs _clean _init _init-wifi _init-software-update \
         _run-standalone _run-web _run-web-custom \
         _test-motors _test-motors-pan-cw _test-motors-pan-ccw _test-motors-tilt-cw \
         _test-motors-tilt-ccw _test-motors-home \
@@ -131,6 +140,46 @@ _init-wifi:
 	@echo "Toggle AP/client via Settings or a single GPIO button press (LED on pin 29)."
 	@echo "Triple-click the button, or Settings → Shut down, to power off."
 	@echo "Button service: sudo systemctl status cookie-finder-wifi"
+
+# Oneshot unit + narrow sudoers so the web UI can pull origin/main and restart.
+_init-software-update:
+	@test "$$(id -u)" != 0 || { \
+		echo "error: do not run this target as root / with sudo."; \
+		echo "       Run it as your normal user (cookie) — Make calls sudo itself."; \
+		exit 1; \
+	}
+	@test "$$(uname -s)" = Linux || { echo "init-software-update is for Linux (Orange Pi)"; exit 1; }
+	@test -f "$(SOFTWARE_UPDATE_SCRIPT_SRC)" || { echo "missing $(SOFTWARE_UPDATE_SCRIPT_SRC)"; exit 1; }
+	@test -f "$(SOFTWARE_UPDATE_UNIT_IN)" || { echo "missing $(SOFTWARE_UPDATE_UNIT_IN)"; exit 1; }
+	@test -d "$(CURDIR)/.git" || { echo "error: $(CURDIR) is not a git checkout"; exit 1; }
+	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
+	@echo "Installing software-update helper → $(SOFTWARE_UPDATE_SCRIPT)"
+	sudo install -d -m 755 /usr/local/lib/cookie-finder
+	sudo install -m 755 "$(SOFTWARE_UPDATE_SCRIPT_SRC)" "$(SOFTWARE_UPDATE_SCRIPT)"
+	@echo "Installing $(SOFTWARE_UPDATE_UNIT) (User=$(SOFTWARE_UPDATE_OWNER))..."
+	@sed \
+		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
+		-e 's|@REPO_OWNER@|$(SOFTWARE_UPDATE_OWNER)|g' \
+		-e 's|@REPO_GROUP@|$(SOFTWARE_UPDATE_GROUP)|g' \
+		-e 's|@REPO_HOME@|$(SOFTWARE_UPDATE_HOME)|g' \
+		-e 's|@SCRIPT@|$(SOFTWARE_UPDATE_SCRIPT)|g' \
+		"$(SOFTWARE_UPDATE_UNIT_IN)" | sudo tee "$(SOFTWARE_UPDATE_UNIT)" >/dev/null
+	sudo systemctl daemon-reload
+	@SYSTEMCTL_BIN=$$(command -v systemctl); \
+	TEE_BIN=$$(command -v tee); \
+	echo "Configuring passwordless sudo for $(SOFTWARE_UPDATE_OWNER) → software-update + web restart..."; \
+	printf '%s\n' \
+		"$(SOFTWARE_UPDATE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN start $(notdir $(SOFTWARE_UPDATE_UNIT))" \
+		"$(SOFTWARE_UPDATE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN start --no-block $(notdir $(SOFTWARE_UPDATE_UNIT))" \
+		"$(SOFTWARE_UPDATE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN reset-failed $(notdir $(SOFTWARE_UPDATE_UNIT))" \
+		"$(SOFTWARE_UPDATE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN cat $(notdir $(SOFTWARE_UPDATE_UNIT))" \
+		"$(SOFTWARE_UPDATE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN daemon-reload" \
+		"$(SOFTWARE_UPDATE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN restart cookie-finder-web.service" \
+		"$(SOFTWARE_UPDATE_OWNER) ALL=(root) NOPASSWD: $$TEE_BIN $(WEB_SYSTEMD_UNIT)" \
+		| sudo tee "$(SOFTWARE_UPDATE_SUDOERS)" >/dev/null
+	sudo chmod 440 "$(SOFTWARE_UPDATE_SUDOERS)"
+	sudo visudo -cf "$(SOFTWARE_UPDATE_SUDOERS)"
+	@echo "Done. Settings → Software can now update from GitHub main."
 
 _run-standalone:
 	@echo "Starting Thermal Camera Viewer (Standalone GUI mode)..."
@@ -483,7 +532,7 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-check on-the-pi-rust-build \
         on-the-pi-rust-daemon-install on-the-pi-rust-daemon \
         on-the-pi-rust-daemon-stop on-the-pi-rust-daemon-status \
-        on-the-pi-rust-keyboard on-the-pi-init-wifi \
+        on-the-pi-rust-keyboard on-the-pi-init-wifi on-the-pi-init-software-update \
         on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
         on-the-pi-web-daemon-install on-the-pi-web-daemon \
@@ -502,6 +551,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-tool-setup            apt build deps + Rust/cargo (rustup)"
 	@echo "  make on-the-pi-tool-setup-rust       Rust/cargo only (skip apt packages)"
 	@echo "  make on-the-pi-init-wifi              Install WiFi AP deps + captive DNS + button/LED service"
+	@echo "  make on-the-pi-init-software-update   Allow Settings gear to pull GitHub main + restart"
 	@echo "  make on-the-pi-wifi-gpio-daemon       Install/start WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
@@ -554,6 +604,7 @@ on-the-pi-install: _install
 on-the-pi-install-yolo: _install-yolo
 on-the-pi-init: _init
 on-the-pi-init-wifi: _init-wifi
+on-the-pi-init-software-update: _init-software-update
 on-the-pi-clean: _clean
 on-the-pi-armbian-home-screen:
 	@sudo run-parts /etc/update-motd.d/
@@ -884,7 +935,7 @@ on-the-pi-wifi-gpio-daemon-status:
 # Backward-compatible aliases (prefer on-the-mac-* / on-the-pi-*)
 # =============================================================================
 
-.PHONY: install install-yolo install-docs docs clean init init-wifi \
+.PHONY: install install-yolo install-docs docs clean init init-wifi init-software-update \
         run run-standalone run-web run-web-custom \
         test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw \
         test-motors-tilt-ccw test-motors-home \
@@ -909,6 +960,7 @@ install-ffmpeg: on-the-mac-install-ffmpeg
 install-libusb: on-the-mac-install-libusb
 init: on-the-pi-init
 init-wifi: on-the-pi-init-wifi
+init-software-update: on-the-pi-init-software-update
 docs: on-the-mac-docs
 clean: on-the-pi-clean
 

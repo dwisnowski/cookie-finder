@@ -14,11 +14,21 @@
 {% endmacro %}
 
 {% macro shortcut_items(items) %}
-    {% for key, desc in items %}
+    {% for item in items %}
+    {% set key = item[0] %}
+    {% set desc = item[1] %}
+    {% set tip_id = item[2] if item|length > 2 else none %}
+    {% if tip_id %}
+    <button type="button" class="shortcut-item shortcut-item-clickable" data-shortcut-tip="{{ tip_id }}" title="Click for details" aria-label="{{ desc }} — click for details">
+        <div class="shortcut-key">{{ key }}</div>
+        <div class="shortcut-desc">{{ desc }}</div>
+    </button>
+    {% else %}
     <div class="shortcut-item">
         <div class="shortcut-key">{{ key }}</div>
         <div class="shortcut-desc">{{ desc }}</div>
     </div>
+    {% endif %}
     {% endfor %}
 {% endmacro %}
 

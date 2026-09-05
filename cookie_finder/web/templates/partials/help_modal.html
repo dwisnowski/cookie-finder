@@ -4,45 +4,46 @@
         <div class="modal-content">
             <button class="modal-close" id="closeHelpBtn">&times;</button>
             <div class="modal-header">⌨️ Keyboard Shortcuts</div>
+            <p class="help-cmd-intro">Click any shortcut row for a short explanation of what it does.</p>
 
             {{ shortcut_section("Detection Modes", [
-                ("H", "Heat Seeker Mode"),
-                ("C", "Heat Cluster Mode"),
-                ("M", "Motion Detection"),
-                ("P", "Palette / Thermal Colors"),
-                ("T", "Threshold Mode"),
-                ("Y", "YOLO AI Detection"),
-                ("F", "Optical Flow"),
-                ("I", "Isotherm Mode"),
+                ("H", "Heat Seeker Mode", "heat_seeker"),
+                ("C", "Heat Cluster Mode", "heat_cluster"),
+                ("M", "Motion Detection", "motion"),
+                ("P", "Palette / Thermal Colors", "palette"),
+                ("T", "Threshold Mode", "threshold"),
+                ("Y", "YOLO AI Detection", "yolo"),
+                ("F", "Optical Flow", "optical_flow"),
+                ("I", "Isotherm Mode", "isotherm"),
             ]) }}
 
             {{ shortcut_section("Enhancements", [
-                ("D", "Denoise"),
-                ("O", "Normalize"),
-                ("E", "Enhance"),
-                ("U", "Upscale"),
+                ("D", "Denoise", "denoise"),
+                ("O", "Normalize", "normalize"),
+                ("E", "Enhance", "enhance"),
+                ("U", "Upscale", "upscale"),
             ]) }}
 
             {{ shortcut_section("Stabilization & Display", [
-                ("S", "Stabilize"),
-                ("X", "Super Stabilize"),
-                ("W", "Show Text Overlay"),
+                ("S", "Stabilize", "stabilize"),
+                ("X", "Super Stabilize", "super_stabilize"),
+                ("W", "Show Text Overlay", "show_text"),
             ]) }}
 
             {{ shortcut_section("Color Palette", [
-                ("[", "Previous Palette"),
-                ("]", "Next Palette"),
+                ("[", "Previous Palette", "palette_prev"),
+                ("]", "Next Palette", "palette_next"),
             ]) }}
 
             <div class="modal-section">
                 <div class="modal-section-title">Motor / Pan-Tilt Control</div>
                 {{ shortcut_items([
-                    ("↑", "Tilt Up (max +60°)"),
-                    ("↓", "Tilt Down (max -60°)"),
-                    ("←", "Pan Left (max -150°)"),
-                    ("→", "Pan Right (max +150°)"),
-                    ("ZERO", "Set current position as 0°, 0° (graph center)"),
-                    ("HOME", "Return to the zeroed home position"),
+                    ("↑", "Tilt Up (max +60°)", "motor_up"),
+                    ("↓", "Tilt Down (max -60°)", "motor_down"),
+                    ("←", "Pan Left (max -150°)", "motor_left"),
+                    ("→", "Pan Right (max +150°)", "motor_right"),
+                    ("ZERO", "Set current position as 0°, 0° (graph center)", "motor_zero"),
+                    ("HOME", "Return to the zeroed home position", "motor_home"),
                 ]) }}
                 <div style="margin-top: 10px; padding: 10px; background: rgba(45, 55, 72, 0.5); border-radius: var(--radius-md); font-size: 11px; color: var(--text-tertiary); border: 1px solid var(--border-color);">
                     Visual crosshair shows pan/tilt relative to the ZERO origin (centered on the graph). ZERO saves that origin; HOME moves back to it.

@@ -122,6 +122,8 @@ The home screen badge shows **Client · …** or **AP · cookie-finder**.
 
 In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspot. A confirmation dialog lists reconnect steps before the radio switches. One or two presses on the GPIO button do the same toggle. Triple-click shuts the board down (confirm from **Settings → Device Controls → Shut down**).
 
+**Software updates:** after a one-time `make init-software-update`, **Settings → Software** can check GitHub `main` and **Update & restart** (fast-forward pull + `uv sync` + `cookie-finder-web` restart). See [Orange Pi setup §9](../setup/orange-pi.md#9-clone-and-install).
+
 **Boot policy:** AP mode does **not** survive a full reboot (power cycle). After reboot, `cookie-finder-wifi` restores client (home/office) WiFi. A plain `systemctl restart` while already in AP leaves AP alone. If the radio looks like client but has no SSID, the button repairs client mode instead of entering AP.
 
 - AP SSID: `cookie-finder`
