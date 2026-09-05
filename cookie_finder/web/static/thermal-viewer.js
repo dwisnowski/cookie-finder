@@ -1471,6 +1471,7 @@ function confirmWifiModeSwitch() {
 function openSettings() {
     settingsOverlay.classList.add('active');
     refreshWifiStatus();
+    refreshSoftwareStatus();
 }
 
 function closeSettings() {
@@ -1654,9 +1655,240 @@ const closeBadgeTipsBtn = document.getElementById('closeBadgeTipsBtn');
 const badgeTipsTitle = document.getElementById('badgeTipsTitle');
 const badgeTipsSummary = document.getElementById('badgeTipsSummary');
 const badgeTipsBody = document.getElementById('badgeTipsBody');
+const badgeTipsFooter = document.getElementById('badgeTipsFooter');
 
 function tipList(items) {
     return `<ul class="badge-tips-list">${items.map(item => `<li>${item}</li>`).join('')}</ul>`;
+}
+
+function openInfoTips({ title, summary, body, footer }) {
+    if (!badgeTipsOverlay) return;
+    if (badgeTipsTitle) badgeTipsTitle.textContent = title;
+    if (badgeTipsSummary) badgeTipsSummary.innerHTML = summary;
+    if (badgeTipsBody) badgeTipsBody.innerHTML = body;
+    if (badgeTipsFooter) {
+        badgeTipsFooter.textContent = footer
+            || 'Tip: click any header badge for context-specific help.';
+    }
+    badgeTipsOverlay.classList.add('active');
+}
+
+function buildShortcutTipContent(kind) {
+    const tips = {
+        heat_seeker: {
+            title: 'Heat Seeker (H)',
+            summary: 'Highlights the top-N brightest pixel clusters with green bounding boxes — ideal for people, engines, and other point heat sources.',
+            body: tipList([
+                'Only one exclusive detection mode is active at a time; press <strong>H</strong> again (or the UI button) to turn it off.',
+                'Adjust max box count and min brightness from the controls panel while this mode is on.',
+                'Stacks with enhancements like Denoise, Normalize, Enhance, Stabilize, and Upscale.',
+            ]),
+        },
+        heat_cluster: {
+            title: 'Heat Cluster (C)',
+            summary: 'Finds the largest connected heat regions and labels them by area with yellow bounding boxes.',
+            body: tipList([
+                'Uses morphological close operations to group nearby hot pixels into solid regions.',
+                'Best when you care about large thermal objects rather than the single hottest spot.',
+                'Exclusive mode — toggling another detection mode replaces this one.',
+            ]),
+        },
+        motion: {
+            title: 'Motion Detection (M)',
+            summary: 'Frame-differencing motion detector that draws blue boxes around pixels that changed between consecutive frames.',
+            body: tipList([
+                'Useful for security / surveillance style alerts on moving heat.',
+                'Static hot objects fade out once they stop changing between frames.',
+                'Exclusive mode; combine with enhancements for cleaner motion masks.',
+            ]),
+        },
+        palette: {
+            title: 'Palette / Thermal Colors (P)',
+            summary: 'Applies a false-color thermal map to the grayscale camera feed so temperature differences are easier to read.',
+            body: tipList([
+                'Available maps include Ironbow, Rainbow, Lava, Ocean, Magma, WhiteHot, and BlackHot.',
+                'Use <strong>[</strong> / <strong>]</strong> (or the palette controls) to step through maps while palette mode is active.',
+                'Exclusive mode — turn on when you want colorized thermal instead of raw grayscale overlays alone.',
+            ]),
+        },
+        threshold: {
+            title: 'Threshold Mode (T)',
+            summary: 'Creates a binary mask of pixels brighter than a chosen threshold so you can isolate a temperature band.',
+            body: tipList([
+                'Default threshold is 127 (0–255 brightness). Raise or lower it from the UI / <code>=</code> and <code>-</code> keys in standalone mode.',
+                'Handy for ignoring cooler background and focusing on “hot enough” regions.',
+                'Exclusive detection mode.',
+            ]),
+        },
+        yolo: {
+            title: 'YOLO AI Detection (Y)',
+            summary: 'Runs YOLOv8n object detection (people, animals, common objects) on the thermal stream and draws persistent bounding boxes.',
+            body: tipList([
+                'Loaded lazily on first use — requires the YOLO extra: <code>make on-the-pi-install-yolo</code>.',
+                'Runs on CPU at <code>imgsz=320</code> for Orange Pi performance.',
+                'Boxes persist across frames for smoother feedback; exclusive mode.',
+            ]),
+        },
+        optical_flow: {
+            title: 'Optical Flow (F)',
+            summary: 'Visualizes heat movement and velocity with Farneback dense optical flow.',
+            body: tipList([
+                'Output is an HSV map: hue = direction, saturation/value = magnitude of change.',
+                'Shows how thermal patterns move between frames, not just where heat is brightest.',
+                'Exclusive mode; pairs well with Denoise if the flow looks noisy.',
+            ]),
+        },
+        isotherm: {
+            title: 'Isotherm Mode (I)',
+            summary: 'Highlights pixels inside a chosen brightness range (red or black) while leaving everything else grayscale.',
+            body: tipList([
+                'Use the isotherm min/max controls in the parameters panel to target a specific heat band.',
+                'Perfect for locking onto one signature (e.g. cookie / person temperature) amid clutter.',
+                'Exclusive mode; toggle mask color in standalone with <strong>B</strong>.',
+            ]),
+        },
+        denoise: {
+            title: 'Denoise (D)',
+            summary: 'Temporal frame averaging that smooths sensor noise while keeping heat structure.',
+            body: tipList([
+                'Weighted blend (<code>alpha ≈ 0.2</code>) — light CPU cost, no spatial blur kernel.',
+                'Enhancement toggle: stacks with any exclusive mode and with other enhancements.',
+                'Turn on when the feed looks grainy or optical flow / detection is jittery.',
+            ]),
+        },
+        normalize: {
+            title: 'Normalize (O)',
+            summary: 'Stretches the frame’s brightness to the full 0–255 range to maximize contrast.',
+            body: tipList([
+                'Best when the scene occupies a narrow temperature band and looks washed-out or flat.',
+                'Enhancement toggle — works alongside Heat Seeker, Palette, etc.',
+                'Can amplify noise; combine with Denoise if needed.',
+            ]),
+        },
+        enhance: {
+            title: 'Enhance (E)',
+            summary: 'CLAHE (Contrast Limited Adaptive Histogram Equalization) to pull out local thermal texture.',
+            body: tipList([
+                'Uses <code>clipLimit=2.0</code> and an 8×8 tile grid.',
+                'Reveals subtle edges and surface detail without globally blowing out bright regions.',
+                'Enhancement toggle; stacks with exclusive modes.',
+            ]),
+        },
+        upscale: {
+            title: 'Upscale (U)',
+            summary: '2× Lanczos upscale (e.g. 512×390 → 1024×780) for a sharper on-screen look.',
+            body: tipList([
+                'Cosmetic only — no new thermal information is invented.',
+                'Uses more bandwidth/CPU on the stream path; disable if the Pi or WiFi is struggling.',
+                'Enhancement toggle; independent of detection modes.',
+            ]),
+        },
+        stabilize: {
+            title: 'Stabilize (S)',
+            summary: 'ORB feature tracking + RANSAC to align frames and reduce handheld / mount shake.',
+            body: tipList([
+                'Locks onto high-contrast corners (often edges of hot objects) as anchors.',
+                'Handles rotation better than phase-correlation Super Stabilize; good for low-contrast thermal scenes.',
+                'Enhancement toggle; strength / smoothing are adjustable in standalone mode.',
+            ]),
+        },
+        super_stabilize: {
+            title: 'Super Stabilize (X)',
+            summary: 'Phase-correlation (FFT) translation alignment for pixel-tight shake reduction.',
+            body: tipList([
+                'Usually faster than ORB Stabilize, but less robust if large objects move through the frame.',
+                'Prefer when shake is mostly translational (bumping the mount) and the background is stable.',
+                'Enhancement toggle; can be combined carefully with Stabilize depending on processor rules.',
+            ]),
+        },
+        show_text: {
+            title: 'Show Text Overlay (W)',
+            summary: 'Toggles on-screen text status (mode names, parameters, connection hints) drawn over the video.',
+            body: tipList([
+                'Useful while debugging; turn off for a cleaner live view.',
+                'Display toggle — does not change detection mathematics.',
+                'Also available from the UI controls where shown.',
+            ]),
+        },
+        palette_prev: {
+            title: 'Previous Palette ([)',
+            summary: 'Steps backward through the thermal color maps used by Palette mode.',
+            body: tipList([
+                'Maps: Ironbow, Rainbow, Lava, Ocean, Magma, WhiteHot, BlackHot.',
+                'Works best while Palette mode (<strong>P</strong>) is enabled so you see the map immediately.',
+                'Same control exists in the palette UI on the page.',
+            ]),
+        },
+        palette_next: {
+            title: 'Next Palette (])',
+            summary: 'Steps forward through the thermal color maps used by Palette mode.',
+            body: tipList([
+                'Maps: Ironbow, Rainbow, Lava, Ocean, Magma, WhiteHot, BlackHot.',
+                'Enable Palette mode (<strong>P</strong>) to preview the selected map on the live feed.',
+                'Same control exists in the palette UI on the page.',
+            ]),
+        },
+        motor_up: {
+            title: 'Tilt Up (↑)',
+            summary: 'Commands the gimbal tilt motor upward (toward the positive tilt stop, up to the configured max).',
+            body: tipList([
+                'Requires the Rust daemon: <code>make on-the-pi-rust-daemon</code>.',
+                'Hold the key / UI control for continuous motion; release to stop.',
+                'Crosshair on the pan/tilt graph updates as position feedback arrives from the daemon.',
+            ]),
+        },
+        motor_down: {
+            title: 'Tilt Down (↓)',
+            summary: 'Commands the gimbal tilt motor downward toward the lower tilt limit.',
+            body: tipList([
+                'Requires the Rust daemon: <code>make on-the-pi-rust-daemon</code>.',
+                'Limit switches stop travel at the hardware ends of travel.',
+                'Use ZERO / HOME to manage a soft origin independent of absolute limits.',
+            ]),
+        },
+        motor_left: {
+            title: 'Pan Left (←)',
+            summary: 'Commands the pan motor left (counter-clockwise / negative pan depending on wiring).',
+            body: tipList([
+                'Requires the Rust daemon: <code>make on-the-pi-rust-daemon</code>.',
+                'Soft max pan is typically ±150° from the calibrated range shown in the UI.',
+                'Browser gamepad and Pi Bluetooth pads can drive the same axes when configured.',
+            ]),
+        },
+        motor_right: {
+            title: 'Pan Right (→)',
+            summary: 'Commands the pan motor right within the configured pan range.',
+            body: tipList([
+                'Requires the Rust daemon: <code>make on-the-pi-rust-daemon</code>.',
+                'Hold for continuous stepping; motor speed is set from the motor controls panel.',
+                'If nothing moves, check the Rust header badge and start the daemon.',
+            ]),
+        },
+        motor_zero: {
+            title: 'ZERO',
+            summary: 'Saves the current pan/tilt angles as the soft origin (0°, 0°) for the on-screen crosshair graph.',
+            body: tipList([
+                'Does not physically home the motors — it only redefines the UI coordinate center.',
+                'Use after aiming at a reference target so relative moves are easier to read.',
+                'HOME returns to this saved origin.',
+            ]),
+        },
+        motor_home: {
+            title: 'HOME',
+            summary: 'Moves the gimbal back to the ZERO origin you saved (soft home), not necessarily the hardware limit-switch home.',
+            body: tipList([
+                'Requires a reachable Rust daemon and a previously set ZERO point for meaningful motion.',
+                'Hardware limit-switch homing is available via motor test / daemon <code>home</code> commands.',
+                'Watch the crosshair recenter as position updates stream in.',
+            ]),
+        },
+    };
+
+    return tips[kind] || {
+        title: 'Shortcut',
+        summary: 'No description is available for this control yet.',
+        body: '',
+    };
 }
 
 function buildBadgeTipContent(kind) {
@@ -1789,12 +2021,19 @@ function buildBadgeTipContent(kind) {
 }
 
 function openBadgeTips(kind) {
-    if (!badgeTipsOverlay) return;
     const tip = buildBadgeTipContent(kind);
-    if (badgeTipsTitle) badgeTipsTitle.textContent = tip.title;
-    if (badgeTipsSummary) badgeTipsSummary.innerHTML = tip.summary;
-    if (badgeTipsBody) badgeTipsBody.innerHTML = tip.body;
-    badgeTipsOverlay.classList.add('active');
+    openInfoTips({
+        ...tip,
+        footer: 'Tip: click any header badge for context-specific help.',
+    });
+}
+
+function openShortcutTips(kind) {
+    const tip = buildShortcutTipContent(kind);
+    openInfoTips({
+        ...tip,
+        footer: 'Tip: click any shortcut row in Help for details. Press Esc to close.',
+    });
 }
 
 function closeBadgeTips() {
@@ -1813,6 +2052,15 @@ document.querySelectorAll('[data-badge-tip]').forEach((badge) => {
         openBadgeTips(badge.getAttribute('data-badge-tip'));
     });
 });
+
+const helpOverlayEl = document.getElementById('helpOverlay');
+if (helpOverlayEl) {
+    helpOverlayEl.addEventListener('click', (e) => {
+        const row = e.target.closest('[data-shortcut-tip]');
+        if (!row || !helpOverlayEl.contains(row)) return;
+        openShortcutTips(row.getAttribute('data-shortcut-tip'));
+    });
+}
 
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
@@ -1932,6 +2180,335 @@ if (poweroffConfirmBtn) poweroffConfirmBtn.addEventListener('click', confirmPowe
 if (poweroffConfirmOverlay) {
     poweroffConfirmOverlay.addEventListener('click', (e) => {
         if (e.target === poweroffConfirmOverlay) closePoweroffConfirm();
+    });
+}
+
+// --- Software update (Settings → Software) ---
+let softwareStatus = null;
+let softwareBusy = false;
+let softwareUpdating = false;
+let softwarePollTimer = null;
+
+function escapeHtml(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function shortSha(sha) {
+    if (!sha) return 'unknown';
+    return String(sha).slice(0, 7);
+}
+
+function softwarePhaseLabel(phase) {
+    switch (phase) {
+        case 'scheduled':
+            return 'Starting update…';
+        case 'pulling':
+            return 'Pulling from GitHub…';
+        case 'building':
+            return 'Syncing dependencies…';
+        case 'restarting':
+            return 'Restarting web service…';
+        case 'done':
+            return 'Update complete.';
+        case 'error':
+            return 'Update failed.';
+        default:
+            return 'Updating Cookie Finder…';
+    }
+}
+
+function setSoftwareAlerts(html) {
+    const el = document.getElementById('softwareAlerts');
+    if (el) el.innerHTML = html || '';
+}
+
+function renderSoftwareStatus(status, opts) {
+    softwareStatus = status || null;
+    const line = document.getElementById('softwareStatusLine');
+    const meta = document.getElementById('softwareStatusMeta');
+    const checkBtn = document.getElementById('btn_software_check');
+    const updateBtn = document.getElementById('btn_software_update');
+    const details = document.getElementById('softwareCommitsDetails');
+    const summary = document.getElementById('softwareCommitsSummary');
+    const list = document.getElementById('softwareCommitsList');
+    if (!line || !updateBtn) return;
+
+    if (!status) {
+        line.textContent = 'Checking software…';
+        if (meta) meta.textContent = '';
+        updateBtn.disabled = true;
+        return;
+    }
+
+    let chip = '';
+    if (status.update_available) {
+        chip = '<span class="software-chip software-chip-update">Update available</span>';
+    } else if (status.fetch_ok && !status.dirty && status.behind_count === 0) {
+        chip = '<span class="software-chip software-chip-ok">Up to date</span>';
+    } else if (!status.available) {
+        chip = '<span class="software-chip software-chip-na">Unavailable</span>';
+    }
+
+    line.innerHTML = `Cookie Finder app${chip}`;
+    if (meta) {
+        let text = shortSha(status.current_sha);
+        if (status.branch) text += ` · ${status.branch}`;
+        if (status.remote_sha && status.remote_sha !== status.current_sha) {
+            text += ` → ${shortSha(status.remote_sha)}`;
+        }
+        if (status.behind_count > 0) text += ` · ${status.behind_count} behind`;
+        meta.textContent = text;
+    }
+
+    const alerts = [];
+    if (!status.available) {
+        let msg = status.reason || 'Software update is not available on this host.';
+        if (status.setup_command) msg += ` Run: ${status.setup_command}`;
+        alerts.push(`<div class="software-alert software-alert-warn">${escapeHtml(msg)}</div>`);
+    }
+    if (status.available && status.dirty) {
+        alerts.push(
+            '<div class="software-alert software-alert-warn">' +
+            'Local changes detected. Update is blocked until the working tree is clean.' +
+            '</div>'
+        );
+    }
+    if (status.fetch_error && status.available) {
+        alerts.push(
+            `<div class="software-alert software-alert-warn">${escapeHtml(status.fetch_error)}</div>`
+        );
+    }
+    if (opts && opts.error) {
+        alerts.push(
+            `<div class="software-alert software-alert-error">${escapeHtml(opts.error)}</div>`
+        );
+    }
+    setSoftwareAlerts(alerts.join(''));
+
+    if (details && summary && list) {
+        const commits = status.commits || [];
+        if (commits.length > 0) {
+            details.hidden = false;
+            summary.textContent = `Changes on main (${commits.length})`;
+            list.innerHTML = commits.map((c) => {
+                const extra = [c.author, c.date].filter(Boolean).join(' · ');
+                return (
+                    `<div>` +
+                    `<span class="software-commit-sha">${escapeHtml(c.sha || '')}</span>` +
+                    `<span class="software-commit-subject">${escapeHtml(c.subject || '')}` +
+                    `${extra ? ` · ${escapeHtml(extra)}` : ''}</span>` +
+                    `</div>`
+                );
+            }).join('');
+        } else {
+            details.hidden = true;
+            list.innerHTML = '';
+        }
+    }
+
+    const updateDisabled =
+        softwareBusy || softwareUpdating || !status.update_available || !status.available;
+    updateBtn.disabled = updateDisabled;
+    if (checkBtn) checkBtn.disabled = softwareBusy || softwareUpdating;
+
+    let title = '';
+    if (!status.available) {
+        title = status.reason || 'Software update is not available on this host.';
+        if (status.setup_command) title += ` Run: ${status.setup_command}`;
+    } else if (status.dirty) {
+        title = 'Working tree has local changes.';
+    } else if (!status.fetch_ok) {
+        title = status.fetch_error || status.reason || 'Could not reach GitHub.';
+    } else if (!status.update_available) {
+        title = 'Already on the latest origin/main.';
+    } else if (softwareBusy) {
+        title = 'Busy…';
+    }
+    updateBtn.title = title;
+}
+
+function refreshSoftwareStatus(opts) {
+    const quiet = opts && opts.quiet;
+    return fetch('/system/software')
+        .then((r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return r.json();
+        })
+        .then((data) => {
+            renderSoftwareStatus(data, opts && opts.error ? { error: opts.error } : null);
+            return data;
+        })
+        .catch((e) => {
+            if (!quiet) {
+                renderSoftwareStatus(softwareStatus, {
+                    error: e.message || String(e),
+                });
+                const line = document.getElementById('softwareStatusLine');
+                if (line && !softwareStatus) line.textContent = 'Could not check software status.';
+            }
+            throw e;
+        });
+}
+
+function showSoftwareUpdateOverlay(phase, message) {
+    const overlay = document.getElementById('softwareUpdateOverlay');
+    const phaseEl = document.getElementById('softwareUpdatePhase');
+    const msgEl = document.getElementById('softwareUpdateMessage');
+    if (phaseEl) phaseEl.textContent = softwarePhaseLabel(phase);
+    if (msgEl) {
+        msgEl.textContent =
+            message ||
+            'The app will reconnect when the service is back. Keep this page open.';
+    }
+    if (overlay) overlay.hidden = false;
+}
+
+function hideSoftwareUpdateOverlay() {
+    const overlay = document.getElementById('softwareUpdateOverlay');
+    if (overlay) overlay.hidden = true;
+}
+
+function stopSoftwareUpdatePoll() {
+    if (softwarePollTimer) {
+        window.clearInterval(softwarePollTimer);
+        softwarePollTimer = null;
+    }
+}
+
+function startSoftwareUpdatePoll() {
+    stopSoftwareUpdatePoll();
+    let consecutiveOk = 0;
+    let seenDown = false;
+
+    const tick = () => {
+        fetch('/system/software')
+            .then((r) => {
+                if (!r.ok) throw new Error(`HTTP ${r.status}`);
+                return r.json();
+            })
+            .then((next) => {
+                softwareStatus = next;
+                const phase = next.apply_state && next.apply_state.phase;
+                const message = next.apply_state && next.apply_state.message;
+                showSoftwareUpdateOverlay(phase, message);
+                if (phase === 'error') {
+                    softwareUpdating = false;
+                    stopSoftwareUpdatePoll();
+                    hideSoftwareUpdateOverlay();
+                    renderSoftwareStatus(next, {
+                        error: (next.apply_state && next.apply_state.message) || 'Software update failed.',
+                    });
+                    return;
+                }
+                const inFlight =
+                    phase === 'scheduled' ||
+                    phase === 'pulling' ||
+                    phase === 'building' ||
+                    phase === 'restarting';
+                if (inFlight) {
+                    consecutiveOk = 0;
+                    return;
+                }
+                consecutiveOk += 1;
+                if (consecutiveOk >= 2 && (phase === 'done' || (seenDown && !inFlight))) {
+                    window.location.reload();
+                }
+            })
+            .catch(() => {
+                seenDown = true;
+                consecutiveOk = 0;
+                showSoftwareUpdateOverlay('restarting', 'Service restarting… waiting to reconnect.');
+            });
+    };
+
+    softwarePollTimer = window.setInterval(tick, 2000);
+    tick();
+}
+
+function openSoftwareUpdateConfirm() {
+    const overlay = document.getElementById('softwareUpdateConfirmOverlay');
+    const summary = document.getElementById('softwareUpdateConfirmSummary');
+    if (!overlay) return;
+    const behind = (softwareStatus && softwareStatus.behind_count) || 0;
+    if (summary) {
+        summary.textContent =
+            `This pulls ${behind} commit${behind === 1 ? '' : 's'} from origin/main, ` +
+            'runs uv sync, and restarts the web app. Keep this page open — it will reload when ready.';
+    }
+    overlay.classList.add('active');
+}
+
+function closeSoftwareUpdateConfirm() {
+    const overlay = document.getElementById('softwareUpdateConfirmOverlay');
+    if (overlay) overlay.classList.remove('active');
+}
+
+function confirmSoftwareUpdate() {
+    closeSoftwareUpdateConfirm();
+    closeSettings();
+    softwareBusy = true;
+    softwareUpdating = true;
+    renderSoftwareStatus(softwareStatus);
+    showSoftwareUpdateOverlay('scheduled', 'Update accepted; starting shortly…');
+
+    fetch('/system/software/update', { method: 'POST' })
+        .then(async (r) => {
+            const data = await r.json().catch(() => ({}));
+            if (!r.ok) {
+                const detail = data.detail || data.message || `HTTP ${r.status}`;
+                throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+            }
+            return data;
+        })
+        .then(() => {
+            startSoftwareUpdatePoll();
+        })
+        .catch((e) => {
+            softwareUpdating = false;
+            hideSoftwareUpdateOverlay();
+            renderSoftwareStatus(softwareStatus, { error: e.message || String(e) });
+            openSettings();
+        })
+        .finally(() => {
+            softwareBusy = false;
+            renderSoftwareStatus(softwareStatus);
+        });
+}
+
+const softwareCheckBtn = document.getElementById('btn_software_check');
+const softwareUpdateBtn = document.getElementById('btn_software_update');
+if (softwareCheckBtn) {
+    softwareCheckBtn.addEventListener('click', () => {
+        softwareBusy = true;
+        renderSoftwareStatus(softwareStatus);
+        refreshSoftwareStatus()
+            .catch(() => {})
+            .finally(() => {
+                softwareBusy = false;
+                renderSoftwareStatus(softwareStatus);
+            });
+    });
+}
+if (softwareUpdateBtn) {
+    softwareUpdateBtn.addEventListener('click', openSoftwareUpdateConfirm);
+}
+const softwareUpdateConfirmOverlay = document.getElementById('softwareUpdateConfirmOverlay');
+const closeSoftwareUpdateConfirmBtn = document.getElementById('closeSoftwareUpdateConfirmBtn');
+const softwareUpdateCancelBtn = document.getElementById('btn_software_update_cancel');
+const softwareUpdateConfirmBtn = document.getElementById('btn_software_update_confirm');
+if (closeSoftwareUpdateConfirmBtn) {
+    closeSoftwareUpdateConfirmBtn.addEventListener('click', closeSoftwareUpdateConfirm);
+}
+if (softwareUpdateCancelBtn) softwareUpdateCancelBtn.addEventListener('click', closeSoftwareUpdateConfirm);
+if (softwareUpdateConfirmBtn) softwareUpdateConfirmBtn.addEventListener('click', confirmSoftwareUpdate);
+if (softwareUpdateConfirmOverlay) {
+    softwareUpdateConfirmOverlay.addEventListener('click', (e) => {
+        if (e.target === softwareUpdateConfirmOverlay) closeSoftwareUpdateConfirm();
     });
 }
 

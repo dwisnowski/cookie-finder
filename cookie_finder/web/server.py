@@ -18,7 +18,7 @@ from pathlib import Path
 os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
 cv2.setLogLevel(0)
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import RedirectResponse, StreamingResponse, FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -29,6 +29,7 @@ from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
 from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
 from cookie_finder.poweroff import request_poweroff
+from cookie_finder import software_update
 
 MDNS_HOST = "cookie-finder.local"
 
@@ -828,7 +829,23 @@ def create_app(camera_id=None):
         before the board goes down.
         """
         return request_poweroff()
-    
+
+    @app.get("/system/software")
+    def system_software_status():
+        """Compare local checkout to origin/main (git fetch + status)."""
+        return software_update.status(fetch=True)
+
+    @app.post("/system/software/update", status_code=202)
+    def system_software_update():
+        """
+        Schedule a oneshot unit that fast-forwards origin/main, runs uv sync,
+        and restarts cookie-finder-web. Returns immediately so the UI can poll.
+        """
+        try:
+            return software_update.request_update()
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @app.post("/bluetooth/scan")
     async def bluetooth_scan():
         """Start Bluetooth device scan."""

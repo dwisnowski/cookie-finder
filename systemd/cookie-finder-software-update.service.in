@@ -1,0 +1,17 @@
+[Unit]
+Description=Cookie Finder software update (git pull + uv sync + web restart)
+Documentation=file://@REPO_ROOT@/docs/setup/orange-pi.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=@REPO_OWNER@
+Group=@REPO_GROUP@
+WorkingDirectory=@REPO_ROOT@
+Environment=HOME=@REPO_HOME@
+Environment=PATH=@REPO_HOME@/.local/bin:@REPO_HOME@/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Keep this unit alive across cookie-finder-web restart (web-daemon stops the app).
+ExecStart=@SCRIPT@ apply @REPO_ROOT@
+Nice=10
+TimeoutStartSec=1800

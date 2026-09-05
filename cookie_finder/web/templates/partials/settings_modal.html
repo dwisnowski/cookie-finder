@@ -50,6 +50,26 @@
                     AP network name: <strong>cookie-finder</strong> (open — no password)
                 </div>
             </div>
+
+            <!-- Software Update Section -->
+            <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">Software</div>
+                <div id="softwareStatusLine" class="software-status-line">Checking software…</div>
+                <div id="softwareStatusMeta" class="software-status-meta"></div>
+                <div id="softwareAlerts" class="software-alerts"></div>
+                <div class="software-actions">
+                    <button class="btn" id="btn_software_check" type="button" style="font-size: 11px;">Check</button>
+                    <button class="btn" id="btn_software_update" type="button" style="font-size: 11px;" disabled>Update &amp; restart</button>
+                </div>
+                <details id="softwareCommitsDetails" class="software-commits" hidden>
+                    <summary id="softwareCommitsSummary">Changes on main</summary>
+                    <div id="softwareCommitsList" class="software-commits-list"></div>
+                </details>
+                <div class="software-hint">
+                    Pulls the latest commits from GitHub <code>main</code>, runs <code>uv sync</code>, and restarts the web service.
+                    Needs client WiFi with GitHub access (not SoftAP).
+                </div>
+            </div>
             
             <!-- Device Controls Section -->
             <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
@@ -77,6 +97,34 @@
                 <button class="btn" id="btn_wifi_cancel" type="button">Cancel</button>
                 <button class="btn btn-wifi-confirm" id="btn_wifi_confirm" type="button">Switch Mode</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Software update confirm modal -->
+    <div id="softwareUpdateConfirmOverlay" class="modal-overlay wifi-confirm-overlay">
+        <div class="modal-content wifi-confirm-content">
+            <button class="modal-close" id="closeSoftwareUpdateConfirmBtn">&times;</button>
+            <div class="modal-header">Update Cookie Finder?</div>
+            <p id="softwareUpdateConfirmSummary" class="wifi-confirm-summary">
+                This pulls the latest commits from origin/main, syncs dependencies, and restarts the web app.
+                Keep this page open — it will reload when the service is back.
+            </p>
+            <div class="wifi-confirm-actions">
+                <button class="btn" id="btn_software_update_cancel" type="button">Cancel</button>
+                <button class="btn btn-software-update-confirm" id="btn_software_update_confirm" type="button">Update &amp; restart</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Software update progress overlay -->
+    <div id="softwareUpdateOverlay" class="software-update-overlay" hidden aria-live="polite">
+        <div class="software-update-panel">
+            <div class="software-update-icon" aria-hidden="true">↻</div>
+            <div id="softwareUpdatePhase" class="software-update-phase">Updating Cookie Finder…</div>
+            <div id="softwareUpdateMessage" class="software-update-message">
+                The app will reconnect when the service is back. Keep this page open.
+            </div>
+            <div class="software-update-progress" role="progressbar" aria-label="Update in progress"></div>
         </div>
     </div>
 

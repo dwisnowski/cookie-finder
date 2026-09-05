@@ -173,6 +173,8 @@ cd cookie-finder
 make install
 # Optional WiFi AP support:
 make init-wifi
+# Optional: Settings → Software can pull GitHub main + restart:
+make init-software-update
 ```
 
 ---
@@ -184,6 +186,18 @@ make run
 ```
 
 Then open `http://<device-ip>/` (or `http://cookie-finder.local/`) in a browser from any device on the same network.
+
+### Update from the web UI
+
+After `make init-software-update` once (as the normal `cookie` user, not root):
+
+1. Open **Settings** (gear)
+2. Under **Software**, tap **Check** to compare against GitHub `main`
+3. If an update is available, tap **Update & restart** and confirm
+
+That path fetches `origin/main`, fast-forward merges (refuses dirty trees), runs `uv sync`, refreshes the web systemd unit, and restarts `cookie-finder-web`. Keep the page open — it reloads when the service is healthy again. Needs **client** WiFi with GitHub reachability (SoftAP alone cannot fetch). Logs: `sudo journalctl -u cookie-finder-software-update -f`.
+
+> The Rust gimbal binary is **not** rebuilt by this path; redeploy motors with `make rust-deploy` / `make on-the-pi-rust-daemon` when the daemon changes.
 
 ---
 
