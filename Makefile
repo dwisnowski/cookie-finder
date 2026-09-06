@@ -19,6 +19,11 @@ WIFI_HOME_PRIORITY   ?= 100
 WIFI_HOTSPOT_SSID    ?= Ghostwire
 WIFI_HOTSPOT_PRIORITY ?= 50
 
+# Cloudflare Tunnel (copy .env.example to .env — never commit the token)
+-include .env
+export CLOUDFLARE_TUNNEL_TOKEN
+CLOUDFLARE_TUNNEL_TOKEN ?=
+
 # --- Rust gimbal daemon (Orange Pi Zero 2W, aarch64) ---
 export PATH := $(HOME)/.cargo/bin:$(PATH)
 RUST_DIR     := cookie_finder_rust
@@ -69,6 +74,7 @@ help:
 # =============================================================================
 
 .PHONY: _install _install-yolo _install-docs _docs _clean _init _init-wifi _init-software-update \
+        _init-cloudflare-tunnel \
         _run-standalone _run-web _run-web-custom \
         _test-motors _test-motors-pan-cw _test-motors-pan-ccw _test-motors-tilt-cw \
         _test-motors-tilt-ccw _test-motors-home \
@@ -140,6 +146,42 @@ _init-wifi:
 	@echo "Toggle AP/client via Settings or a single GPIO button press (LED on pin 29)."
 	@echo "Triple-click the button, or Settings → Shut down, to power off."
 	@echo "Button service: sudo systemctl status cookie-finder-wifi"
+
+# Install cloudflared + register the Cloudflare Tunnel systemd service.
+# Token comes from .env (CLOUDFLARE_TUNNEL_TOKEN). Create the tunnel in the
+# Cloudflare Zero Trust dashboard (Quick Tunnel / remotely managed connector).
+_init-cloudflare-tunnel:
+	@test "$$(id -u)" != 0 || { \
+		echo "error: do not run this target as root / with sudo."; \
+		echo "       Run it as your normal user (cookie) — Make calls sudo itself."; \
+		exit 1; \
+	}
+	@test "$$(uname -s)" = Linux || { echo "init-cloudflare-tunnel is for Linux (Orange Pi)"; exit 1; }
+	@if [ -z "$(CLOUDFLARE_TUNNEL_TOKEN)" ]; then \
+		echo "error: CLOUDFLARE_TUNNEL_TOKEN is not set."; \
+		echo "Copy .env.example to .env and paste the token from Cloudflare Zero Trust:"; \
+		echo "  Networks → Tunnels → Create → cloudflared → copy install token"; \
+		exit 1; \
+	fi
+	@echo "Adding Cloudflare apt repository + installing cloudflared..."
+	sudo mkdir -p --mode=0755 /usr/share/keyrings
+	curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+	echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
+	sudo apt-get update
+	sudo apt-get install -y cloudflared
+	@echo "Installing Cloudflare Tunnel as a systemd service..."
+	@if systemctl list-unit-files cloudflared.service >/dev/null 2>&1 \
+		&& systemctl cat cloudflared.service >/dev/null 2>&1; then \
+		echo "Existing cloudflared service found — reinstalling with token from .env..."; \
+		sudo cloudflared service uninstall >/dev/null 2>&1 || true; \
+	fi
+	sudo cloudflared service install "$(CLOUDFLARE_TUNNEL_TOKEN)"
+	@sudo systemctl enable --now cloudflared.service >/dev/null 2>&1 || true
+	@echo "Cloudflare Tunnel installed."
+	@echo "Status:  sudo systemctl status cloudflared"
+	@echo "Logs:    sudo journalctl -u cloudflared -f"
+	@echo "Pi must be in WiFi client mode with internet (home WiFi or phone hotspot)."
+	@echo "Point the tunnel's public hostname at http://127.0.0.1:80 (Cookie Finder web)."
 
 # Oneshot unit + narrow sudoers so the web UI can pull origin/main and restart.
 _init-software-update:
@@ -533,6 +575,7 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-daemon-install on-the-pi-rust-daemon \
         on-the-pi-rust-daemon-stop on-the-pi-rust-daemon-status \
         on-the-pi-rust-keyboard on-the-pi-init-wifi on-the-pi-init-software-update \
+        on-the-pi-init-cloudflare-tunnel \
         on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
         on-the-pi-web-daemon-install on-the-pi-web-daemon \
@@ -552,6 +595,7 @@ on-the-pi-help:
 	@echo "  make on-the-pi-tool-setup-rust       Rust/cargo only (skip apt packages)"
 	@echo "  make on-the-pi-init-wifi              Install WiFi AP deps + captive DNS + button/LED service"
 	@echo "  make on-the-pi-init-software-update   Allow Settings gear to pull GitHub main + restart"
+	@echo "  make on-the-pi-init-cloudflare-tunnel Install cloudflared + tunnel service (token from .env)"
 	@echo "  make on-the-pi-wifi-gpio-daemon       Install/start WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
@@ -605,6 +649,7 @@ on-the-pi-install-yolo: _install-yolo
 on-the-pi-init: _init
 on-the-pi-init-wifi: _init-wifi
 on-the-pi-init-software-update: _init-software-update
+on-the-pi-init-cloudflare-tunnel: _init-cloudflare-tunnel
 on-the-pi-clean: _clean
 on-the-pi-armbian-home-screen:
 	@sudo run-parts /etc/update-motd.d/
@@ -936,6 +981,7 @@ on-the-pi-wifi-gpio-daemon-status:
 # =============================================================================
 
 .PHONY: install install-yolo install-docs docs clean init init-wifi init-software-update \
+        init-cloudflare-tunnel \
         run run-standalone run-web run-web-custom \
         test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw \
         test-motors-tilt-ccw test-motors-home \
@@ -961,6 +1007,7 @@ install-libusb: on-the-mac-install-libusb
 init: on-the-pi-init
 init-wifi: on-the-pi-init-wifi
 init-software-update: on-the-pi-init-software-update
+init-cloudflare-tunnel: on-the-pi-init-cloudflare-tunnel
 docs: on-the-mac-docs
 clean: on-the-pi-clean
 

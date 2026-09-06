@@ -31,6 +31,9 @@ cookie_finder_rust/target/
 # Local WiFi client credentials (copy from .wifi.env.example)
 .wifi.env
 
+# Local secrets (Cloudflare tunnel token, etc. — copy from .env.example)
+.env
+
 # Runtime state written by software-update oneshot / web UI
 data/
 

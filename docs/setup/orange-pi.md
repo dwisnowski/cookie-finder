@@ -175,7 +175,21 @@ make install
 make init-wifi
 # Optional: Settings → Software can pull GitHub main + restart:
 make init-software-update
+# Optional: Cloudflare Tunnel for Tesla / remote access (token in .env):
+make init-cloudflare-tunnel
 ```
+
+### Cloudflare Tunnel (Tesla / remote browser)
+
+Use this when the car (or another device) cannot open the Pi’s LAN IP — for example Tesla on an iPhone hotspot. The Pi stays in **client** WiFi with internet; Cloudflare publishes a public HTTPS hostname that proxies to the local web app.
+
+1. In [Cloudflare Zero Trust](https://one.dash.cloudflare.com/) → **Networks** → **Tunnels** → create a tunnel → copy the install token.
+2. On the Pi: `cp .env.example .env` and set `CLOUDFLARE_TUNNEL_TOKEN=…`
+3. Run `make on-the-pi-init-cloudflare-tunnel` (or `make init-cloudflare-tunnel`).
+4. In the tunnel’s public hostname config, point to `http://127.0.0.1:80` (Cookie Finder web).
+5. Keep the Pi on client WiFi with internet (home WiFi or phone hotspot). SoftAP alone has no upstream path for the tunnel.
+
+Status / logs: `sudo systemctl status cloudflared` · `sudo journalctl -u cloudflared -f`
 
 ---
 
