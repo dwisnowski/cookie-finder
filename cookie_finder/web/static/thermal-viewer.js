@@ -2695,8 +2695,8 @@ function updateConnectedBluetoothUI() {
             <div style="
                 padding: var(--spacing-sm);
                 margin-bottom: var(--spacing-xs);
-                background: ${isActive ? 'rgba(0, 255, 136, 0.15)' : 'rgba(0, 255, 136, 0.08)'};
-                border: 2px solid ${isActive ? 'rgba(0, 255, 136, 0.5)' : 'rgba(0, 255, 136, 0.3)'};
+                background: ${isActive ? 'rgba(var(--accent-rgb), 0.15)' : 'rgba(var(--accent-rgb), 0.08)'};
+                border: 2px solid ${isActive ? 'rgba(var(--accent-rgb), 0.5)' : 'rgba(var(--accent-rgb), 0.3)'};
                 border-radius: var(--radius-sm);
                 font-size: 11px;
                 position: relative;

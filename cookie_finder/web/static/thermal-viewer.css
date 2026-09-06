@@ -7,16 +7,21 @@
     --text-primary: #ffffff;
     --text-secondary: #a0aec0;
     --text-tertiary: #718096;
-    --accent: #00ff88;
-    --accent-shadow: #00ff8844;
+    /* Warm thermal accent for interactive chrome */
+    --accent: #e09a3e;
+    --accent-rgb: 224, 154, 62;
+    --accent-shadow: rgba(var(--accent-rgb), 0.28);
     --border-color: #2d3748;
     --border-light: #3d4e5f;
+    /* Healthy / online — green reserved for status dots */
+    --status-ok: #3ecf8e;
+    --status-ok-glow: rgba(62, 207, 142, 0.55);
     
     /* Gradients */
     --gradient-dark: linear-gradient(135deg, rgb(40 40 40) 100%, #1b1b1b 100%);
     --gradient-card: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
     --gradient-button: linear-gradient(135deg, #2d3748 0%, #3d4e5f 100%);
-    --gradient-accent: linear-gradient(135deg, #00ff88 0%, #00dd66 100%);
+    --gradient-accent: linear-gradient(135deg, #e8a84a 0%, #c9842a 100%);
     
     /* Spacing */
     --spacing-xs: 4px;
@@ -67,6 +72,10 @@ body {
     padding: var(--spacing-lg);
     text-align: center;
     border-bottom: 1px solid var(--border-color);
+    background: rgba(15, 20, 25, 0.88);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 2;
 }
 
 .header h1 {
@@ -74,10 +83,18 @@ body {
     font-size: 28px;
     font-weight: 700;
     letter-spacing: -0.5px;
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--text-primary);
+}
+
+.header h1::after {
+    content: '';
+    display: block;
+    width: 36px;
+    height: 2px;
+    margin: 6px auto 0;
+    border-radius: var(--radius-full);
+    background: var(--accent);
+    opacity: 0.9;
 }
 
 .header-actions {
@@ -94,8 +111,8 @@ body {
     border: none;
     cursor: pointer;
     font-size: 24px;
-    color: var(--accent);
-    transition: all var(--transition-fast);
+    color: var(--text-secondary);
+    transition: color var(--transition-fast), background var(--transition-fast), transform var(--transition-fast);
     padding: 8px;
     display: flex;
     align-items: center;
@@ -104,9 +121,9 @@ body {
 }
 
 .header-help:hover {
-    background: rgba(0, 255, 136, 0.1);
-    transform: scale(1.1);
-    box-shadow: 0 0 12px var(--accent-shadow);
+    background: rgba(var(--accent-rgb), 0.12);
+    color: var(--accent);
+    transform: scale(1.08);
 }
 
 .header-badges {
@@ -120,12 +137,12 @@ body {
 }
 
 .badge {
-    background: rgba(0, 255, 136, 0.1);
-    border: 1px solid var(--accent);
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border-light);
     border-radius: var(--radius-full);
     padding: 4px 12px;
     font-size: 11px;
-    color: var(--accent);
+    color: var(--text-secondary);
     font-weight: 600;
     display: flex;
     align-items: center;
@@ -139,11 +156,13 @@ button.badge {
     appearance: none;
     -webkit-appearance: none;
     margin: 0;
-    transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+    transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
 }
 
 button.badge:hover {
-    background: rgba(0, 255, 136, 0.18);
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
     transform: translateY(-1px);
 }
 
@@ -157,13 +176,13 @@ button.badge:focus-visible {
     height: 8px;
     border-radius: 50%;
     background: #ff4444;
-    transition: background var(--transition-normal);
+    transition: background var(--transition-normal), box-shadow var(--transition-normal);
     flex-shrink: 0;
 }
 
 .badge-dot.active {
-    background: #00ff88;
-    box-shadow: 0 0 4px var(--accent);
+    background: var(--status-ok);
+    box-shadow: 0 0 4px var(--status-ok-glow);
 }
 
 .badge-wifi-ap {
@@ -175,10 +194,6 @@ button.badge:focus-visible {
 .badge-wifi-ap .badge-dot.active {
     background: #ffb020;
     box-shadow: 0 0 4px rgba(255, 176, 32, 0.7);
-}
-
-.badge-wifi-client {
-    border-color: var(--accent);
 }
 
 .badge-wifi-unknown {
@@ -198,10 +213,7 @@ h1 {
     font-size: 28px;
     font-weight: 700;
     letter-spacing: -0.5px;
-    background: var(--gradient-accent);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: var(--text-primary);
 }
 
 /* ===== LAYOUT ===== */
@@ -289,9 +301,7 @@ h1 {
     border-radius: var(--radius-lg);
     border: 1px solid var(--border-light);
     background: #000;
-    box-shadow:
-        0 0 40px rgba(0, 255, 136, 0.1),
-        var(--shadow-xl);
+    box-shadow: var(--shadow-xl);
     transition: box-shadow var(--transition-normal), height 0.15s ease;
     position: relative;
     flex: 1;
@@ -307,7 +317,7 @@ h1 {
 
 .video-stream-frame:hover {
     box-shadow:
-        0 0 50px rgba(0, 255, 136, 0.15),
+        0 0 28px rgba(var(--accent-rgb), 0.08),
         var(--shadow-xl);
 }
 
@@ -409,11 +419,11 @@ h1 {
     font-weight: 700;
     margin-bottom: var(--spacing-md);
     padding-bottom: var(--spacing-sm);
-    border-bottom: 2px solid var(--accent);
+    border-bottom: 1px solid rgba(var(--accent-rgb), 0.35);
     font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: var(--accent);
+    color: var(--text-secondary);
     transition: color var(--transition-normal);
 }
 
@@ -429,7 +439,7 @@ h1 {
     padding: var(--spacing-md) var(--spacing-sm);
     font-size: 11px;
     font-weight: 600;
-    border: 1px solid rgba(0, 255, 136, 0.2);
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
     background: var(--gradient-button);
     color: var(--text-primary);
     cursor: pointer;
@@ -449,15 +459,15 @@ h1 {
     left: -100%;
     width: 100%;
     height: 100%;
-    background: rgba(0, 255, 136, 0.1);
+    background: rgba(var(--accent-rgb), 0.1);
     transition: left var(--transition-normal);
     z-index: -1;
 }
 
 .btn:hover {
     transform: translateY(-2px);
-    box-shadow: 0 6px 12px rgba(0, 255, 136, 0.15), var(--shadow-md);
-    border-color: rgba(0, 255, 136, 0.4);
+    box-shadow: 0 6px 12px rgba(var(--accent-rgb), 0.15), var(--shadow-md);
+    border-color: rgba(var(--accent-rgb), 0.4);
 }
 
 .btn:hover::before {
@@ -466,7 +476,7 @@ h1 {
 
 .btn:active {
     transform: translateY(0) scale(0.98);
-    box-shadow: 0 2px 4px rgba(0, 255, 136, 0.1);
+    box-shadow: 0 2px 4px rgba(var(--accent-rgb), 0.1);
 }
 
 .btn.active {
@@ -487,8 +497,8 @@ h1 {
     padding: var(--spacing-lg);
     font-size: 18px;
     font-weight: 700;
-    border: 1px solid rgba(0, 255, 136, 0.3);
-    background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(30, 90, 58, 0.6) 100%);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+    background: linear-gradient(135deg, rgba(45, 55, 72, 0.8) 0%, rgba(90, 58, 28, 0.55) 100%);
     color: var(--accent);
     cursor: pointer;
     border-radius: var(--radius-md);
@@ -500,9 +510,9 @@ h1 {
 }
 
 .btn-motor:hover {
-    background: linear-gradient(135deg, rgba(55, 75, 92, 0.9) 0%, rgba(40, 110, 68, 0.8) 100%);
+    background: linear-gradient(135deg, rgba(55, 75, 92, 0.9) 0%, rgba(120, 72, 28, 0.75) 100%);
     border-color: var(--accent);
-    box-shadow: 0 4px 12px rgba(0, 255, 136, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 12px rgba(var(--accent-rgb), 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1);
     transform: translateY(-2px);
 }
 
@@ -518,7 +528,7 @@ h1 {
     padding: var(--spacing-sm) var(--spacing-md);
     font-size: 10px;
     font-weight: 600;
-    border: 1px solid rgba(0, 255, 136, 0.2);
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
     background: var(--gradient-button);
     color: var(--text-secondary);
     cursor: pointer;
@@ -533,7 +543,7 @@ h1 {
 .btn-axis:hover,
 .btn-toggle:hover {
     background: linear-gradient(135deg, #3d4e5f 0%, #4d6e7f 100%);
-    border-color: rgba(0, 255, 136, 0.4);
+    border-color: rgba(var(--accent-rgb), 0.4);
     transform: translateY(-1px);
 }
 
@@ -590,7 +600,7 @@ h1 {
     width: 36px;
     height: 20px;
     background: rgba(45, 55, 72, 0.9);
-    border: 1px solid rgba(0, 255, 136, 0.25);
+    border: 1px solid rgba(var(--accent-rgb), 0.25);
     border-radius: var(--radius-full);
     transition: background var(--transition-fast), border-color var(--transition-fast);
 }
@@ -608,7 +618,7 @@ h1 {
 }
 
 .motor-invert-input:checked + .motor-invert-switch {
-    background: rgba(0, 255, 136, 0.2);
+    background: rgba(var(--accent-rgb), 0.2);
     border-color: var(--accent);
 }
 
@@ -619,7 +629,7 @@ h1 {
 }
 
 .motor-invert-input:focus-visible + .motor-invert-switch {
-    box-shadow: 0 0 0 2px rgba(0, 255, 136, 0.35);
+    box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.35);
 }
 
 /* ===== SLIDERS ===== */
@@ -765,8 +775,8 @@ input[type="range"]:focus {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     font-size: 11px;
     color: var(--accent);
-    background: rgba(0, 255, 136, 0.08);
-    border: 1px solid rgba(0, 255, 136, 0.2);
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
     border-radius: 4px;
     padding: 1px 6px;
     word-break: break-all;
@@ -785,8 +795,8 @@ input[type="range"]:focus {
     font-size: 10px;
     font-weight: 600;
     color: var(--accent);
-    background: rgba(0, 255, 136, 0.08);
-    border: 1px solid rgba(0, 255, 136, 0.25);
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.25);
     border-radius: var(--radius-full);
     padding: 2px 8px;
     vertical-align: middle;
@@ -1323,7 +1333,7 @@ button.shortcut-item:focus-visible {
 
 .modal-close:hover {
     color: var(--accent);
-    background: rgba(0, 255, 136, 0.1);
+    background: rgba(var(--accent-rgb), 0.1);
 }
 
 /* ===== GAMEPAD & STATUS ===== */
