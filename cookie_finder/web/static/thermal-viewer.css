@@ -22,7 +22,7 @@
     --gradient-card: linear-gradient(135deg, #1a202c 0%, #2d3748 100%);
     --gradient-button: linear-gradient(135deg, #2d3748 0%, #3d4e5f 100%);
     --gradient-accent: linear-gradient(135deg, #e8a84a 0%, #c9842a 100%);
-    
+
     /* Spacing */
     --spacing-xs: 4px;
     --spacing-sm: 8px;
@@ -30,24 +30,73 @@
     --spacing-lg: 16px;
     --spacing-xl: 20px;
     --spacing-2xl: 24px;
-    
+
     /* Shadows */
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.5);
     --shadow-xl: 0 12px 24px rgba(0, 0, 0, 0.6);
-    
+
     /* Transitions */
     --transition-fast: 100ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-normal: 200ms cubic-bezier(0.4, 0, 0.2, 1);
     --transition-slow: 300ms cubic-bezier(0.4, 0, 0.2, 1);
-    
+
     /* Border radius */
     --radius-sm: 4px;
     --radius-md: 8px;
     --radius-lg: 12px;
     --radius-xl: 16px;
     --radius-full: 9999px;
+}
+
+/* Accent themes (Settings → Accent color). Status-ok green stays fixed. */
+html[data-accent="amber"] {
+    --accent: #e09a3e;
+    --accent-rgb: 224, 154, 62;
+    --gradient-accent: linear-gradient(135deg, #e8a84a 0%, #c9842a 100%);
+}
+
+html[data-accent="ember"] {
+    --accent: #ef6c2f;
+    --accent-rgb: 239, 108, 47;
+    --gradient-accent: linear-gradient(135deg, #f47a3d 0%, #d4551a 100%);
+}
+
+html[data-accent="magma"] {
+    --accent: #f04a4a;
+    --accent-rgb: 240, 74, 74;
+    --gradient-accent: linear-gradient(135deg, #ff5c5c 0%, #d63434 100%);
+}
+
+html[data-accent="gold"] {
+    --accent: #e0b040;
+    --accent-rgb: 224, 176, 64;
+    --gradient-accent: linear-gradient(135deg, #ebc050 0%, #c99828 100%);
+}
+
+html[data-accent="cyan"] {
+    --accent: #2ec4e6;
+    --accent-rgb: 46, 196, 230;
+    --gradient-accent: linear-gradient(135deg, #3dd0f0 0%, #1aa8c9 100%);
+}
+
+html[data-accent="teal"] {
+    --accent: #2dd4bf;
+    --accent-rgb: 45, 212, 191;
+    --gradient-accent: linear-gradient(135deg, #3ee0cb 0%, #14b8a6 100%);
+}
+
+html[data-accent="signal"] {
+    --accent: #3dde8a;
+    --accent-rgb: 61, 222, 138;
+    --gradient-accent: linear-gradient(135deg, #4aee98 0%, #22c06a 100%);
+}
+
+html[data-accent="violet"] {
+    --accent: #a78bfa;
+    --accent-rgb: 167, 139, 250;
+    --gradient-accent: linear-gradient(135deg, #b79cff 0%, #8b6ce8 100%);
 }
 
 /* ===== BASE STYLES ===== */
@@ -1003,6 +1052,71 @@ input[type="range"]:focus {
     color: var(--text-secondary);
     line-height: 1.4;
     margin-bottom: 4px;
+}
+
+.settings-panel {
+    background: rgba(45, 55, 72, 0.5);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-md);
+    border: 1px solid var(--border-color);
+}
+
+.settings-panel-title {
+    color: var(--text-tertiary);
+    margin-bottom: 10px;
+    font-size: 11px;
+    font-weight: bold;
+}
+
+.accent-swatch-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+}
+
+.accent-swatch {
+    appearance: none;
+    -webkit-appearance: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    min-height: 56px;
+    padding: 6px 4px;
+    border-radius: var(--radius-md);
+    border: 2px solid rgba(255, 255, 255, 0.12);
+    background:
+        linear-gradient(180deg, transparent 0%, rgba(0, 0, 0, 0.45) 100%),
+        var(--swatch, var(--accent));
+    cursor: pointer;
+    transition: border-color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.accent-swatch:hover {
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.35);
+}
+
+.accent-swatch:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.accent-swatch.active {
+    border-color: #fff;
+    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.45), 0 0 10px rgba(255, 255, 255, 0.2);
+}
+
+.accent-swatch-name {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    color: #fff;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    line-height: 1;
 }
 
 .software-status-meta {

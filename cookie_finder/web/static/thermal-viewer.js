@@ -73,6 +73,56 @@ let uiInvertPan = false;
 let uiInvertTilt = false;
 const AXIS_NAMES = ['Left X', 'Left Y', 'Right X', 'Right Y'];
 const UI_INVERT_STORAGE_KEY = 'cookieFinder.uiMotorInvert';
+const ACCENT_THEME_STORAGE_KEY = 'cookieFinder.accentTheme';
+const ACCENT_THEMES = ['amber', 'ember', 'magma', 'gold', 'cyan', 'teal', 'signal', 'violet'];
+const ACCENT_THEME_DEFAULT = 'amber';
+
+function getStoredAccentTheme() {
+    try {
+        const raw = localStorage.getItem(ACCENT_THEME_STORAGE_KEY);
+        if (raw && ACCENT_THEMES.includes(raw)) return raw;
+    } catch (e) {
+        /* ignore */
+    }
+    return ACCENT_THEME_DEFAULT;
+}
+
+function applyAccentTheme(themeId, { persist = true } = {}) {
+    const id = ACCENT_THEMES.includes(themeId) ? themeId : ACCENT_THEME_DEFAULT;
+    document.documentElement.setAttribute('data-accent', id);
+    if (persist) {
+        try {
+            localStorage.setItem(ACCENT_THEME_STORAGE_KEY, id);
+        } catch (e) {
+            /* ignore */
+        }
+    }
+    syncAccentSwatches(id);
+    return id;
+}
+
+function syncAccentSwatches(activeId) {
+    const id = activeId || getStoredAccentTheme();
+    document.querySelectorAll('.accent-swatch').forEach((btn) => {
+        const selected = btn.dataset.accent === id;
+        btn.classList.toggle('active', selected);
+        btn.setAttribute('aria-checked', selected ? 'true' : 'false');
+        btn.setAttribute('role', 'radio');
+    });
+}
+
+function initAccentThemeControls() {
+    applyAccentTheme(getStoredAccentTheme(), { persist: false });
+    const grid = document.getElementById('accentSwatchGrid');
+    if (!grid) return;
+    grid.addEventListener('click', (e) => {
+        const btn = e.target.closest('.accent-swatch');
+        if (!btn || !grid.contains(btn)) return;
+        applyAccentTheme(btn.dataset.accent);
+    });
+}
+
+initAccentThemeControls();
 
 let currentPreset = 'normal';
 const gamepadPresets = {
@@ -1470,6 +1520,7 @@ function confirmWifiModeSwitch() {
 
 function openSettings() {
     settingsOverlay.classList.add('active');
+    syncAccentSwatches();
     refreshWifiStatus();
     refreshSoftwareStatus();
 }
