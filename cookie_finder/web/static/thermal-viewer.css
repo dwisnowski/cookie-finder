@@ -257,6 +257,23 @@ button.badge:focus-visible {
     background: rgba(255, 107, 107, 0.12);
 }
 
+.badge-cloudflare-down {
+    border-color: #ff6b6b;
+    color: #ff6b6b;
+    background: rgba(255, 107, 107, 0.12);
+}
+
+.badge-cloudflare-ok {
+    border-color: #f6821f;
+    color: #f6821f;
+    background: rgba(246, 130, 31, 0.12);
+}
+
+.badge-cloudflare-ok .badge-dot.active {
+    background: #f6821f;
+    box-shadow: 0 0 4px rgba(246, 130, 31, 0.7);
+}
+
 h1 {
     margin: 0 0 var(--spacing-lg) 0;
     font-size: 28px;

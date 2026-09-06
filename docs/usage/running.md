@@ -124,6 +124,8 @@ In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspo
 
 **Software updates:** after a one-time `make init-software-update`, **Settings → Software** can check GitHub `main` and **Update & restart** (fast-forward pull + `uv sync` + `cookie-finder-web` restart). See [Orange Pi setup §9](../setup/orange-pi.md#9-clone-and-install).
 
+**Cloudflare Tunnel:** after `make init-cloudflare-tunnel`, **Settings → Cloudflare Tunnel** toggles the `cloudflared` daemon on/off (disable stays off across reboot). Header badge shows CF status.
+
 **Boot policy:** AP mode does **not** survive a full reboot (power cycle). After reboot, `cookie-finder-wifi` restores client (home/office) WiFi. A plain `systemctl restart` while already in AP leaves AP alone. If the radio looks like client but has no SSID, the button repairs client mode instead of entering AP.
 
 - AP SSID: `cookie-finder`

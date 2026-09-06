@@ -82,6 +82,21 @@
                 </div>
             </div>
 
+            <!-- Cloudflare Tunnel Section -->
+            <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); border: 1px solid var(--border-color);">
+                <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">Cloudflare Tunnel</div>
+                <div class="motor-invert-row" style="margin-bottom: 8px;">
+                    <label class="motor-invert-toggle" for="toggle_cloudflare_tunnel" style="width: 100%;">
+                        <span class="motor-invert-label" id="cloudflareToggleLabel">Tunnel</span>
+                        <input type="checkbox" id="toggle_cloudflare_tunnel" class="motor-invert-input" aria-label="Cloudflare Tunnel on or off">
+                        <span class="motor-invert-switch" aria-hidden="true"></span>
+                    </label>
+                </div>
+                <div id="cloudflareToggleHint" style="font-size: 10px; color: var(--text-tertiary); line-height: 1.4;">
+                    Public HTTPS access via Cloudflare. Needs client WiFi with internet.
+                </div>
+            </div>
+
             <!-- Software Update Section -->
             <div style="background: rgba(45, 55, 72, 0.5); padding: var(--spacing-md); border-radius: var(--radius-md); margin-bottom: var(--spacing-md); border: 1px solid var(--border-color);">
                 <div style="color: var(--text-tertiary); margin-bottom: 8px; font-weight: bold;">Software</div>
