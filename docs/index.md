@@ -46,3 +46,4 @@ Then open `http://<device-ip>/` (or `http://cookie-finder.local/`) in a browser.
 - [Usage — Web Server API](usage/web-server.md)
 - [Reference — Makefile](reference/makefile.md)
 - [Reference — UVC Controls](reference/uvc-controls.md)
+- [Reference — Mileseey T-Recon CDC Protocol](reference/mileseey-trecon-protocol.md)
