@@ -5,7 +5,8 @@
 # Environment overrides:
 #   COOKIE_FINDER_AP_SSID        (default: cookie-finder)
 #   COOKIE_FINDER_AP_PASSPHRASE  (default: empty = open SoftAP, no password)
-#   COOKIE_FINDER_AP_GATEWAY     (default: 192.168.12.1)
+#   COOKIE_FINDER_AP_GATEWAY     (default: 192.168.12.1; Tesla SoftAP uses 3.3.3.3)
+#   COOKIE_FINDER_AP_PROFILE     (phone|tesla — informational / logging only)
 #
 # Captive portal: in AP mode DNS is hijacked to the gateway so phones open the
 # web app (served on :80 / :443). See cookie_finder/web/server.py probe routes.
@@ -20,6 +21,8 @@ SSID="${COOKIE_FINDER_AP_SSID:-cookie-finder}"
 # Empty passphrase = open network (what works reliably on Zero 2W SoftAP).
 PASSPHRASE="${COOKIE_FINDER_AP_PASSPHRASE:-}"
 GATEWAY="${COOKIE_FINDER_AP_GATEWAY:-192.168.12.1}"
+AP_PROFILE="${COOKIE_FINDER_AP_PROFILE:-phone}"
+
 RUNTIME_DIR="${COOKIE_FINDER_WIFI_RUNTIME:-/run/cookie-finder-wifi}"
 HOSTAPD_CONF="${RUNTIME_DIR}/hostapd.conf"
 DNSMASQ_CONF="${RUNTIME_DIR}/dnsmasq.conf"
@@ -31,6 +34,23 @@ NM_CAPTIVE_CONF="${NM_DNSMASQ_SHARED_DIR}/cookie-finder-captive.conf"
 
 log() { echo "[wifi-mode] $*"; }
 die() { echo "[wifi-mode] ERROR: $*" >&2; exit 1; }
+
+# Derive a /24 DHCP pool from the gateway (a.b.c.d -> a.b.c.50-200).
+# Keeps phone SoftAP on 192.168.12.0/24 and Tesla SoftAP on 3.3.3.0/24 in sync
+# with COOKIE_FINDER_AP_GATEWAY without hardcoding a second range.
+_dhcp_from_gateway() {
+  local gw="$1"
+  local o1 o2 o3 o4
+  IFS=. read -r o1 o2 o3 o4 <<< "${gw}"
+  if [[ -z "${o1}" || -z "${o2}" || -z "${o3}" || -z "${o4}" ]]; then
+    die "invalid COOKIE_FINDER_AP_GATEWAY: ${gw}"
+  fi
+  DHCP_START="${o1}.${o2}.${o3}.50"
+  DHCP_END="${o1}.${o2}.${o3}.200"
+  DHCP_MASK="255.255.255.0"
+}
+
+_dhcp_from_gateway "${GATEWAY}"
 
 # WPA2-PSK requires 8–63 ASCII characters when a passphrase is configured.
 assert_passphrase() {
@@ -250,7 +270,7 @@ write_hostapd_dnsmasq_conf() {
 interface=${iface}
 bind-interfaces
 listen-address=${GATEWAY}
-dhcp-range=192.168.12.50,192.168.12.200,255.255.255.0,12h
+dhcp-range=${DHCP_START},${DHCP_END},${DHCP_MASK},12h
 dhcp-option=3,${GATEWAY}
 dhcp-option=6,${GATEWAY}
 no-resolv
@@ -366,7 +386,7 @@ start_ap_create_ap() {
       tail -n 30 "${logf}" 2>/dev/null || true
       return 1
     fi
-    log "started AP via create_ap (ssid=${SSID} gateway=${GATEWAY})"
+    log "started AP via create_ap (ssid=${SSID} gateway=${GATEWAY} profile=${AP_PROFILE})"
     return 0
   fi
   log "create_ap failed; log:"
@@ -430,7 +450,7 @@ start_ap_nmcli() {
       fi
     fi
   fi
-  log "started AP via NetworkManager (ssid=${SSID} gateway=${GATEWAY} type=${type} captive-dns=on)"
+  log "started AP via NetworkManager (ssid=${SSID} gateway=${GATEWAY} profile=${AP_PROFILE} type=${type} captive-dns=on)"
   return 0
 }
 
@@ -521,7 +541,7 @@ EOF
     stop_hostapd_dnsmasq
     return 1
   fi
-  log "started AP via hostapd (ssid=${SSID} gateway=${GATEWAY} type=${itype} ch=${channel} captive-dns=on)"
+  log "started AP via hostapd (ssid=${SSID} gateway=${GATEWAY} profile=${AP_PROFILE} type=${itype} ch=${channel} captive-dns=on)"
   return 0
 }
 

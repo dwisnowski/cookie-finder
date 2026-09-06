@@ -19,7 +19,8 @@ Started with `make run` (or `uv run main.py --web`). Serves on **HTTP :80** and 
 | `POST` | `/switch-camera/{id}` | Switch to a different camera device by index |
 | `GET` | `/wifi/status` | Current WiFi mode (`client` / `ap`) + SSID details |
 | `GET` | `/wifi/instructions/{mode}` | Confirmation-dialog copy for switching to `ap` or `client` |
-| `POST` | `/wifi/mode/{mode}` | Switch WiFi to `ap` or `client` (background; disconnects current link) |
+| `GET` | `/wifi/instructions/{mode}?profile=` | Confirmation copy for `ap`/`client`; SoftAP `profile=phone\|tesla` |
+| `POST` | `/wifi/mode/{mode}?profile=` | Switch WiFi to `ap` or `client` (optional SoftAP `profile=phone\|tesla`) |
 | `POST` | `/system/poweroff` | Graceful halt (LED chirp, then `systemctl poweroff`; returns immediately) |
 | `GET` | `/system/software` | Git status vs `origin/main` (fetch + compare; requires `make init-software-update`) |
 | `POST` | `/system/software/update` | Schedule oneshot pull + `uv sync` + web restart (202; requires clean tree) |
