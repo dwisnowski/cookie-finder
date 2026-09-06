@@ -22,7 +22,27 @@ from cookie_finder.poweroff import is_powering_off
 AP_SSID = "cookie-finder"
 # Open SoftAP by default — WPA SoftAP on Zero 2W (UWE5622) often fails phone joins.
 AP_PASSPHRASE = ""
-AP_GATEWAY = "192.168.12.1"
+
+# SoftAP subnet profiles.
+# "phone" uses a normal RFC1918 LAN (phones/laptops).
+# "tesla" uses a non-RFC1918 gateway so Tesla's in-car browser can open the UI
+# (it blocks 10/8, 172.16/12, and 192.168/16 destinations).
+AP_PROFILES: dict[str, dict[str, str]] = {
+    "phone": {
+        "id": "phone",
+        "label": "Phone / laptop",
+        "gateway": "192.168.12.1",
+        "blurb": "Standard SoftAP for phones and laptops.",
+    },
+    "tesla": {
+        "id": "tesla",
+        "label": "Tesla",
+        "gateway": "3.3.3.3",
+        "blurb": "Non-private SoftAP subnet for Tesla's browser (Drive-friendly).",
+    },
+}
+DEFAULT_AP_PROFILE = "phone"
+AP_GATEWAY = AP_PROFILES[DEFAULT_AP_PROFILE]["gateway"]
 # Web app listens on :80 / :443 — no port suffix needed for the captive/AP URL.
 AP_URL = f"http://{AP_GATEWAY}/"
 
@@ -37,10 +57,12 @@ _STATE_DIR = Path(
 )
 _LAST_BOOT_ID_FILE = _STATE_DIR / "wifi-last-boot-id"
 _DESIRED_MODE_FILE = _STATE_DIR / "wifi-desired-mode"
+_AP_PROFILE_FILE = _STATE_DIR / "wifi-ap-profile"
 _BOOT_ID_FILE = Path("/proc/sys/kernel/random/boot_id")
 
 _switch_lock = threading.Lock()
 _pending_mode: str | None = None
+_ap_profile_memory: str | None = None
 
 
 def _current_boot_id() -> str | None:
@@ -70,6 +92,59 @@ def set_desired_mode(mode: str) -> None:
         _DESIRED_MODE_FILE.write_text(mode + "\n")
     except OSError as exc:
         print(f"[wifi] warning: could not persist desired mode: {exc}")
+
+
+def _normalize_ap_profile(profile: str | None) -> str:
+    name = (profile or "").strip().lower()
+    if name in AP_PROFILES:
+        return name
+    return DEFAULT_AP_PROFILE
+
+
+def get_ap_profile() -> str:
+    """Persisted SoftAP profile (phone/tesla). Survives daemon restarts."""
+    global _ap_profile_memory
+    if _ap_profile_memory in AP_PROFILES:
+        return _ap_profile_memory
+    try:
+        text = _AP_PROFILE_FILE.read_text().strip().lower()
+        if text in AP_PROFILES:
+            _ap_profile_memory = text
+            return text
+    except OSError:
+        pass
+    return DEFAULT_AP_PROFILE
+
+
+
+def set_ap_profile(profile: str) -> str:
+    global _ap_profile_memory
+    profile = _normalize_ap_profile(profile)
+    _ap_profile_memory = profile
+    try:
+        _STATE_DIR.mkdir(parents=True, exist_ok=True)
+        _AP_PROFILE_FILE.write_text(profile + "\n")
+    except OSError as exc:
+        print(f"[wifi] warning: could not persist AP profile: {exc}")
+    return profile
+
+
+
+def get_ap_profile_info(profile: str | None = None) -> dict[str, str]:
+    name = _normalize_ap_profile(profile if profile is not None else get_ap_profile())
+    return dict(AP_PROFILES[name])
+
+
+def ap_gateway_for(profile: str | None = None) -> str:
+    return get_ap_profile_info(profile)["gateway"]
+
+
+def ap_url_for(profile: str | None = None) -> str:
+    return f"http://{ap_gateway_for(profile)}/"
+
+
+def known_ap_gateways() -> tuple[str, ...]:
+    return tuple(info["gateway"] for info in AP_PROFILES.values())
 
 
 def _is_new_boot() -> bool:
@@ -208,9 +283,20 @@ def _nm_hotspot_active() -> bool:
 
 
 def _iface_has_ap_gateway(iface: str) -> bool:
-    """True if the iface has our AP gateway address assigned."""
+    """True if the iface has any known SoftAP gateway address assigned."""
     result = _run(["ip", "-4", "-o", "addr", "show", "dev", iface])
-    return AP_GATEWAY in (result.stdout or "")
+    out = result.stdout or ""
+    return any(gw in out for gw in known_ap_gateways())
+
+
+def _iface_ap_gateway(iface: str) -> str | None:
+    """Return the SoftAP gateway assigned on iface, if any."""
+    result = _run(["ip", "-4", "-o", "addr", "show", "dev", iface])
+    out = result.stdout or ""
+    for gw in known_ap_gateways():
+        if gw in out:
+            return gw
+    return None
 
 
 def _supported() -> tuple[bool, str]:
@@ -255,7 +341,7 @@ def get_wifi_status() -> dict[str, Any]:
         ):
             mode = "ap"
             ssid = AP_SSID
-            gateway = AP_GATEWAY
+            gateway = _iface_ap_gateway(iface) or ap_gateway_for()
         elif itype in ("managed", "station"):
             mode = "client"
             ssid = _client_ssid(iface)
@@ -268,6 +354,15 @@ def get_wifi_status() -> dict[str, Any]:
 
     switching = _pending_mode is not None or _external_switch_in_progress()
 
+    active_gateway = gateway or ap_gateway_for()
+    profile = get_ap_profile()
+    # If SoftAP is up on a known gateway, prefer the matching profile label.
+    if gateway:
+        for name, info in AP_PROFILES.items():
+            if info["gateway"] == gateway:
+                profile = name
+                break
+    profile_info = get_ap_profile_info(profile)
     return {
         "supported": supported,
         "reason": reason if not supported else None,
@@ -278,18 +373,33 @@ def get_wifi_status() -> dict[str, Any]:
         "ap_ssid": AP_SSID,
         "ap_passphrase": AP_PASSPHRASE or None,
         "open_network": not bool(AP_PASSPHRASE),
-        "ap_gateway": AP_GATEWAY,
-        "ap_url": AP_URL,
+        "ap_profile": profile,
+        "ap_profile_label": profile_info["label"],
+        "ap_profiles": [
+            {
+                "id": info["id"],
+                "label": info["label"],
+                "gateway": info["gateway"],
+                "url": f"http://{info['gateway']}/",
+                "blurb": info["blurb"],
+            }
+            for info in AP_PROFILES.values()
+        ],
+        "ap_gateway": active_gateway,
+        "ap_url": f"http://{active_gateway}/",
         "switching": switching,
         "powering_off": is_powering_off(),
     }
 
 
-def _sudo_script(mode: str) -> subprocess.CompletedProcess[str]:
+def _sudo_script(mode: str, *, profile: str | None = None) -> subprocess.CompletedProcess[str]:
     env = os.environ.copy()
     env["COOKIE_FINDER_AP_SSID"] = AP_SSID
     env["COOKIE_FINDER_AP_PASSPHRASE"] = AP_PASSPHRASE
-    env["COOKIE_FINDER_AP_GATEWAY"] = AP_GATEWAY
+    env["COOKIE_FINDER_AP_GATEWAY"] = ap_gateway_for(profile)
+    env["COOKIE_FINDER_AP_PROFILE"] = _normalize_ap_profile(
+        profile if profile is not None else get_ap_profile()
+    )
     # Daemon runs as root via systemd; web app uses passwordless sudo.
     if os.geteuid() == 0:
         cmd = [str(_SCRIPT), mode]
@@ -324,11 +434,11 @@ def _log_script_output(result: subprocess.CompletedProcess[str]) -> None:
             print(f"[wifi-mode:err] {line}")
 
 
-def _perform_switch(mode: str) -> dict[str, Any]:
+def _perform_switch(mode: str, *, profile: str | None = None) -> dict[str, Any]:
     global _pending_mode
     try:
         print(f"[wifi] running wifi-mode.sh {mode}")
-        result = _sudo_script(mode)
+        result = _sudo_script(mode, profile=profile)
         _log_script_output(result)
         # Give the radio a moment to settle before reporting status
         time.sleep(2.0)
@@ -458,7 +568,7 @@ def apply_boot_wifi_policy() -> dict[str, Any]:
     set_desired_mode(target)
     _pending_mode = target
     try:
-        result = _perform_switch(target)
+        result = _perform_switch(target, profile=get_ap_profile() if target == "ap" else None)
         print(
             f"[wifi] boot policy result: {result.get('status')} "
             f"{result.get('message')}"
@@ -468,12 +578,20 @@ def apply_boot_wifi_policy() -> dict[str, Any]:
         _switch_lock.release()
 
 
-def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
+def set_wifi_mode(
+    mode: str,
+    *,
+    profile: str | None = None,
+    delay_seconds: float = 1.5,
+) -> dict[str, Any]:
     """
     Request a WiFi mode change.
 
     Returns immediately after scheduling the switch so the HTTP client can
     receive a response before the radio tears down the current connection.
+
+    For SoftAP (``mode="ap"``), optional ``profile`` selects the subnet:
+    ``phone`` (RFC1918 default) or ``tesla`` (non-private ``3.3.3.3``).
     """
     global _pending_mode
 
@@ -485,6 +603,13 @@ def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
             "wifi": get_wifi_status(),
         }
 
+    selected_profile: str | None = None
+    if mode == "ap":
+        selected_profile = set_ap_profile(profile) if profile is not None else get_ap_profile()
+    elif profile is not None:
+        # Remember the SoftAP preference even when switching to client.
+        selected_profile = set_ap_profile(profile)
+
     supported, reason = _supported()
     if not supported:
         return {
@@ -494,12 +619,18 @@ def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
         }
 
     current = get_wifi_status()
+    profile_changed = (
+        mode == "ap"
+        and selected_profile is not None
+        and selected_profile != current.get("ap_profile")
+    )
     # Client without an SSID looks like "already client" but is not associated —
     # force a restore so we don't noop while offline.
     already = (
         current.get("mode") == mode
         and not current.get("switching")
         and not (mode == "client" and not current.get("ssid"))
+        and not profile_changed
     )
     if already:
         set_desired_mode(mode)
@@ -518,11 +649,12 @@ def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
 
     set_desired_mode(mode)
     _pending_mode = mode
+    switch_profile = selected_profile if mode == "ap" else None
 
     def _worker() -> None:
         try:
             time.sleep(max(0.0, delay_seconds))
-            result = _perform_switch(mode)
+            result = _perform_switch(mode, profile=switch_profile)
             print(
                 f"[wifi] switch worker done: {result.get('status')} "
                 f"{result.get('message')}"
@@ -535,34 +667,78 @@ def set_wifi_mode(mode: str, *, delay_seconds: float = 1.5) -> dict[str, Any]:
 
     threading.Thread(target=_worker, name="wifi-mode-switch", daemon=True).start()
 
-    instructions = _switch_instructions(mode)
+    instructions = _switch_instructions(mode, profile=switch_profile)
     return {
         "status": "switching",
         "requested_mode": mode,
-        "message": f"Switching to {mode} mode…",
+        "ap_profile": switch_profile or get_ap_profile(),
+        "message": (
+            f"Switching to {mode} mode"
+            + (f" ({switch_profile} SoftAP)…" if switch_profile else "…")
+        ),
         "instructions": instructions,
         "wifi": get_wifi_status(),
     }
 
 
-def _switch_instructions(mode: str) -> dict[str, Any]:
+def _switch_instructions(mode: str, *, profile: str | None = None) -> dict[str, Any]:
     if mode == "ap":
+        info = get_ap_profile_info(profile)
+        url = ap_url_for(profile)
+        tesla = info["id"] == "tesla"
+        steps = [
+            "You will lose this browser connection as soon as the switch starts.",
+            f"Join WiFi “{AP_SSID}” (open — no password).",
+        ]
+        if tesla:
+            steps.extend(
+                [
+                    "In the Tesla browser open "
+                    f"{url} (use this exact address — private 192.168.x IPs are blocked).",
+                    "If Tesla says the network has no internet, still join it / stay connected, then open that URL.",
+                    "Use Settings → WiFi again when you want to return to client mode.",
+                ]
+            )
+        else:
+            steps.extend(
+                [
+                    f"Open {url} on your phone or laptop (captive portal may open it automatically).",
+                    "Use Settings → WiFi again when you want to return to client mode.",
+                ]
+            )
         return {
-            "title": "Switch to Access Point mode?",
+            "title": (
+                "Switch to Tesla SoftAP?"
+                if tesla
+                else "Switch to Access Point mode?"
+            ),
             "summary": (
                 "The Orange Pi will stop using your home/office WiFi and broadcast "
-                f"its own open network named “{AP_SSID}” (no password)."
+                f"its own open network named “{AP_SSID}” "
+                + (
+                    f"on a Tesla-friendly subnet ({info['gateway']})."
+                    if tesla
+                    else f"({info['label']}: {info['gateway']})."
+                )
             ),
-            "steps": [
-                "You will lose this browser connection as soon as the switch starts.",
-                f"On your phone or laptop, join WiFi “{AP_SSID}” (open — no password).",
-                f"Open {AP_URL} in your browser.",
-                "Use Settings → WiFi again when you want to return to client mode.",
-            ],
+            "steps": steps,
             "ssid": AP_SSID,
             "passphrase": AP_PASSPHRASE or None,
             "open_network": not bool(AP_PASSPHRASE),
-            "url": AP_URL,
+            "url": url,
+            "ap_profile": info["id"],
+            "ap_profile_label": info["label"],
+            "ap_gateway": info["gateway"],
+            "ap_profiles": [
+                {
+                    "id": p["id"],
+                    "label": p["label"],
+                    "gateway": p["gateway"],
+                    "url": f"http://{p['gateway']}/",
+                    "blurb": p["blurb"],
+                }
+                for p in AP_PROFILES.values()
+            ],
         }
 
     return {
@@ -580,11 +756,12 @@ def _switch_instructions(mode: str) -> dict[str, Any]:
         "ssid": None,
         "passphrase": None,
         "url": None,
+        "ap_profile": get_ap_profile(),
     }
 
 
-def get_switch_instructions(mode: str) -> dict[str, Any]:
+def get_switch_instructions(mode: str, *, profile: str | None = None) -> dict[str, Any]:
     mode = (mode or "").strip().lower()
     if mode not in ("ap", "client"):
         return {"error": "mode must be 'ap' or 'client'"}
-    return _switch_instructions(mode)
+    return _switch_instructions(mode, profile=profile)

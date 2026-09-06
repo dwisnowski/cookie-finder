@@ -100,6 +100,7 @@ let wifiStatus = {
     ap_passphrase: null,
     open_network: true,
     ap_url: 'http://192.168.12.1/',
+    ap_profile: 'phone',
     switching: false,
     powering_off: false,
 };
@@ -1290,6 +1291,23 @@ function updateWifiBadge() {
     text.textContent = wifiStatus.supported === false ? 'WiFi n/a' : 'WiFi —';
 }
 
+
+function updateWifiApProfileButtons() {
+    const row = document.getElementById('wifiApProfileRow');
+    if (!row) return;
+    const show = wifiStatus && (wifiStatus.mode === 'client' || wifiStatus.mode === 'ap');
+    row.style.display = show ? 'block' : 'none';
+    const active = (wifiStatus && wifiStatus.ap_profile) || selectedWifiApProfile();
+    document.querySelectorAll('.wifi-ap-profile-btn').forEach((btn) => {
+        const selected = btn.getAttribute('data-ap-profile') === active;
+        btn.classList.toggle('is-selected', selected);
+        btn.style.outline = selected ? '2px solid var(--accent)' : 'none';
+        btn.style.opacity = selected ? '1' : '0.85';
+        if (selected) btn.setAttribute('data-selected', '1');
+        else btn.removeAttribute('data-selected');
+    });
+}
+
 function updateWifiSettingsUI() {
     const summary = document.getElementById('wifiModeSummary');
     const toggleBtn = document.getElementById('btn_wifi_toggle');
@@ -1326,8 +1344,10 @@ function updateWifiSettingsUI() {
         toggleBtn.disabled = false;
         toggleBtn.textContent = 'Switch to Client Mode';
         if (hint) {
-            hint.innerHTML = `Open network (no password) · <strong>${wifiStatus.ap_url || 'http://192.168.12.1/'}</strong>`;
+            const profileLabel = wifiStatus.ap_profile_label || wifiStatus.ap_profile || 'phone';
+            hint.innerHTML = `Open network (no password) · <strong>${wifiStatus.ap_url || 'http://192.168.12.1/'}</strong> · SoftAP <strong>${profileLabel}</strong>`;
         }
+        updateWifiApProfileButtons();
         return;
     }
 
@@ -1337,8 +1357,9 @@ function updateWifiSettingsUI() {
         toggleBtn.disabled = false;
         toggleBtn.textContent = 'Switch to AP Mode (cookie-finder)';
         if (hint) {
-            hint.innerHTML = `AP network name: <strong>${wifiStatus.ap_ssid || 'cookie-finder'}</strong>`;
+            hint.innerHTML = `AP network name: <strong>${wifiStatus.ap_ssid || 'cookie-finder'}</strong>. Choose SoftAP profile below before switching.`;
         }
+        updateWifiApProfileButtons();
         return;
     }
 
@@ -1401,10 +1422,19 @@ function closeWifiConfirm() {
     wifiTargetMode = null;
 }
 
+function selectedWifiApProfile() {
+    const checked = document.querySelector('.wifi-ap-profile-btn.is-selected');
+    if (checked) return checked.getAttribute('data-ap-profile') || 'phone';
+    if (wifiStatus && wifiStatus.ap_profile) return wifiStatus.ap_profile;
+    return 'phone';
+}
+
 function requestWifiModeSwitch() {
     if (!wifiStatus.supported) return;
     const target = wifiStatus.mode === 'ap' ? 'client' : 'ap';
-    fetch(`/wifi/instructions/${target}`)
+    const profile = selectedWifiApProfile();
+    const q = target === 'ap' ? `?profile=${encodeURIComponent(profile)}` : '';
+    fetch(`/wifi/instructions/${target}${q}`)
         .then((r) => r.json())
         .then((instructions) => {
             if (instructions.error) {
@@ -1429,7 +1459,9 @@ function confirmWifiModeSwitch() {
     }
     if (cancelBtn) cancelBtn.disabled = true;
 
-    fetch(`/wifi/mode/${wifiTargetMode}`, { method: 'POST' })
+    const profile = selectedWifiApProfile();
+    const q = wifiTargetMode === 'ap' ? `?profile=${encodeURIComponent(profile)}` : '';
+    fetch(`/wifi/mode/${wifiTargetMode}${q}`, { method: 'POST' })
         .then((r) => r.json())
         .then((data) => {
             if (data.wifi) applyWifiStatus(data.wifi);
@@ -1604,6 +1636,15 @@ if (motorOverlay) {
 }
 
 const wifiToggleBtn = document.getElementById('btn_wifi_toggle');
+document.querySelectorAll('.wifi-ap-profile-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.wifi-ap-profile-btn').forEach((b) => b.classList.remove('is-selected'));
+        btn.classList.add('is-selected');
+        if (wifiStatus) wifiStatus.ap_profile = btn.getAttribute('data-ap-profile') || 'phone';
+        updateWifiApProfileButtons();
+    });
+});
+
 if (wifiToggleBtn) {
     wifiToggleBtn.addEventListener('click', requestWifiModeSwitch);
 }
@@ -1945,7 +1986,7 @@ function buildBadgeTipContent(kind) {
         if (wifiStatus.mode === 'ap') {
             return {
                 title: 'WiFi — Access Point',
-                summary: `Hosting open network <strong>${wifiStatus.ap_ssid || 'cookie-finder'}</strong>. Open <code>${wifiStatus.ap_url || 'http://192.168.12.1/'}</code>.`,
+                summary: `Hosting open network <strong>${wifiStatus.ap_ssid || 'cookie-finder'}</strong> (${wifiStatus.ap_profile_label || wifiStatus.ap_profile || 'phone'}). Open <code>${wifiStatus.ap_url || 'http://192.168.12.1/'}</code>.`,
                 body: tipList([
                     'Join the AP from your phone/laptop, then use the captive portal URL.',
                     'Toggle back to client mode in Settings (or the GPIO WiFi button).',
@@ -2008,7 +2049,7 @@ function buildBadgeTipContent(kind) {
             body: tipList([
                 'Actual FPS depends on camera, WiFi link quality, and browser load.',
                 'If video stutters, move closer to the AP / use Ethernet, or reduce concurrent clients.',
-                'Open network AP URL on the Pi hotspot: <code>http://192.168.12.1/</code>',
+                'Phone SoftAP URL: <code>http://192.168.12.1/</code> · Tesla SoftAP URL: <code>http://3.3.3.3/</code>',
             ]),
         };
     }

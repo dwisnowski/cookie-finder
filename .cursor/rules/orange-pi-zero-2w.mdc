@@ -15,6 +15,7 @@ Cookie Finder WiFi (`scripts/wifi-mode.sh`, `cookie-finder-wifi`) requires **Net
 - Dual stack symptom: `wlan0:unavailable`, empty wifi list, or two `wpa_supplicant` processes (one with `/run/netplan/wpa-wlan0.conf`).
 - Client joins / profiles: `nmcli`, not editing `wpa_supplicant.conf` as the primary path.
 - SoftAP: open `cookie-finder` hotspot; WPA SoftAP is unreliable on this chip. Prefer NM SoftAP; hostapd is fallback.
+- Tesla SoftAP profile: gateway `3.3.3.3` (non-RFC1918) so the in-car browser can load the UI; phone SoftAP stays `192.168.12.1`.
 - Captive portal (AP only): DNS sinkhole to `192.168.12.1` via NM `dnsmasq-shared.d` / hostapd dnsmasq; web app on **:80** / **:443** redirects OS probes to the home page.
 - mDNS: `make on-the-pi-mdns` → `cookie-finder.local` (Avahi).
 - Boot policy: full reboot always restores **client**; AP is runtime-only.

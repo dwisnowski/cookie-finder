@@ -128,7 +128,8 @@ In **Settings → WiFi Mode**, toggle between client WiFi and the onboard hotspo
 
 - AP SSID: `cookie-finder`
 - AP password: none (open SoftAP — WPA SoftAP is unreliable on this WiFi chip)
-- AP URL: `http://192.168.12.1/` (captive portal redirects guests here)
+- AP URL (phone): `http://192.168.12.1/` (captive portal redirects guests here)
+- AP URL (Tesla profile): `http://3.3.3.3/` (non-RFC1918 SoftAP for the in-car browser)
 - LED: solid = client, slow blink (~1 Hz) = AP, fast blink (~5 Hz) = switching, slow→fast→slow chirp = shutting down
 
 Wiring details: [Hardware — Wiring](../hardware/wiring.md#wifi-mode-button--led). Networking prerequisites (NM-only Wi‑Fi, no netplan Wi‑Fi, optional fast-boot mask): [Orange Pi setup §4](../setup/orange-pi.md#4-configure-wifi-networkmanager-only).

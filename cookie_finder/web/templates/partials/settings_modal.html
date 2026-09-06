@@ -46,6 +46,13 @@
                     Detecting WiFi mode…
                 </div>
                 <button class="btn" id="btn_wifi_toggle" style="font-size: 11px; width: 100%;">Switch WiFi Mode</button>
+                <div id="wifiApProfileRow" style="margin-top: 10px; display: none;">
+                    <div style="font-size: 10px; color: var(--text-tertiary); margin-bottom: 6px; font-weight: bold;">SoftAP profile</div>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;">
+                        <button type="button" class="btn wifi-ap-profile-btn" id="btn_wifi_profile_phone" data-ap-profile="phone" style="font-size: 10px;">Phone / laptop<br><span style="opacity:.75">192.168.12.1</span></button>
+                        <button type="button" class="btn wifi-ap-profile-btn" id="btn_wifi_profile_tesla" data-ap-profile="tesla" style="font-size: 10px;">Tesla<br><span style="opacity:.75">3.3.3.3</span></button>
+                    </div>
+                </div>
                 <div id="wifiModeHint" style="margin-top: 8px; font-size: 10px; color: var(--text-tertiary); line-height: 1.4;">
                     AP network name: <strong>cookie-finder</strong> (open — no password)
                 </div>

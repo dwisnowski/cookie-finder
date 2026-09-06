@@ -49,7 +49,8 @@ When home WiFi is unavailable, the Pi can host its own hotspot (single GPIO butt
 |--|--|
 | **SSID** | `cookie-finder` |
 | **Password** | none (open network) |
-| **URL** | `http://192.168.12.1/` (captive portal opens this automatically) |
+| **URL** | `http://192.168.12.1/` (phone SoftAP; captive portal opens this automatically) |
+| **Tesla SoftAP** | Settings → SoftAP profile **Tesla** → join `cookie-finder` → open `http://3.3.3.3/` |
 
 One-time setup on the Pi: `make on-the-pi-init-wifi` (or `make init-wifi`). Details: [WiFi AP mode](docs/usage/running.md#wifi-access-point-mode), [Orange Pi setup](docs/setup/orange-pi.md#5-enable-wifi-access-point-mode-optional).
 

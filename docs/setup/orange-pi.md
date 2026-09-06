@@ -132,6 +132,21 @@ The home-screen badge shows **Client · …** or **AP · cookie-finder**.
 
 **Captive portal:** SoftAP DNS is sinkholed to `192.168.12.1` so OS connectivity checks redirect into the web UI (served on ports **80** and **443**).
 
+### Tesla SoftAP (in-car browser)
+
+Tesla’s browser blocks RFC1918 destinations (`192.168.x.x`, `10.x`, `172.16–31.x`), and the car often refuses SoftAPs that look like captive portals / “no internet”.
+
+Cookie Finder’s **Tesla SoftAP profile** uses a non-private gateway:
+
+1. In the web UI: **Settings → SoftAP profile → Tesla**, then switch to AP mode  
+   (or GPIO WiFi button after that profile was last selected).
+2. In the car: join open Wi‑Fi **`cookie-finder`**.
+3. Open **`http://3.3.3.3/`** in the Tesla browser (HTTP, not HTTPS).
+
+Phone/laptop SoftAP remains the default (`http://192.168.12.1/`). SoftAP still has no upstream internet — Tesla mode only changes the subnet and captive-probe answers so the car will stay associated.
+
+
+
 **mDNS:** run `make on-the-pi-mdns` (alias `make mdns`) once to advertise `http://cookie-finder.local/` on the LAN.
 
 ---

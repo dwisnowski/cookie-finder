@@ -238,7 +238,7 @@ Press once (or twice) to toggle between client WiFi and the `cookie-finder` acce
 |--|--|
 | **SSID** | `cookie-finder` |
 | **Password** | none (open network) |
-| **URL** | `http://192.168.12.1/` (captive portal) |
+| **URL** | `http://192.168.12.1/` (phone SoftAP) or `http://3.3.3.3/` (Tesla SoftAP) |
 
 If WiFi is disconnected (client mode but no SSID), the button repairs home WiFi instead of entering AP. Reboot always restores client mode. The Settings panel in the web UI uses the same `scripts/wifi-mode.sh` helper.
 

@@ -19,7 +19,7 @@ os.environ['OPENCV_LOG_LEVEL'] = 'OFF'
 cv2.setLogLevel(0)
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Request
-from fastapi.responses import RedirectResponse, StreamingResponse, FileResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, StreamingResponse, FileResponse, HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from jinja2 import Environment, FileSystemLoader
@@ -27,7 +27,14 @@ from jinja2 import Environment, FileSystemLoader
 from cookie_finder.camera.processor import ThermalProcessor
 from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
-from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
+from cookie_finder.wifi import (
+    AP_GATEWAY,
+    ap_url_for,
+    get_ap_profile,
+    get_switch_instructions,
+    get_wifi_status,
+    set_wifi_mode,
+)
 from cookie_finder.poweroff import request_poweroff
 from cookie_finder import software_update
 
@@ -733,13 +740,33 @@ def create_app(camera_id=None):
 
     @app.middleware("http")
     async def captive_portal_middleware(request: Request, call_next):
-        """Redirect OS captive-portal probes to the web app home page."""
+        """Handle OS captive-portal probes.
+
+        Phone SoftAP: redirect probes into the web UI (classic captive portal).
+        Tesla SoftAP: answer probes as "online" so the car will stay on a
+        local-only hotspot, then the driver/passenger opens http://3.3.3.3/.
+        """
         if request.method in ("GET", "HEAD"):
             path = request.url.path.rstrip("/") or "/"
-            # Match with and without trailing slash (probe set has no slash).
             probe = path if path != "/" else "/"
             if probe in _CAPTIVE_PROBE_PATHS or request.url.path in _CAPTIVE_PROBE_PATHS:
-                return RedirectResponse(url=_CAPTIVE_HOME, status_code=302)
+                if get_ap_profile() == "tesla":
+                    # Mimic a network that already has internet so Tesla keeps the
+                    # SoftAP association (it rejects classic captive portals).
+                    if "generate_204" in probe or probe.endswith("gen_204"):
+                        return Response(status_code=204)
+                    if "hotspot-detect" in probe or "success.html" in probe:
+                        return HTMLResponse(
+                            "<HTML><HEAD><TITLE>Success</TITLE></HEAD>"
+                            "<BODY>Success</BODY></HTML>"
+                        )
+                    if "connecttest.txt" in probe or "ncsi.txt" in probe:
+                        return PlainTextResponse("Microsoft Connect Test")
+                    if probe.endswith("success.txt"):
+                        return PlainTextResponse("success")
+                    return Response(status_code=204)
+                # Phone SoftAP: send probes into the app (classic captive portal).
+                return RedirectResponse(url=ap_url_for(), status_code=302)
         return await call_next(request)
     
     # Add all the routes
@@ -806,19 +833,27 @@ def create_app(camera_id=None):
         return get_network_info()
 
     @app.get("/wifi/instructions/{mode}")
-    def wifi_instructions(mode: str):
-        """Return confirmation-dialog copy for switching to ap or client."""
-        return get_switch_instructions(mode)
+    def wifi_instructions(mode: str, profile: str | None = None):
+        """Return confirmation-dialog copy for switching to ap or client.
+
+        Optional ``profile`` (``phone`` / ``tesla``) selects the SoftAP subnet
+        described in the dialog when ``mode=ap``.
+        """
+        return get_switch_instructions(mode, profile=profile)
 
     @app.post("/wifi/mode/{mode}")
-    def wifi_set_mode(mode: str):
+    def wifi_set_mode(mode: str, profile: str | None = None):
         """
         Switch WiFi to ap or client mode.
+
+        Optional ``profile`` (``phone`` / ``tesla``) selects the SoftAP subnet
+        when enabling AP mode. Tesla uses non-RFC1918 ``3.3.3.3`` so the car
+        browser can open the UI.
 
         Returns immediately, then performs the radio change in the background
         so the browser can show instructions before the link drops.
         """
-        return set_wifi_mode(mode)
+        return set_wifi_mode(mode, profile=profile)
 
     @app.post("/system/poweroff")
     def system_poweroff():
