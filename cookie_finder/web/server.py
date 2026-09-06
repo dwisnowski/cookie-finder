@@ -29,7 +29,7 @@ from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
 from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
 from cookie_finder.poweroff import request_poweroff
-from cookie_finder import software_update
+from cookie_finder import cloudflare_tunnel, software_update
 
 MDNS_HOST = "cookie-finder.local"
 
@@ -187,6 +187,27 @@ def _systemd_unit_active(unit: str) -> bool | None:
         return result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
+
+
+def _systemd_unit_exists(unit: str) -> bool | None:
+    """Return True if the unit file is loadable; None if systemctl is unavailable."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["systemctl", "cat", unit],
+            capture_output=True,
+            timeout=1.5,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def get_cloudflare_tunnel_status_payload() -> dict:
+    """Status of the Cloudflare Tunnel connector (cloudflared systemd unit)."""
+    return cloudflare_tunnel.status()
 
 
 def ensure_gimbal_connected() -> bool:
@@ -755,7 +776,28 @@ def create_app(camera_id=None):
     def gimbal_status():
         """Rust cookie-finder-ctl daemon reachability (socket ping + optional systemd)."""
         return get_gimbal_status_payload()
-    
+
+    @app.get("/cloudflare/status")
+    def cloudflare_status():
+        """Cloudflare Tunnel (cloudflared.service) install + running state."""
+        return get_cloudflare_tunnel_status_payload()
+
+    @app.post("/cloudflare/start")
+    def cloudflare_start():
+        """Enable + start cloudflared.service (passwordless sudo via init target)."""
+        result = cloudflare_tunnel.start()
+        if result.get("status") != "ok":
+            return JSONResponse(result, status_code=500)
+        return result
+
+    @app.post("/cloudflare/stop")
+    def cloudflare_stop():
+        """Disable + stop cloudflared.service (stays off across reboot)."""
+        result = cloudflare_tunnel.stop()
+        if result.get("status") != "ok":
+            return JSONResponse(result, status_code=500)
+        return result
+
     @app.post("/reconnect")
     def reconnect():
         """Force the capture thread to release and reopen the current camera."""
@@ -1089,6 +1131,10 @@ def create_app(camera_id=None):
             await websocket.send_json({
                 "type": "wifi_status",
                 "data": get_wifi_status(),
+            })
+            await websocket.send_json({
+                "type": "cloudflare_status",
+                "data": get_cloudflare_tunnel_status_payload(),
             })
 
             while True:
