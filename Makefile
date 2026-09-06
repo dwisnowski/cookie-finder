@@ -178,10 +178,37 @@ _init-cloudflare-tunnel:
 	sudo cloudflared service install "$(CLOUDFLARE_TUNNEL_TOKEN)"
 	@sudo systemctl enable --now cloudflared.service >/dev/null 2>&1 || true
 	@echo "Cloudflare Tunnel installed."
-	@echo "Status:  sudo systemctl status cloudflared"
+	@echo "Status:  make on-the-pi-cloudflare-tunnel-status"
+	@echo "Start:   make on-the-pi-cloudflare-tunnel-start"
+	@echo "Stop:    make on-the-pi-cloudflare-tunnel-stop"
 	@echo "Logs:    sudo journalctl -u cloudflared -f"
 	@echo "Pi must be in WiFi client mode with internet (home WiFi or phone hotspot)."
 	@echo "Point the tunnel's public hostname at http://127.0.0.1:80 (Cookie Finder web)."
+
+on-the-pi-cloudflare-tunnel-start:
+	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
+	@if ! systemctl cat cloudflared.service >/dev/null 2>&1; then \
+		echo "error: cloudflared.service is not installed."; \
+		echo "Run: make on-the-pi-init-cloudflare-tunnel  (needs CLOUDFLARE_TUNNEL_TOKEN in .env)"; \
+		exit 1; \
+	fi
+	sudo systemctl enable --now cloudflared.service
+	@echo "Started cloudflared.service"
+	@sudo systemctl --no-pager --full status cloudflared.service | head -n 12 || true
+
+on-the-pi-cloudflare-tunnel-stop:
+	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
+	sudo systemctl stop cloudflared.service
+	@echo "Stopped cloudflared.service"
+
+on-the-pi-cloudflare-tunnel-status:
+	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
+	@if ! systemctl cat cloudflared.service >/dev/null 2>&1; then \
+		echo "cloudflared.service is not installed."; \
+		echo "Install with: make on-the-pi-init-cloudflare-tunnel"; \
+		exit 1; \
+	fi
+	@sudo systemctl --no-pager --full status cloudflared.service
 
 # Oneshot unit + narrow sudoers so the web UI can pull origin/main and restart.
 _init-software-update:
@@ -576,6 +603,8 @@ on-the-mac-run-with-rust: on-the-mac-rust-deploy
         on-the-pi-rust-daemon-stop on-the-pi-rust-daemon-status \
         on-the-pi-rust-keyboard on-the-pi-init-wifi on-the-pi-init-software-update \
         on-the-pi-init-cloudflare-tunnel \
+        on-the-pi-cloudflare-tunnel-start on-the-pi-cloudflare-tunnel-stop \
+        on-the-pi-cloudflare-tunnel-status \
         on-the-pi-wifi-gpio-daemon-install on-the-pi-wifi-gpio-daemon \
         on-the-pi-wifi-gpio-daemon-stop on-the-pi-wifi-gpio-daemon-status \
         on-the-pi-web-daemon-install on-the-pi-web-daemon \
@@ -596,6 +625,9 @@ on-the-pi-help:
 	@echo "  make on-the-pi-init-wifi              Install WiFi AP deps + captive DNS + button/LED service"
 	@echo "  make on-the-pi-init-software-update   Allow Settings gear to pull GitHub main + restart"
 	@echo "  make on-the-pi-init-cloudflare-tunnel Install cloudflared + tunnel service (token from .env)"
+	@echo "  make on-the-pi-cloudflare-tunnel-start Start cloudflared systemd service"
+	@echo "  make on-the-pi-cloudflare-tunnel-stop  Stop cloudflared systemd service"
+	@echo "  make on-the-pi-cloudflare-tunnel-status Show cloudflared service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon       Install/start WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"
@@ -982,6 +1014,7 @@ on-the-pi-wifi-gpio-daemon-status:
 
 .PHONY: install install-yolo install-docs docs clean init init-wifi init-software-update \
         init-cloudflare-tunnel \
+        cloudflare-tunnel-start cloudflare-tunnel-stop cloudflare-tunnel-status \
         run run-standalone run-web run-web-custom \
         test-motors test-motors-pan-cw test-motors-pan-ccw test-motors-tilt-cw \
         test-motors-tilt-ccw test-motors-home \
@@ -1008,6 +1041,9 @@ init: on-the-pi-init
 init-wifi: on-the-pi-init-wifi
 init-software-update: on-the-pi-init-software-update
 init-cloudflare-tunnel: on-the-pi-init-cloudflare-tunnel
+cloudflare-tunnel-start: on-the-pi-cloudflare-tunnel-start
+cloudflare-tunnel-stop: on-the-pi-cloudflare-tunnel-stop
+cloudflare-tunnel-status: on-the-pi-cloudflare-tunnel-status
 docs: on-the-mac-docs
 clean: on-the-pi-clean
 

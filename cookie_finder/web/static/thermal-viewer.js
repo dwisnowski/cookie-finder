@@ -111,6 +111,13 @@ let rustStatus = {
     socket: '/tmp/cookie-finder.sock',
     service_active: null,
 };
+let cloudflareStatus = {
+    running: false,
+    installed: false,
+    unit: 'cloudflared.service',
+    unit_exists: null,
+    binary: false,
+};
 let bluetoothConnectedDevices = [];
 
 function isMobilePortrait() {
@@ -682,6 +689,8 @@ function connectWebSocket() {
             }
         } else if (msg.type === 'wifi_status') {
             applyWifiStatus(msg.data);
+        } else if (msg.type === 'cloudflare_status') {
+            applyCloudflareStatus(msg.data);
         }
     };
 
@@ -839,6 +848,42 @@ function refreshRustStatus() {
         .then(r => r.json())
         .then(applyRustStatus)
         .catch(() => applyRustStatus({ running: false, service_active: null }));
+}
+
+function updateCloudflareBadge() {
+    const badge = document.getElementById('badge_cloudflare');
+    const dot = document.getElementById('badge_cloudflare_dot');
+    const text = document.getElementById('badge_cloudflare_text');
+    if (!badge || !dot || !text) return;
+
+    badge.classList.remove('badge-cloudflare-ok', 'badge-cloudflare-down');
+    if (cloudflareStatus.running) {
+        badge.classList.add('badge-cloudflare-ok');
+        dot.classList.add('active');
+        text.textContent = 'CF Tunnel';
+        return;
+    }
+
+    badge.classList.add('badge-cloudflare-down');
+    dot.classList.remove('active');
+    text.textContent = cloudflareStatus.installed ? 'CF down' : 'CF off';
+}
+
+function applyCloudflareStatus(data) {
+    cloudflareStatus = Object.assign({}, cloudflareStatus, data || {});
+    updateCloudflareBadge();
+}
+
+function refreshCloudflareStatus() {
+    fetch('/cloudflare/status')
+        .then((r) => r.json())
+        .then(applyCloudflareStatus)
+        .catch(() => applyCloudflareStatus({
+            running: false,
+            installed: false,
+            unit_exists: null,
+            binary: false,
+        }));
 }
 
 
@@ -1627,6 +1672,9 @@ setInterval(refreshWifiStatus, 5000);
 refreshRustStatus();
 setInterval(refreshRustStatus, 5000);
 
+refreshCloudflareStatus();
+setInterval(refreshCloudflareStatus, 5000);
+
 // Help modal
 const helpOverlay = document.getElementById('helpOverlay');
 const helpBtn = document.getElementById('btn_help');
@@ -1919,6 +1967,45 @@ function buildBadgeTipContent(kind) {
                 'If the binary is missing, build first: <code>make on-the-pi-rust-build</code>',
                 'Socket path defaults to <code>/tmp/cookie-finder.sock</code> (override with <code>COOKIE_FINDER_SOCKET</code>).',
                 'From a Mac you can deploy + start over SSH: <code>make on-the-mac-rust-daemon</code>',
+            ]),
+        };
+    }
+
+    if (kind === 'cloudflare') {
+        if (cloudflareStatus.running) {
+            return {
+                title: 'Cloudflare Tunnel',
+                summary: `Connector is running (<code>${cloudflareStatus.unit || 'cloudflared.service'}</code>). Tesla / remote browsers can use your public Cloudflare hostname.`,
+                body: tipList([
+                    'Status: <code>make on-the-pi-cloudflare-tunnel-status</code>',
+                    'Stop: <code>make on-the-pi-cloudflare-tunnel-stop</code>',
+                    'Logs: <code>sudo journalctl -u cloudflared -f</code>',
+                    'Pi must stay on client WiFi with internet (home or phone hotspot) — SoftAP has no upstream path.',
+                    'Public hostname should proxy to <code>http://127.0.0.1:80</code>.',
+                ]),
+            };
+        }
+        if (cloudflareStatus.installed) {
+            return {
+                title: 'Cloudflare Tunnel',
+                summary: 'cloudflared is installed, but the tunnel service is not running. Remote / Tesla access via Cloudflare will not work until it is started.',
+                body: tipList([
+                    'Start it: <code>make on-the-pi-cloudflare-tunnel-start</code>',
+                    'Confirm: <code>make on-the-pi-cloudflare-tunnel-status</code>',
+                    'If start fails, reinstall with token from <code>.env</code>: <code>make on-the-pi-init-cloudflare-tunnel</code>',
+                    'Needs client WiFi with internet (not SoftAP).',
+                ]),
+            };
+        }
+        return {
+            title: 'Cloudflare Tunnel',
+            summary: 'Cloudflare Tunnel is not installed on this Pi. Optional — only needed for Tesla / remote access when LAN IPs are blocked.',
+            body: tipList([
+                'Copy <code>.env.example</code> → <code>.env</code> and set <code>CLOUDFLARE_TUNNEL_TOKEN</code>.',
+                'Install + enable the service: <code>make on-the-pi-init-cloudflare-tunnel</code>',
+                'Alias: <code>make init-cloudflare-tunnel</code>',
+                'Then point the tunnel hostname at <code>http://127.0.0.1:80</code> in the Cloudflare dashboard.',
+                'Status afterward: <code>make on-the-pi-cloudflare-tunnel-status</code>',
             ]),
         };
     }

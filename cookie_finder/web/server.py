@@ -189,6 +189,42 @@ def _systemd_unit_active(unit: str) -> bool | None:
         return None
 
 
+def _systemd_unit_exists(unit: str) -> bool | None:
+    """Return True if the unit file is loadable; None if systemctl is unavailable."""
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["systemctl", "cat", unit],
+            capture_output=True,
+            timeout=1.5,
+            check=False,
+        )
+        return result.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
+CLOUDFLARED_UNIT = "cloudflared.service"
+
+
+def get_cloudflare_tunnel_status_payload() -> dict:
+    """Status of the Cloudflare Tunnel connector (cloudflared systemd unit)."""
+    import shutil
+
+    unit_exists = _systemd_unit_exists(CLOUDFLARED_UNIT)
+    running = _systemd_unit_active(CLOUDFLARED_UNIT)
+    binary = shutil.which("cloudflared") is not None
+    installed = bool(unit_exists) or binary
+    return {
+        "running": bool(running),
+        "installed": installed,
+        "unit": CLOUDFLARED_UNIT,
+        "unit_exists": unit_exists,
+        "binary": binary,
+    }
+
+
 def ensure_gimbal_connected() -> bool:
     """Ping existing client or reconnect to the Rust daemon. Returns True if usable."""
     global gimbal, gimbal_poller_started
@@ -755,6 +791,11 @@ def create_app(camera_id=None):
     def gimbal_status():
         """Rust cookie-finder-ctl daemon reachability (socket ping + optional systemd)."""
         return get_gimbal_status_payload()
+
+    @app.get("/cloudflare/status")
+    def cloudflare_status():
+        """Cloudflare Tunnel (cloudflared.service) install + running state."""
+        return get_cloudflare_tunnel_status_payload()
     
     @app.post("/reconnect")
     def reconnect():
@@ -1089,6 +1130,10 @@ def create_app(camera_id=None):
             await websocket.send_json({
                 "type": "wifi_status",
                 "data": get_wifi_status(),
+            })
+            await websocket.send_json({
+                "type": "cloudflare_status",
+                "data": get_cloudflare_tunnel_status_payload(),
             })
 
             while True:

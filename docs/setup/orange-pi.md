@@ -189,7 +189,9 @@ Use this when the car (or another device) cannot open the Pi’s LAN IP — for 
 4. In the tunnel’s public hostname config, point to `http://127.0.0.1:80` (Cookie Finder web).
 5. Keep the Pi on client WiFi with internet (home WiFi or phone hotspot). SoftAP alone has no upstream path for the tunnel.
 
-Status / logs: `sudo systemctl status cloudflared` · `sudo journalctl -u cloudflared -f`
+Status / logs: `make on-the-pi-cloudflare-tunnel-status` · `sudo journalctl -u cloudflared -f`  
+Start / stop: `make on-the-pi-cloudflare-tunnel-start` · `make on-the-pi-cloudflare-tunnel-stop`  
+The web UI header **CF Tunnel** badge reflects whether `cloudflared.service` is running (click for setup tips).
 
 ---
 
