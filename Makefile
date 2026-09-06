@@ -59,6 +59,9 @@ SOFTWARE_UPDATE_UNIT := /etc/systemd/system/cookie-finder-software-update.servic
 SOFTWARE_UPDATE_OWNER := $(USER)
 SOFTWARE_UPDATE_GROUP := $(shell id -gn)
 SOFTWARE_UPDATE_HOME := $(HOME)
+CLOUDFLARE_SUDOERS := /etc/sudoers.d/cookie-finder-cloudflare
+CLOUDFLARE_UNIT := cloudflared.service
+CLOUDFLARE_OWNER := $(USER)
 
 help:
 	@echo "Cookie Finder – Makefile Targets"
@@ -177,6 +180,19 @@ _init-cloudflare-tunnel:
 	fi
 	sudo cloudflared service install "$(CLOUDFLARE_TUNNEL_TOKEN)"
 	@sudo systemctl enable --now cloudflared.service >/dev/null 2>&1 || true
+	@SYSTEMCTL_BIN=$$(command -v systemctl); \
+	echo "Configuring passwordless sudo for $(CLOUDFLARE_OWNER) → cloudflared start/stop..."; \
+	printf '%s\n' \
+		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN enable --now $(CLOUDFLARE_UNIT)" \
+		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN disable --now $(CLOUDFLARE_UNIT)" \
+		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN start $(CLOUDFLARE_UNIT)" \
+		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN stop $(CLOUDFLARE_UNIT)" \
+		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN enable $(CLOUDFLARE_UNIT)" \
+		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN disable $(CLOUDFLARE_UNIT)" \
+		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN is-enabled $(CLOUDFLARE_UNIT)" \
+		| sudo tee "$(CLOUDFLARE_SUDOERS)" >/dev/null; \
+	sudo chmod 440 "$(CLOUDFLARE_SUDOERS)"; \
+	sudo visudo -cf "$(CLOUDFLARE_SUDOERS)"
 	@echo "Cloudflare Tunnel installed."
 	@echo "Status:  make on-the-pi-cloudflare-tunnel-status"
 	@echo "Start:   make on-the-pi-cloudflare-tunnel-start"
@@ -184,6 +200,7 @@ _init-cloudflare-tunnel:
 	@echo "Logs:    sudo journalctl -u cloudflared -f"
 	@echo "Pi must be in WiFi client mode with internet (home WiFi or phone hotspot)."
 	@echo "Point the tunnel's public hostname at http://127.0.0.1:80 (Cookie Finder web)."
+	@echo "Settings → Cloudflare Tunnel toggle can start/stop the daemon (uses sudoers above)."
 
 on-the-pi-cloudflare-tunnel-start:
 	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
@@ -198,8 +215,8 @@ on-the-pi-cloudflare-tunnel-start:
 
 on-the-pi-cloudflare-tunnel-stop:
 	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
-	sudo systemctl stop cloudflared.service
-	@echo "Stopped cloudflared.service"
+	sudo systemctl disable --now cloudflared.service
+	@echo "Stopped and disabled cloudflared.service (stays off across reboot)"
 
 on-the-pi-cloudflare-tunnel-status:
 	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }

@@ -29,7 +29,7 @@ from cookie_finder.gimbal.rust_client import RustGimbalClient
 from cookie_finder.bluetooth.controller import BluetoothController
 from cookie_finder.wifi import AP_GATEWAY, get_switch_instructions, get_wifi_status, set_wifi_mode
 from cookie_finder.poweroff import request_poweroff
-from cookie_finder import software_update
+from cookie_finder import cloudflare_tunnel, software_update
 
 MDNS_HOST = "cookie-finder.local"
 
@@ -205,24 +205,9 @@ def _systemd_unit_exists(unit: str) -> bool | None:
         return None
 
 
-CLOUDFLARED_UNIT = "cloudflared.service"
-
-
 def get_cloudflare_tunnel_status_payload() -> dict:
     """Status of the Cloudflare Tunnel connector (cloudflared systemd unit)."""
-    import shutil
-
-    unit_exists = _systemd_unit_exists(CLOUDFLARED_UNIT)
-    running = _systemd_unit_active(CLOUDFLARED_UNIT)
-    binary = shutil.which("cloudflared") is not None
-    installed = bool(unit_exists) or binary
-    return {
-        "running": bool(running),
-        "installed": installed,
-        "unit": CLOUDFLARED_UNIT,
-        "unit_exists": unit_exists,
-        "binary": binary,
-    }
+    return cloudflare_tunnel.status()
 
 
 def ensure_gimbal_connected() -> bool:
@@ -796,7 +781,23 @@ def create_app(camera_id=None):
     def cloudflare_status():
         """Cloudflare Tunnel (cloudflared.service) install + running state."""
         return get_cloudflare_tunnel_status_payload()
-    
+
+    @app.post("/cloudflare/start")
+    def cloudflare_start():
+        """Enable + start cloudflared.service (passwordless sudo via init target)."""
+        result = cloudflare_tunnel.start()
+        if result.get("status") != "ok":
+            return JSONResponse(result, status_code=500)
+        return result
+
+    @app.post("/cloudflare/stop")
+    def cloudflare_stop():
+        """Disable + stop cloudflared.service (stays off across reboot)."""
+        result = cloudflare_tunnel.stop()
+        if result.get("status") != "ok":
+            return JSONResponse(result, status_code=500)
+        return result
+
     @app.post("/reconnect")
     def reconnect():
         """Force the capture thread to release and reopen the current camera."""

@@ -190,8 +190,9 @@ Use this when the car (or another device) cannot open the Pi’s LAN IP — for 
 5. Keep the Pi on client WiFi with internet (home WiFi or phone hotspot). SoftAP alone has no upstream path for the tunnel.
 
 Status / logs: `make on-the-pi-cloudflare-tunnel-status` · `sudo journalctl -u cloudflared -f`  
-Start / stop: `make on-the-pi-cloudflare-tunnel-start` · `make on-the-pi-cloudflare-tunnel-stop`  
-The web UI header **CF Tunnel** badge reflects whether `cloudflared.service` is running (click for setup tips).
+Start / stop: `make on-the-pi-cloudflare-tunnel-start` · `make on-the-pi-cloudflare-tunnel-stop` (stop disables the unit so it stays off across reboot)  
+The web UI header **CF Tunnel** badge reflects whether `cloudflared.service` is running (click for setup tips).  
+**Settings → Cloudflare Tunnel** has an on/off toggle (same enable/disable; needs the sudoers drop-in installed by `init-cloudflare-tunnel`).
 
 ---
 

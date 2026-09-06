@@ -61,7 +61,7 @@
                     <div class="help-cmd-row"><code>make on-the-pi-init</code><span>Bluetooth group permissions</span></div>
                     <div class="help-cmd-row"><code>make on-the-pi-tool-setup</code><span>apt build deps + Rust/cargo</span></div>
                     <div class="help-cmd-row"><code>make on-the-pi-init-wifi</code><span>WiFi AP deps + captive DNS + button/LED</span></div>
-                    <div class="help-cmd-row"><code>make on-the-pi-init-cloudflare-tunnel</code><span>Install cloudflared tunnel (token from .env)</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-init-cloudflare-tunnel</code><span>Install cloudflared + Settings toggle sudoers (token from .env)</span></div>
                     <div class="help-cmd-row"><code>make on-the-pi-mdns</code><span>Hostname + Avahi for cookie-finder.local</span></div>
                 </div>
 
@@ -84,8 +84,8 @@
 
                 <div class="help-cmd-group-title">Cloudflare Tunnel</div>
                 <div class="help-cmd-list">
-                    <div class="help-cmd-row"><code>make on-the-pi-cloudflare-tunnel-start</code><span>Start cloudflared service</span></div>
-                    <div class="help-cmd-row"><code>make on-the-pi-cloudflare-tunnel-stop</code><span>Stop cloudflared service</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-cloudflare-tunnel-start</code><span>Start cloudflared (or use Settings toggle)</span></div>
+                    <div class="help-cmd-row"><code>make on-the-pi-cloudflare-tunnel-stop</code><span>Stop + disable cloudflared (or Settings toggle)</span></div>
                     <div class="help-cmd-row"><code>make on-the-pi-cloudflare-tunnel-status</code><span>Show cloudflared status</span></div>
                 </div>
 

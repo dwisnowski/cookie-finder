@@ -117,7 +117,11 @@ let cloudflareStatus = {
     unit: 'cloudflared.service',
     unit_exists: null,
     binary: false,
+    controllable: false,
+    control_error: '',
+    setup_command: 'make on-the-pi-init-cloudflare-tunnel',
 };
+let cloudflareToggleBusy = false;
 let bluetoothConnectedDevices = [];
 
 function isMobilePortrait() {
@@ -869,9 +873,47 @@ function updateCloudflareBadge() {
     text.textContent = cloudflareStatus.installed ? 'CF down' : 'CF off';
 }
 
+function updateCloudflareToggle() {
+    const toggle = document.getElementById('toggle_cloudflare_tunnel');
+    const label = document.getElementById('cloudflareToggleLabel');
+    const hint = document.getElementById('cloudflareToggleHint');
+    if (!toggle) return;
+
+    const installed = !!cloudflareStatus.unit_exists || !!cloudflareStatus.installed;
+    const controllable = !!cloudflareStatus.controllable && installed;
+    toggle.checked = !!cloudflareStatus.running;
+    toggle.disabled = cloudflareToggleBusy || !controllable;
+
+    if (label) {
+        if (cloudflareToggleBusy) {
+            label.textContent = cloudflareStatus.running ? 'Stopping…' : 'Starting…';
+        } else if (cloudflareStatus.running) {
+            label.textContent = 'Tunnel on';
+        } else if (installed) {
+            label.textContent = 'Tunnel off';
+        } else {
+            label.textContent = 'Tunnel not installed';
+        }
+    }
+
+    if (hint) {
+        if (!installed) {
+            hint.textContent = `Not installed. Run: ${cloudflareStatus.setup_command || 'make on-the-pi-init-cloudflare-tunnel'}`;
+        } else if (!cloudflareStatus.controllable) {
+            hint.textContent = cloudflareStatus.control_error
+                || `Web control needs sudoers. Re-run: ${cloudflareStatus.setup_command || 'make on-the-pi-init-cloudflare-tunnel'}`;
+        } else if (cloudflareStatus.running) {
+            hint.textContent = 'On — Tesla / remote browsers can use your public Cloudflare hostname. Turn off to stop the daemon.';
+        } else {
+            hint.textContent = 'Off — stays off across reboot until you turn it back on. Needs client WiFi with internet.';
+        }
+    }
+}
+
 function applyCloudflareStatus(data) {
     cloudflareStatus = Object.assign({}, cloudflareStatus, data || {});
     updateCloudflareBadge();
+    updateCloudflareToggle();
 }
 
 function refreshCloudflareStatus() {
@@ -883,7 +925,38 @@ function refreshCloudflareStatus() {
             installed: false,
             unit_exists: null,
             binary: false,
+            controllable: false,
         }));
+}
+
+async function setCloudflareTunnelEnabled(wantOn) {
+    const toggle = document.getElementById('toggle_cloudflare_tunnel');
+    if (cloudflareToggleBusy) return;
+    cloudflareToggleBusy = true;
+    updateCloudflareToggle();
+    try {
+        const resp = await fetch(wantOn ? '/cloudflare/start' : '/cloudflare/stop', {
+            method: 'POST',
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+            const detail = data.detail || data.message || `HTTP ${resp.status}`;
+            throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        }
+        if (data.cloudflare) {
+            applyCloudflareStatus(data.cloudflare);
+        } else {
+            await refreshCloudflareStatus();
+        }
+    } catch (e) {
+        console.error('Cloudflare toggle failed:', e);
+        if (toggle) toggle.checked = !!cloudflareStatus.running;
+        alert(e.message || String(e));
+        refreshCloudflareStatus();
+    } finally {
+        cloudflareToggleBusy = false;
+        updateCloudflareToggle();
+    }
 }
 
 
@@ -1653,6 +1726,13 @@ if (wifiToggleBtn) {
     wifiToggleBtn.addEventListener('click', requestWifiModeSwitch);
 }
 
+const cloudflareToggle = document.getElementById('toggle_cloudflare_tunnel');
+if (cloudflareToggle) {
+    cloudflareToggle.addEventListener('change', () => {
+        setCloudflareTunnelEnabled(!!cloudflareToggle.checked);
+    });
+}
+
 const wifiConfirmOverlay = document.getElementById('wifiConfirmOverlay');
 const closeWifiConfirmBtn = document.getElementById('closeWifiConfirmBtn');
 const wifiCancelBtn = document.getElementById('btn_wifi_cancel');
@@ -1977,8 +2057,8 @@ function buildBadgeTipContent(kind) {
                 title: 'Cloudflare Tunnel',
                 summary: `Connector is running (<code>${cloudflareStatus.unit || 'cloudflared.service'}</code>). Tesla / remote browsers can use your public Cloudflare hostname.`,
                 body: tipList([
+                    'Turn off from <strong>Settings → Cloudflare Tunnel</strong>, or <code>make on-the-pi-cloudflare-tunnel-stop</code>',
                     'Status: <code>make on-the-pi-cloudflare-tunnel-status</code>',
-                    'Stop: <code>make on-the-pi-cloudflare-tunnel-stop</code>',
                     'Logs: <code>sudo journalctl -u cloudflared -f</code>',
                     'Pi must stay on client WiFi with internet (home or phone hotspot) — SoftAP has no upstream path.',
                     'Public hostname should proxy to <code>http://127.0.0.1:80</code>.',
@@ -1990,7 +2070,7 @@ function buildBadgeTipContent(kind) {
                 title: 'Cloudflare Tunnel',
                 summary: 'cloudflared is installed, but the tunnel service is not running. Remote / Tesla access via Cloudflare will not work until it is started.',
                 body: tipList([
-                    'Start it: <code>make on-the-pi-cloudflare-tunnel-start</code>',
+                    'Turn on from <strong>Settings → Cloudflare Tunnel</strong>, or <code>make on-the-pi-cloudflare-tunnel-start</code>',
                     'Confirm: <code>make on-the-pi-cloudflare-tunnel-status</code>',
                     'If start fails, reinstall with token from <code>.env</code>: <code>make on-the-pi-init-cloudflare-tunnel</code>',
                     'Needs client WiFi with internet (not SoftAP).',
