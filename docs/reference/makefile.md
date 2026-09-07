@@ -22,10 +22,10 @@ make on-the-pi-help    # full Pi target list
 | `make on-the-pi-init` / `make init` | Pi | Add user to Bluetooth group |
 | `make on-the-pi-init-wifi` / `make init-wifi` | Pi | AP deps, captive DNS, sudoers (WiFi + poweroff), WiFi GPIO service |
 | `make on-the-pi-init-software-update` / `make init-software-update` | Pi | Allow Settings → Software to pull GitHub `main` + restart web |
-| `make on-the-pi-init-cloudflare-tunnel` / `make init-cloudflare-tunnel` | Pi | Install `cloudflared` + tunnel systemd service + Settings toggle sudoers (token from `.env`) |
-| `make on-the-pi-cloudflare-tunnel-start` / `make cloudflare-tunnel-start` | Pi | Enable + start `cloudflared.service` |
-| `make on-the-pi-cloudflare-tunnel-stop` / `make cloudflare-tunnel-stop` | Pi | Disable + stop `cloudflared.service` (stays off across reboot) |
-| `make on-the-pi-cloudflare-tunnel-status` / `make cloudflare-tunnel-status` | Pi | Show `cloudflared.service` status |
+| `make on-the-pi-init-cloudflare-tunnel` / `make init-cloudflare-tunnel` | Pi | Install `cloudflared` + quick-tunnel systemd unit (`*.trycloudflare.com`, no domain) + Settings toggle sudoers |
+| `make on-the-pi-cloudflare-tunnel-start` / `make cloudflare-tunnel-start` | Pi | Enable + start `cookie-finder-cloudflared.service` |
+| `make on-the-pi-cloudflare-tunnel-stop` / `make cloudflare-tunnel-stop` | Pi | Disable + stop `cookie-finder-cloudflared.service` (stays off across reboot) |
+| `make on-the-pi-cloudflare-tunnel-status` / `make cloudflare-tunnel-status` | Pi | Show quick-tunnel status + trycloudflare URL |
 | `make on-the-pi-mdns` / `make mdns` | Pi | Hostname + Avahi for `http://cookie-finder.local/` |
 | `make on-the-mac-tool-setup` | Mac | Rustup + cross + Docker check |
 | `make on-the-pi-tool-setup` | Pi | apt build deps + Rustup |

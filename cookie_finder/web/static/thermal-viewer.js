@@ -164,12 +164,14 @@ let rustStatus = {
 let cloudflareStatus = {
     running: false,
     installed: false,
-    unit: 'cloudflared.service',
+    unit: 'cookie-finder-cloudflared.service',
     unit_exists: null,
     binary: false,
     controllable: false,
     control_error: '',
     setup_command: 'make on-the-pi-init-cloudflare-tunnel',
+    url: null,
+    mode: 'quick',
 };
 let cloudflareToggleBusy = false;
 let bluetoothConnectedDevices = [];
@@ -914,7 +916,7 @@ function updateCloudflareBadge() {
     if (cloudflareStatus.running) {
         badge.classList.add('badge-cloudflare-ok');
         dot.classList.add('active');
-        text.textContent = 'CF Tunnel';
+        text.textContent = cloudflareStatus.url ? 'CF Tunnel' : 'CF…';
         return;
     }
 
@@ -953,9 +955,11 @@ function updateCloudflareToggle() {
             hint.textContent = cloudflareStatus.control_error
                 || `Web control needs sudoers. Re-run: ${cloudflareStatus.setup_command || 'make on-the-pi-init-cloudflare-tunnel'}`;
         } else if (cloudflareStatus.running) {
-            hint.textContent = 'On — Tesla / remote browsers can use your public Cloudflare hostname. Turn off to stop the daemon.';
+            hint.textContent = cloudflareStatus.url
+                ? `On — ${cloudflareStatus.url}`
+                : 'On — waiting for trycloudflare.com hostname…';
         } else {
-            hint.textContent = 'Off — stays off across reboot until you turn it back on. Needs client WiFi with internet.';
+            hint.textContent = 'Off — stays off across reboot. Free trycloudflare.com URL when on (needs client WiFi + internet).';
         }
     }
 }
@@ -1684,10 +1688,13 @@ function renderConnectQr(url) {
 function applyConnectInfo(data) {
     const ipEl = document.getElementById('connectIp');
     const mdnsEl = document.getElementById('connectMdns');
+    const cfEl = document.getElementById('connectCloudflare');
     const hintEl = document.getElementById('connectHint');
     const url = (data && data.url) || window.location.origin + '/';
     const ip = data && data.ip;
     const mdnsUrl = (data && data.mdns_url) || 'http://cookie-finder.local/';
+    const cfUrl = data && data.cloudflare_url;
+    const cfRunning = !!(data && data.cloudflare_running);
 
     if (ipEl) {
         if (ip) {
@@ -1702,6 +1709,18 @@ function applyConnectInfo(data) {
     if (mdnsEl) {
         mdnsEl.textContent = mdnsUrl;
         if (mdnsEl.tagName === 'A') mdnsEl.href = mdnsUrl;
+    }
+    if (cfEl) {
+        if (cfUrl) {
+            cfEl.textContent = cfUrl;
+            if (cfEl.tagName === 'A') cfEl.href = cfUrl;
+        } else if (cfRunning) {
+            cfEl.textContent = 'Waiting for trycloudflare.com…';
+            if (cfEl.tagName === 'A') cfEl.removeAttribute('href');
+        } else {
+            cfEl.textContent = 'Not running';
+            if (cfEl.tagName === 'A') cfEl.removeAttribute('href');
+        }
     }
     if (hintEl) {
         if (data && data.wifi_mode === 'ap') {
@@ -1719,20 +1738,43 @@ function applyConnectInfo(data) {
     renderConnectQr(url);
 }
 
+function fetchConnectInfo() {
+    return fetch('/network/info').then((r) => r.json());
+}
+
 function openConnect() {
     if (!connectOverlay) return;
     connectOverlay.classList.add('active');
     const ipEl = document.getElementById('connectIp');
     if (ipEl) ipEl.textContent = 'Loading…';
-    fetch('/network/info')
-        .then((r) => r.json())
-        .then((data) => applyConnectInfo(data))
+    fetchConnectInfo()
+        .then((data) => {
+            applyConnectInfo(data);
+            // Quick tunnel hostname can lag a few seconds after start — poll briefly.
+            if (data && data.cloudflare_running && !data.cloudflare_url) {
+                let tries = 0;
+                const poll = () => {
+                    if (!connectOverlay || !connectOverlay.classList.contains('active')) return;
+                    tries += 1;
+                    fetchConnectInfo()
+                        .then((next) => {
+                            applyConnectInfo(next);
+                            if (next.cloudflare_url || tries >= 12) return;
+                            setTimeout(poll, 1000);
+                        })
+                        .catch(() => {});
+                };
+                setTimeout(poll, 1000);
+            }
+        })
         .catch((e) => {
             console.error('Network info error:', e);
             applyConnectInfo({
                 url: window.location.origin + '/',
                 ip: null,
                 mdns_url: 'http://cookie-finder.local/',
+                cloudflare_running: false,
+                cloudflare_url: null,
             });
         });
 }
@@ -2104,38 +2146,40 @@ function buildBadgeTipContent(kind) {
 
     if (kind === 'cloudflare') {
         if (cloudflareStatus.running) {
+            const liveUrl = cloudflareStatus.url
+                ? ` Live URL: <code>${cloudflareStatus.url}</code>.`
+                : ' Waiting for trycloudflare.com hostname…';
             return {
-                title: 'Cloudflare Tunnel',
-                summary: `Connector is running (<code>${cloudflareStatus.unit || 'cloudflared.service'}</code>). Tesla / remote browsers can use your public Cloudflare hostname.`,
+                title: 'Cloudflare quick tunnel',
+                summary: `Free <code>*.trycloudflare.com</code> tunnel is running (<code>${cloudflareStatus.unit || 'cookie-finder-cloudflared.service'}</code>).${liveUrl}`,
                 body: tipList([
-                    'Turn off from <strong>Settings → Cloudflare Tunnel</strong>, or <code>make on-the-pi-cloudflare-tunnel-stop</code>',
+                    'Open the URL from <strong>Connect</strong>, or turn off from <strong>Settings → Cloudflare Tunnel</strong>',
                     'Status: <code>make on-the-pi-cloudflare-tunnel-status</code>',
-                    'Logs: <code>sudo journalctl -u cloudflared -f</code>',
-                    'Pi must stay on client WiFi with internet (home or phone hotspot) — SoftAP has no upstream path.',
-                    'Public hostname should proxy to <code>http://127.0.0.1:80</code>.',
+                    'Logs: <code>sudo journalctl -u cookie-finder-cloudflared -f</code>',
+                    'Hostname changes each time the tunnel restarts (temporary Cloudflare offering).',
+                    'Pi must stay on client WiFi with internet — SoftAP has no upstream path.',
                 ]),
             };
         }
         if (cloudflareStatus.installed) {
             return {
-                title: 'Cloudflare Tunnel',
-                summary: 'cloudflared is installed, but the tunnel service is not running. Remote / Tesla access via Cloudflare will not work until it is started.',
+                title: 'Cloudflare quick tunnel',
+                summary: 'Quick tunnel is installed but not running. Remote / Tesla access needs it started.',
                 body: tipList([
                     'Turn on from <strong>Settings → Cloudflare Tunnel</strong>, or <code>make on-the-pi-cloudflare-tunnel-start</code>',
                     'Confirm: <code>make on-the-pi-cloudflare-tunnel-status</code>',
-                    'If start fails, reinstall with token from <code>.env</code>: <code>make on-the-pi-init-cloudflare-tunnel</code>',
-                    'Needs client WiFi with internet (not SoftAP).',
+                    'If start fails: <code>make on-the-pi-init-cloudflare-tunnel</code>',
+                    'Needs client WiFi with internet (not SoftAP). No domain or Cloudflare account required.',
                 ]),
             };
         }
         return {
-            title: 'Cloudflare Tunnel',
-            summary: 'Cloudflare Tunnel is not installed on this Pi. Optional — only needed for Tesla / remote access when LAN IPs are blocked.',
+            title: 'Cloudflare quick tunnel',
+            summary: 'Quick tunnel is not installed. Optional — free remote HTTPS via trycloudflare.com (no domain).',
             body: tipList([
-                'Copy <code>.env.example</code> → <code>.env</code> and set <code>CLOUDFLARE_TUNNEL_TOKEN</code>.',
-                'Install + enable the service: <code>make on-the-pi-init-cloudflare-tunnel</code>',
+                'Install + enable: <code>make on-the-pi-init-cloudflare-tunnel</code>',
                 'Alias: <code>make init-cloudflare-tunnel</code>',
-                'Then point the tunnel hostname at <code>http://127.0.0.1:80</code> in the Cloudflare dashboard.',
+                'No Cloudflare account or custom domain required.',
                 'Status afterward: <code>make on-the-pi-cloudflare-tunnel-status</code>',
             ]),
         };

@@ -19,10 +19,12 @@ WIFI_HOME_PRIORITY   ?= 100
 WIFI_HOTSPOT_SSID    ?= Ghostwire
 WIFI_HOTSPOT_PRIORITY ?= 50
 
-# Cloudflare Tunnel (copy .env.example to .env — never commit the token)
+# Optional Cloudflare secrets (named tunnels only — quick tunnel needs none).
+# Copy .env.example → .env if you use a Zero Trust token later.
 -include .env
-export CLOUDFLARE_TUNNEL_TOKEN
+export CLOUDFLARE_TUNNEL_TOKEN CLOUDFLARE_TUNNEL_URL
 CLOUDFLARE_TUNNEL_TOKEN ?=
+CLOUDFLARE_TUNNEL_URL ?=
 
 # --- Rust gimbal daemon (Orange Pi Zero 2W, aarch64) ---
 export PATH := $(HOME)/.cargo/bin:$(PATH)
@@ -60,8 +62,13 @@ SOFTWARE_UPDATE_OWNER := $(USER)
 SOFTWARE_UPDATE_GROUP := $(shell id -gn)
 SOFTWARE_UPDATE_HOME := $(HOME)
 CLOUDFLARE_SUDOERS := /etc/sudoers.d/cookie-finder-cloudflare
-CLOUDFLARE_UNIT := cloudflared.service
+CLOUDFLARE_UNIT := cookie-finder-cloudflared.service
+CLOUDFLARE_UNIT_IN := $(CURDIR)/systemd/cookie-finder-cloudflared.service.in
+CLOUDFLARE_UNIT_DST := /etc/systemd/system/$(CLOUDFLARE_UNIT)
+CLOUDFLARE_LEGACY_UNIT := cloudflared.service
+CLOUDFLARE_METRICS_PORT := 20241
 CLOUDFLARE_OWNER := $(USER)
+CLOUDFLARED_BIN := $(shell command -v cloudflared 2>/dev/null || echo /usr/bin/cloudflared)
 
 help:
 	@echo "Cookie Finder – Makefile Targets"
@@ -150,9 +157,8 @@ _init-wifi:
 	@echo "Triple-click the button, or Settings → Shut down, to power off."
 	@echo "Button service: sudo systemctl status cookie-finder-wifi"
 
-# Install cloudflared + register the Cloudflare Tunnel systemd service.
-# Token comes from .env (CLOUDFLARE_TUNNEL_TOKEN). Create the tunnel in the
-# Cloudflare Zero Trust dashboard (Quick Tunnel / remotely managed connector).
+# Install cloudflared + Cookie Finder *quick* tunnel systemd service
+# (free *.trycloudflare.com hostname — no Cloudflare account or domain).
 _init-cloudflare-tunnel:
 	@test "$$(id -u)" != 0 || { \
 		echo "error: do not run this target as root / with sudo."; \
@@ -160,28 +166,30 @@ _init-cloudflare-tunnel:
 		exit 1; \
 	}
 	@test "$$(uname -s)" = Linux || { echo "init-cloudflare-tunnel is for Linux (Orange Pi)"; exit 1; }
-	@if [ -z "$(CLOUDFLARE_TUNNEL_TOKEN)" ]; then \
-		echo "error: CLOUDFLARE_TUNNEL_TOKEN is not set."; \
-		echo "Copy .env.example to .env and paste the token from Cloudflare Zero Trust:"; \
-		echo "  Networks → Tunnels → Create → cloudflared → copy install token"; \
-		exit 1; \
-	fi
+	@test -f "$(CLOUDFLARE_UNIT_IN)" || { echo "missing $(CLOUDFLARE_UNIT_IN)"; exit 1; }
 	@echo "Adding Cloudflare apt repository + installing cloudflared..."
 	sudo mkdir -p --mode=0755 /usr/share/keyrings
 	curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
 	echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | sudo tee /etc/apt/sources.list.d/cloudflared.list >/dev/null
 	sudo apt-get update
 	sudo apt-get install -y cloudflared
-	@echo "Installing Cloudflare Tunnel as a systemd service..."
-	@if systemctl list-unit-files cloudflared.service >/dev/null 2>&1 \
-		&& systemctl cat cloudflared.service >/dev/null 2>&1; then \
-		echo "Existing cloudflared service found — reinstalling with token from .env..."; \
+	@if systemctl cat $(CLOUDFLARE_LEGACY_UNIT) >/dev/null 2>&1; then \
+		echo "Removing named-tunnel $(CLOUDFLARE_LEGACY_UNIT) (quick tunnel replaces it)..."; \
+		sudo systemctl disable --now $(CLOUDFLARE_LEGACY_UNIT) >/dev/null 2>&1 || true; \
 		sudo cloudflared service uninstall >/dev/null 2>&1 || true; \
 	fi
-	sudo cloudflared service install "$(CLOUDFLARE_TUNNEL_TOKEN)"
-	@sudo systemctl enable --now cloudflared.service >/dev/null 2>&1 || true
+	@CLOUDFLARED_BIN=$$(command -v cloudflared || echo /usr/bin/cloudflared); \
+	echo "Installing quick-tunnel unit $(CLOUDFLARE_UNIT)..."; \
+	sed \
+		-e 's|@REPO_ROOT@|$(CURDIR)|g' \
+		-e "s|@CLOUDFLARED@|$$CLOUDFLARED_BIN|g" \
+		-e 's|@METRICS_PORT@|$(CLOUDFLARE_METRICS_PORT)|g' \
+		-e 's|@WEB_PORT@|$(WEB_PORT)|g' \
+		$(CLOUDFLARE_UNIT_IN) | sudo tee $(CLOUDFLARE_UNIT_DST) >/dev/null
+	sudo systemctl daemon-reload
+	sudo systemctl enable --now $(CLOUDFLARE_UNIT)
 	@SYSTEMCTL_BIN=$$(command -v systemctl); \
-	echo "Configuring passwordless sudo for $(CLOUDFLARE_OWNER) → cloudflared start/stop..."; \
+	echo "Configuring passwordless sudo for $(CLOUDFLARE_OWNER) → quick tunnel start/stop..."; \
 	printf '%s\n' \
 		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN enable --now $(CLOUDFLARE_UNIT)" \
 		"$(CLOUDFLARE_OWNER) ALL=(root) NOPASSWD: $$SYSTEMCTL_BIN disable --now $(CLOUDFLARE_UNIT)" \
@@ -193,40 +201,55 @@ _init-cloudflare-tunnel:
 		| sudo tee "$(CLOUDFLARE_SUDOERS)" >/dev/null; \
 	sudo chmod 440 "$(CLOUDFLARE_SUDOERS)"; \
 	sudo visudo -cf "$(CLOUDFLARE_SUDOERS)"
-	@echo "Cloudflare Tunnel installed."
+	@echo "Cloudflare quick tunnel installed (free *.trycloudflare.com — no domain)."
 	@echo "Status:  make on-the-pi-cloudflare-tunnel-status"
 	@echo "Start:   make on-the-pi-cloudflare-tunnel-start"
 	@echo "Stop:    make on-the-pi-cloudflare-tunnel-stop"
-	@echo "Logs:    sudo journalctl -u cloudflared -f"
+	@echo "Logs:    sudo journalctl -u $(CLOUDFLARE_UNIT) -f"
+	@echo "URL:     curl -s http://127.0.0.1:$(CLOUDFLARE_METRICS_PORT)/quicktunnel"
 	@echo "Pi must be in WiFi client mode with internet (home WiFi or phone hotspot)."
-	@echo "Point the tunnel's public hostname at http://127.0.0.1:80 (Cookie Finder web)."
 	@echo "Settings → Cloudflare Tunnel toggle can start/stop the daemon (uses sudoers above)."
+	@echo "Connect panel shows the trycloudflare URL while the tunnel is running."
+	@sleep 2; curl -fsS http://127.0.0.1:$(CLOUDFLARE_METRICS_PORT)/quicktunnel 2>/dev/null || true; echo
 
 on-the-pi-cloudflare-tunnel-start:
 	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
-	@if ! systemctl cat cloudflared.service >/dev/null 2>&1; then \
-		echo "error: cloudflared.service is not installed."; \
-		echo "Run: make on-the-pi-init-cloudflare-tunnel  (needs CLOUDFLARE_TUNNEL_TOKEN in .env)"; \
+	@if ! systemctl cat $(CLOUDFLARE_UNIT) >/dev/null 2>&1; then \
+		echo "error: $(CLOUDFLARE_UNIT) is not installed."; \
+		echo "Run: make on-the-pi-init-cloudflare-tunnel"; \
 		exit 1; \
 	fi
-	sudo systemctl enable --now cloudflared.service
-	@echo "Started cloudflared.service"
-	@sudo systemctl --no-pager --full status cloudflared.service | head -n 12 || true
+	@if systemctl is-active --quiet $(CLOUDFLARE_LEGACY_UNIT) 2>/dev/null; then \
+		echo "Stopping legacy named tunnel $(CLOUDFLARE_LEGACY_UNIT)..."; \
+		sudo systemctl disable --now $(CLOUDFLARE_LEGACY_UNIT) >/dev/null 2>&1 || true; \
+	fi
+	sudo systemctl enable --now $(CLOUDFLARE_UNIT)
+	@echo "Started $(CLOUDFLARE_UNIT)"
+	@sudo systemctl --no-pager --full status $(CLOUDFLARE_UNIT) | head -n 12 || true
+	@echo "Waiting for trycloudflare hostname..."
+	@for i in 1 2 3 4 5 6 7 8 9 10; do \
+		out=$$(curl -fsS http://127.0.0.1:$(CLOUDFLARE_METRICS_PORT)/quicktunnel 2>/dev/null || true); \
+		echo "$$out" | grep -q '"hostname":"[^"]' && { echo "$$out"; break; }; \
+		sleep 1; \
+	done
 
 on-the-pi-cloudflare-tunnel-stop:
 	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
-	sudo systemctl disable --now cloudflared.service
-	@echo "Stopped and disabled cloudflared.service (stays off across reboot)"
+	sudo systemctl disable --now $(CLOUDFLARE_UNIT)
+	@echo "Stopped and disabled $(CLOUDFLARE_UNIT) (stays off across reboot)"
 
 on-the-pi-cloudflare-tunnel-status:
 	@command -v systemctl >/dev/null || { echo "error: systemctl not found"; exit 1; }
-	@if ! systemctl cat cloudflared.service >/dev/null 2>&1; then \
-		echo "cloudflared.service is not installed."; \
+	@if ! systemctl cat $(CLOUDFLARE_UNIT) >/dev/null 2>&1; then \
+		echo "$(CLOUDFLARE_UNIT) is not installed."; \
 		echo "Install with: make on-the-pi-init-cloudflare-tunnel"; \
 		exit 1; \
 	fi
-	@sudo systemctl --no-pager --full status cloudflared.service
-
+	@sudo systemctl --no-pager --full status $(CLOUDFLARE_UNIT)
+	@echo ""
+	@echo "Quick tunnel URL:"
+	@curl -fsS http://127.0.0.1:$(CLOUDFLARE_METRICS_PORT)/quicktunnel 2>/dev/null || echo "(metrics not ready)"
+	@echo
 # Oneshot unit + narrow sudoers so the web UI can pull origin/main and restart.
 _init-software-update:
 	@test "$$(id -u)" != 0 || { \
@@ -641,10 +664,10 @@ on-the-pi-help:
 	@echo "  make on-the-pi-tool-setup-rust       Rust/cargo only (skip apt packages)"
 	@echo "  make on-the-pi-init-wifi              Install WiFi AP deps + captive DNS + button/LED service"
 	@echo "  make on-the-pi-init-software-update   Allow Settings gear to pull GitHub main + restart"
-	@echo "  make on-the-pi-init-cloudflare-tunnel Install cloudflared + tunnel service (token from .env)"
-	@echo "  make on-the-pi-cloudflare-tunnel-start Start cloudflared systemd service"
-	@echo "  make on-the-pi-cloudflare-tunnel-stop  Stop cloudflared systemd service"
-	@echo "  make on-the-pi-cloudflare-tunnel-status Show cloudflared service status"
+	@echo "  make on-the-pi-init-cloudflare-tunnel Install quick tunnel (free trycloudflare.com)"
+	@echo "  make on-the-pi-cloudflare-tunnel-start Start cookie-finder-cloudflared service"
+	@echo "  make on-the-pi-cloudflare-tunnel-stop  Stop cookie-finder-cloudflared service"
+	@echo "  make on-the-pi-cloudflare-tunnel-status Show quick tunnel status + URL"
 	@echo "  make on-the-pi-wifi-gpio-daemon       Install/start WiFi button+LED service"
 	@echo "  make on-the-pi-wifi-gpio-daemon-status  Show WiFi button+LED service status"
 	@echo "  make on-the-pi-wifi-gpio-daemon-stop  Stop WiFi button+LED service"

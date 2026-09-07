@@ -15,9 +15,9 @@ Started with `make run` (or `uv run main.py --web`). Serves on **HTTP :80** and 
 | `GET` | `/camera-status` | `{connected, camera_id, message}` |
 | `GET` | `/available-cameras` | List of working camera device IDs + current |
 | `GET` | `/gimbal/status` | Rust daemon `{running, socket, service_active}` |
-| `GET` | `/cloudflare/status` | Cloudflare Tunnel `{running, installed, unit, unit_exists, binary, controllable, …}` |
-| `POST` | `/cloudflare/start` | Enable + start `cloudflared.service` (Settings toggle; needs `make init-cloudflare-tunnel` sudoers) |
-| `POST` | `/cloudflare/stop` | Disable + stop `cloudflared.service` (stays off across reboot) |
+| `GET` | `/cloudflare/status` | Quick tunnel `{running, url, mode, unit, …}` (`url` is the live `*.trycloudflare.com` when up) |
+| `POST` | `/cloudflare/start` | Enable + start `cookie-finder-cloudflared.service` (Settings toggle; needs `make init-cloudflare-tunnel` sudoers) |
+| `POST` | `/cloudflare/stop` | Disable + stop quick tunnel (stays off across reboot) |
 | `POST` | `/reconnect` | Trigger camera reconnect |
 | `POST` | `/switch-camera/{id}` | Switch to a different camera device by index |
 | `GET` | `/wifi/status` | Current WiFi mode (`client` / `ap`) + SSID details |

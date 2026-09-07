@@ -106,6 +106,7 @@ def get_network_info() -> dict:
     else:
         url = mdns_url
 
+    cf = get_cloudflare_tunnel_status_payload()
     return {
         "ip": preferred_ip,
         "addresses": addresses,
@@ -113,6 +114,8 @@ def get_network_info() -> dict:
         "mdns_url": mdns_url,
         "url": url,
         "wifi_mode": wifi.get("mode"),
+        "cloudflare_running": bool(cf.get("running")),
+        "cloudflare_url": cf.get("url"),
     }
 
 

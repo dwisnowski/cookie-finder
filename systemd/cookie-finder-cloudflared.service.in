@@ -1,0 +1,21 @@
+[Unit]
+Description=Cookie Finder Cloudflare quick tunnel (trycloudflare.com)
+Documentation=file://@REPO_ROOT@/docs/setup/orange-pi.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Free temporary hostname (*.trycloudflare.com). No Cloudflare account or domain.
+# Metrics port is fixed so the web UI can read /quicktunnel for the Connect panel.
+ExecStart=@CLOUDFLARED@ tunnel --no-autoupdate --metrics 127.0.0.1:@METRICS_PORT@ --url http://127.0.0.1:@WEB_PORT@
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=45
+
+# Soft stop, then hard kill if needed
+KillMode=mixed
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
